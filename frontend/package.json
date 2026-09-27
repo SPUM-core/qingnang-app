@@ -1,0 +1,23 @@
+{
+  "name": "spum-engine-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "青囊生活管家 SPUM 引擎 Web 前端（Phase 0：向量可视化 + 问诊 + 采集上传 + 报告 + 知识库 + 用户管理 + 提醒）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "echarts": "^5.5.1",
+    "pinia": "^2.3.1",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.7"
+  }
+}

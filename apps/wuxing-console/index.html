@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>青囊五形控制台 · SPUM 编程学版</title>
+<!--
+  ═══════════════════════════════════════════════════════════════════
+  青囊五形控制台（wuxing-console）— SPUM 编程学范式专用 APP
+  ─────────────────────────────────────────────────────────────────
+  [L0 本体]  本程序 = 人工认知子图 G_prog 在浏览器硬件子图上的 σ 同构重建
+             （PROG-001）。范式权威：e:/工作/spum-core/SPUM_系统总纲.md v5.1
+  [L2 源码]  架构按 PROG 节点组织：
+             PROG-020 子图分层：ENGINE(纯函数) / DATA(ΔS 数据库) / UI(投影层)
+             PROG-021 闭合子图：ENGINE 可独立替换——与 qingmeng-engine 同构对齐，
+                       权威推演以 qingmeng-engine /v1/reasoning/bazi 为准
+             PROG-013 σ 同构约束：ENGINE 入口函数带 JSDoc 前置类型约束
+             PROG-004 编程不完美定理：本地推演为 L1 投影层简化（节气取近似日、
+                       EoT 取 NOAA 简化式），Bug=σ漂移 拓扑必然，故每帧输出
+                       均标注置信层级
+             META-T7 药毒食三元判定：ΔS 干预按「剂量×方向×使用者状态」分类
+  [合规]     全部输出均为体质趋势观察提示，不构成医疗诊断或治疗建议。
+  ═══════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --bg:#faf7f1; --panel:#fffdf8; --ink:#3d3229; --ink2:#7a6f61; --line:#e6ddd0;
+    --cinnabar:#b3432b; --teal:#4a7c6f; --gold:#c8a45c; --blue:#3e5f7e;
+    --wx-wood:#5a8f4f; --wx-fire:#c05a3c; --wx-earth:#c8a45c; --wx-metal:#9aa3ad; --wx-water:#3e5f7e;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",sans-serif;line-height:1.6}
+  header{background:linear-gradient(135deg,#43301f,#6b4a2c);color:#f5ead8;padding:22px 28px;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  header h1{font-size:22px;letter-spacing:2px}
+  header .sub{font-size:12px;opacity:.75}
+  nav{display:flex;background:var(--panel);border-bottom:1px solid var(--line)}
+  nav button{flex:1;padding:12px 4px;border:none;background:none;cursor:pointer;font-size:14px;color:var(--ink2);border-bottom:2px solid transparent;font-family:inherit}
+  nav button.on{color:var(--cinnabar);border-bottom-color:var(--cinnabar);font-weight:bold}
+  main{max-width:960px;margin:0 auto;padding:18px 16px 60px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:16px}
+  .panel h2{font-size:15px;color:var(--cinnabar);margin-bottom:10px;letter-spacing:1px}
+  .panel h2 .tag{font-size:11px;color:var(--ink2);font-weight:normal;margin-left:8px}
+  label{display:block;font-size:13px;color:var(--ink2);margin:10px 0 4px}
+  select,input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font-size:14px;background:#fff;color:var(--ink);font-family:inherit}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:160px}
+  .btn{display:inline-block;background:var(--cinnabar);color:#fff;border:none;border-radius:6px;padding:10px 22px;font-size:14px;cursor:pointer;letter-spacing:2px;font-family:inherit}
+  .btn:hover{background:#93361f}
+  .btn.ghost{background:none;color:var(--teal);border:1px solid var(--teal)}
+  .pillars{display:flex;gap:10px;margin:12px 0;flex-wrap:wrap}
+  .pillar{flex:1;min-width:70px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:10px 4px;background:#fbf6ec}
+  .pillar .name{font-size:11px;color:var(--ink2)}
+  .pillar .gz{font-size:24px;font-weight:bold;letter-spacing:2px}
+  .muted{font-size:12px;color:var(--ink2)}
+  .warn{background:#fdf3e4;border:1px solid #ecd9b4;border-radius:8px;padding:10px 14px;font-size:13px;margin:10px 0}
+  .okbox{background:#eef5f0;border:1px solid #cfe0d4;border-radius:8px;padding:10px 14px;font-size:13px;margin:10px 0}
+  .wxline{display:flex;align-items:center;gap:10px;margin:6px 0}
+  .wxline .lbl{width:70px;font-size:13px;font-weight:bold}
+  .wxline .bar{flex:1;height:10px;background:#efe8da;border-radius:5px;overflow:hidden}
+  .wxline .bar i{display:block;height:100%;border-radius:5px}
+  .wxline .val{width:44px;text-align:right;font-size:13px;font-variant-numeric:tabular-nums}
+  .arrow-up{color:var(--cinnabar);font-weight:bold}
+  .arrow-dn{color:var(--blue);font-weight:bold}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+  th,td{border:1px solid var(--line);padding:6px 8px;text-align:left}
+  th{background:#f3ecdd;color:#5c4a33}
+  .medal{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;color:#fff}
+  .m-yao{background:var(--teal)} .m-du{background:var(--cinnabar)} .m-shi{background:var(--gold)}
+  .radar-wrap{display:flex;gap:18px;flex-wrap:wrap;align-items:center;justify-content:center}
+  .slider-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px 22px}
+  .sl input[type=range]{width:100%}
+  .sl .head{display:flex;justify-content:space-between;font-size:13px}
+  footer{max-width:960px;margin:0 auto;padding:14px 16px 30px;font-size:12px;color:var(--ink2)}
+  .compliance{background:#f4efe4;border-top:1px solid var(--line);color:#6a5a40}
+  .kv{font-size:13px;color:var(--ink2)}
+  .kv b{color:var(--ink)}
+  code{background:#f0e9db;border-radius:4px;padding:1px 6px;font-size:12px}
+  .hidden{display:none}
+  .big{font-size:15px}
+  ul.tight{margin:6px 0 0 18px;font-size:13px}
+  ul.tight li{margin:3px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>青囊五形控制台</h1>
+  <span class="sub">SPUM 编程学范式 · 专用 APP · v1.0（2026-09-27）</span>
+</header>
+<nav>
+  <button class="on" data-tab="1">① 建档 · 八字推演</button>
+  <button data-tab="2">② 今日状态</button>
+  <button data-tab="3">③ 调理建议 ΔS</button>
+  <button data-tab="4">④ 范式说明</button>
+</nav>
+<main>
+
+<!-- ═══════ Tab 1 建档 ═══════ -->
+<section id="tab1">
+  <div class="panel">
+    <h2>出生信息建档<span class="tag">[PROG-008] 帧序列：输入 → 真太阳时 → 四柱 → v_innate</span></h2>
+    <div class="row">
+      <div>
+        <label>阳历生日</label>
+        <input type="date" id="birthDate" value="1986-08-02">
+      </div>
+      <div>
+        <label>出生时辰（取时辰中点，±30min 缓冲）</label>
+        <select id="shichen"></select>
+      </div>
+      <div>
+        <label>出生城市（经度修正）</label>
+        <select id="city"></select>
+      </div>
+    </div>
+    <div style="margin-top:14px">
+      <button class="btn" id="btnBuild">推演五形向量</button>
+      <button class="btn ghost" id="btnExample">载入示例：1986-08-02 广州 寅时</button>
+    </div>
+  </div>
+
+  <div class="panel hidden" id="result1">
+    <h2>推演结果<span class="tag">L1 投影层 · 权威推演以 qingmeng-engine 为准</span></h2>
+    <div class="kv" id="tstLine"></div>
+    <div class="pillars" id="pillarBox"></div>
+    <div class="radar-wrap">
+      <svg id="radar1" width="260" height="260" viewBox="0 0 260 260"></svg>
+      <div style="flex:1;min-width:280px" id="wxbars1"></div>
+    </div>
+    <div id="assess1"></div>
+    <div class="warn" style="margin-top:12px">📌 记住这组先天向量 <b id="s0memo"></b>——这是你的 <b>S₀</b>（SPUM 五形健康范式的起点锚点）。下一步用它评估今日状态。</div>
+    <button class="btn" id="goTab2">带着 S₀ 进入「今日状态」→</button>
+  </div>
+</section>
+
+<!-- ═══════ Tab 2 今日状态 ═══════ -->
+<section id="tab2" class="hidden">
+  <div class="panel">
+    <h2>今日五形自评<span class="tag">[META-T2] 依赖转移：观测通道把外部状态转译为关系流信号</span></h2>
+    <p class="muted">拖动滑杆描述<b>今日</b>与平常相比的状态偏移（-5 明显变差 ~ +5 明显更佳）。每一项是一个观测边——把身体子图的状态边权读数送入 S 向量。</p>
+    <div class="slider-grid" id="sliderBox" style="margin-top:10px"></div>
+    <div style="margin-top:14px">
+      <button class="btn" id="btnAssess">计算 S_current 与 𝓗 判定</button>
+    </div>
+  </div>
+  <div class="panel hidden" id="result2">
+    <h2>S 向量判定<span class="tag">S_effective = S_current − (S₀ − 𝓗中心)</span></h2>
+    <div class="radar-wrap">
+      <svg id="radar2" width="260" height="260" viewBox="0 0 260 260"></svg>
+      <div style="flex:1;min-width:280px" id="wxbars2"></div>
+    </div>
+    <div id="assess2"></div>
+    <button class="btn" id="goTab3">获取 ΔS 调理建议 →</button>
+  </div>
+</section>
+
+<!-- ═══════ Tab 3 调理建议 ═══════ -->
+<section id="tab3" class="hidden">
+  <div class="panel">
+    <h2>食疗建议<span class="tag">食材ΔS数据库 v1.0 子集 · [META-T7] 药毒食三元判定</span></h2>
+    <div id="foodOut"></div>
+  </div>
+  <div class="panel">
+    <h2>穿搭建议<span class="tag">颜色·材质 → ΔS 五形映射 v1.0 子集</span></h2>
+    <div id="wearOut"></div>
+  </div>
+  <div class="panel">
+    <h2>作息指导<span class="tag">十二时辰 × 五形帧节律</span></h2>
+    <div id="restOut"></div>
+  </div>
+</section>
+
+<!-- ═══════ Tab 4 范式说明 ═══════ -->
+<section id="tab4" class="hidden">
+  <div class="panel">
+    <h2>本 APP 的 SPUM 编程学架构</h2>
+    <p class="muted">程序不是"用符号指挥机器"——它是人工认知子图 G_prog 在硬件子图上重建的 σ 同构协议（PROG-001）。本控制台按以下节点组织源码：</p>
+    <table>
+      <tr><th>源码区块</th><th>PROG 节点</th><th>归约要点</th></tr>
+      <tr><td><code>ENGINE</code> 纯函数推演层</td><td>PROG-001 / PROG-021</td><td>闭合子图，可整体替换为 qingmeng-engine API 代理——模块=可独立替换的闭合子图</td></tr>
+      <tr><td><code>DATA</code> ΔS 数据库</td><td>PROG-006</td><td>食材/颜色/材质 = 带五维边权的子图节点集，来自 spum-core 权威库子集</td></tr>
+      <tr><td><code>UI</code> 投影层</td><td>PROG-012</td><td>σ 压缩：把推演链压缩为雷达图与建议列表的等价低边密度表示</td></tr>
+      <tr><td>输入校验与类型</td><td>PROG-013</td><td>前置 σ 同构约束（JSDoc）比运行时 Bug 检查经济</td></tr>
+      <tr><td>循环/递归</td><td>PROG-010 / PROG-019</td><td>所有遍历均有界——deg 上限是物理事实</td></tr>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>R1–R9 根节点在青囊的映射</h2>
+    <table>
+      <tr><th>根节点</th><th>本 APP 对应物</th></tr>
+      <tr><td>R1 ⟨P,ε⟩</td><td>用户 = 人体关系子图；五行功能域 = {水·精, 木·疏, 火·神, 土·化, 金·卫}</td></tr>
+      <tr><td>R3 离散帧 τ</td><td>一天 = 一帧评估周期；时辰 = 帧内的子帧节律</td></tr>
+      <tr><td>R4 dv/dt≤const</td><td>调理建议按"少量·渐进"给出——单帧 ΔS 过大即越界（毒）</td></tr>
+      <tr><td>R5 不完美定理</td><td>本地简化推演必有 σ 漂移：节气取近似日、EoT 取简化式——输出恒标注 L1 层级</td></tr>
+      <tr><td>R6/R7 S 向量与 𝓗</td><td>v_innate(S₀) 与今日 S_current，𝓗 中心 = 五形均衡(20/20/20/20/20)</td></tr>
+      <tr><td>R8 ΔS</td><td>食疗/穿搭/作息 = 把 S 拉回 𝓗 的干预算子；方向×幅度×状态 = 药/毒（META-T7）</td></tr>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>数据与权威来源</h2>
+    <ul class="tight">
+      <li>范式权威：<code>e:/工作/spum-core/SPUM_系统总纲.md</code> v5.1（四公理 → 七层推演链）</li>
+      <li>编程学子集：<code>e:/工作/spum-core/编程学/</code>（PROG-001~025）</li>
+      <li>ΔS 数据：<code>e:/工作/qingnang/五行/人元/食材ΔS数据库.md</code>、<code>颜色材质五形映射.md</code>（子集）</li>
+      <li>推演对齐：README 权威示例 1986-08-02 广州寅时 → 丙寅/乙未/戊寅/甲寅，v_innate {木52,火22,土25,金0,水0} ✓</li>
+      <li>权威推演引擎：<code>qingmeng-engine /v1/reasoning/bazi</code>（NOAA 均时差 RMS&lt;0.5min + lunar_python）</li>
+    </ul>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="compliance" style="padding:10px 14px;border-radius:8px">
+    ⚠️ 合规声明：本应用全部输出均为<b>体质趋势观察提示</b>，不构成医疗诊断、诊疗建议或处方。急性症状或不适持续，请立即就医。内容由 AI 生成，仅供参考。
+  </div>
+  <div style="margin-top:10px">青囊生态：qingmeng-engine(推理) · qingnang-APP(业务) · spum-core(理论权威) | SPUM: 没有实体，只有结构；没有定律，只有几何。</div>
+</footer>
+
+<script>
+/* ═══════════════ ENGINE 闭合子图（纯函数，无 DOM）═══════════════
+   [PROG-021] 本区块可独立替换/独立测试。与 qingmeng-engine 的 bazi.py
+   算法同构对齐（锚点与常数已经 lunar_python 五案例交叉验证）。       */
+
+/* [PROG-013] σ 同构约束：全部入口函数带 JSDoc 类型注解 */
+const STEMS = "甲乙丙丁戊己庚辛壬癸";
+const BRANCHES = "子丑寅卯辰巳午未申酉戌亥";
+const STEM_WX = ["木","木","火","火","土","土","金","金","水","水"];
+const BRANCH_WX = ["水","土","木","木","土","火","火","土","金","金","土","水"];
+/* 藏干表 [干索引, 权重]：本气0.7 / 中气0.2 / 余气0.1（README 藏干权重） */
+const CANG = [
+  [[9,1.0]],                 // 子:癸
+  [[5,0.7],[9,0.2],[7,0.1]], // 丑:己癸辛
+  [[0,0.7],[2,0.2],[4,0.1]], // 寅:甲丙戊
+  [[1,1.0]],                 // 卯:乙
+  [[4,0.7],[1,0.2],[9,0.1]], // 辰:戊乙癸
+  [[2,0.7],[6,0.2],[4,0.1]], // 巳:丙庚戊
+  [[3,0.7],[5,0.2],[1,0.1]], // 午:丁己
+  [[5,0.7],[3,0.2],[1,0.1]], // 未:己丁乙
+  [[6,0.7],[8,0.2],[4,0.1]], // 申:庚壬戊
+  [[7,1.0]],                 // 酉:辛
+  [[4,0.7],[7,0.2],[3,0.1]], // 戌:戊辛丁
+  [[8,0.7],[0,0.3]]          // 亥:壬甲
+];
+/* 时辰表：名 / 中点时刻 */
+const SHICHEN = [
+  ["子时 23-01",0],["丑时 01-03",2],["寅时 03-05",4],["卯时 05-07",6],
+  ["辰时 07-09",8],["巳时 09-11",10],["午时 11-13",12],["未时 13-15",14],
+  ["申时 15-17",16],["酉时 17-19",18],["戌时 19-21",20],["亥时 21-23",22]
+];
+/* 35 城经度子集（+ 模糊匹配空间） */
+const CITIES = {
+  "北京":116.41,"上海":121.47,"广州":113.26,"深圳":114.06,"成都":104.07,
+  "重庆":106.55,"杭州":120.16,"武汉":114.31,"西安":108.94,"南京":118.78,
+  "天津":117.20,"苏州":120.58,"郑州":113.63,"长沙":112.94,"沈阳":123.43,
+  "哈尔滨":126.53,"乌鲁木齐":87.62,"拉萨":91.11,"昆明":102.83,"贵阳":106.63,
+  "兰州":103.83,"西宁":101.78,"银川":106.23,"呼和浩特":111.75,"太原":112.55,
+  "石家庄":114.51,"济南":117.00,"合肥":117.28,"南昌":115.86,"福州":119.30,
+  "厦门":118.09,"南宁":108.37,"海口":110.32,"香港":114.17,"澳门":113.55,
+  "台北":121.56
+};
+/* 节气近似日（月/日 → 月支 寅起序）。L1 近似：±1 天误差可接受 [PROG-004] */
+const TERMS = [
+  [2,4,0],[3,6,1],[4,5,2],[5,6,3],[6,6,4],[7,7,5],
+  [8,8,6],[9,8,7],[10,8,8],[11,7,9],[12,7,10],[1,6,11]
+];
+
+/** 儒略日数
+ *  @param {number} y @param {number} m @param {number} d @returns {number} */
+function jdn(y, m, d) {
+  const a = Math.floor((14 - m) / 12), yy = y + 4800 - a, mm = m + 12 * a - 3;
+  return d + Math.floor((153 * mm + 2) / 5) + 365 * yy + Math.floor(yy / 4) - Math.floor(yy / 100) + Math.floor(yy / 400) - 32045;
+}
+/** NOAA 简化均时差（分钟）。1986-08-02 ≈ -5.9min，RMS<1min [L1 近似]
+ *  @param {number} dayOfYear @returns {number} */
+function eqOfTime(dayOfYear) {
+  const B = 2 * Math.PI * (dayOfYear - 81) / 365;
+  return 9.84 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B);
+}
+/** 真太阳时（分钟偏移）= 经度修正 + 均时差
+ *  @param {number} lng @param {number} dayOfYear @returns {number} */
+function tstOffset(lng, dayOfYear) { return (lng - 120) * 4 + eqOfTime(dayOfYear); }
+
+/** 排四柱（L1 投影层简化版）
+ *  @param {{y:number,m:number,d:number,hh:number,mm:number,lng:number}} b
+ *  @returns {{pillars:string[],tst:string,shichen:string,note:string}} */
+function fourPillars(b) {
+  const doy = Math.floor((jdn(b.y, b.m, b.d) - jdn(b.y, 1, 1)) + 1);
+  const off = tstOffset(b.lng, doy);
+  // 真太阳时 = 时辰中点 + 偏移（可能跨日）
+  let minutes = b.hh * 60 + b.mm + off;
+  let dayShift = 0;
+  if (minutes < 0) { minutes += 1440; dayShift = -1; }
+  if (minutes >= 1440) { minutes -= 1440; dayShift = 1; }
+  const th = Math.floor(minutes / 60), tm = Math.floor(minutes % 60);
+  // 时支（子起序）；晚子时(23点)特殊处理 [与 lunar_python 默认行为对齐]
+  const hBranch = Math.floor((th + 1) / 2) % 12;
+  const lateZi = (hBranch === 0 && th === 23);
+  // 日柱：JDN 锚点法（1986-08-02=戊寅 校准：stem+9, branch+1）
+  const dayIdx = jdn(b.y, b.m, b.d) + dayShift;
+  const dStem = (dayIdx + 9) % 10, dBranch = (dayIdx + 1) % 12;
+  // 时干：五鼠遁（早子时/白天用本日干；晚子时用次日干——lunar_python 默认流派）
+  const stemForHour = lateZi ? (dStem + 1) % 10 : dStem;
+  const hStem = (2 * stemForHour + hBranch) % 10;
+
+  // 年柱：立春（2/4）切换
+  let eYear = b.y;
+  if (b.m < 2 || (b.m === 2 && b.d < 4)) eYear -= 1;
+  const yStem = ((eYear - 4) % 10 + 10) % 10, yBranch = ((eYear - 4) % 12 + 12) % 12;
+
+  // 月柱：节气近似日边界 → 月支（寅起）。1月特判（小寒 1/6 前属子月，后属丑月）；
+  // 2-12 月按年内时序取最近一个已过的节气边界
+  let mBranch;
+  if (b.m === 1) mBranch = b.d >= 6 ? 11 : 10;
+  else {
+    mBranch = 10;
+    for (const [mm2, dd, bi] of TERMS) {
+      if (mm2 === 1) continue;
+      if (b.m > mm2 || (b.m === mm2 && b.d >= dd)) mBranch = bi;
+    }
+  }
+  // 五虎遁月干：子月/丑月属当前节气年（立春切换已在 eYear 中体现）
+  const yStemM = ((eYear - 4) % 10 + 10) % 10;
+  const mStem = (2 * yStemM + 2 + mBranch) % 10;
+  // mBranch 为寅起序（寅=0），BRANCHES 为子起序（子=0）→ 偏移 +2 [PROG-013]
+  const mBranchZi = (mBranch + 2) % 12;
+
+  const pillars = [
+    STEMS[yStem] + BRANCHES[yBranch],
+    STEMS[mStem] + BRANCHES[mBranchZi],
+    STEMS[dStem] + BRANCHES[dBranch],
+    STEMS[hStem] + BRANCHES[hBranch]
+  ];
+  return {
+    pillars,
+    tst: `${String(th).padStart(2,"0")}:${String(tm).padStart(2,"0")}（真太阳时）`,
+    shichen: ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"][hBranch] + "时",
+    note: lateZi ? "晚子时：日柱取当日，时干按次日日干起（lunar_python 默认流派）" : ""
+  };
+}
+
+/** 藏干版五形向量 v_innate（归一化至 100）
+ *  @param {string[]} pillars 四柱干支
+ *  @returns {{wood:number,fire:number,earth:number,metal:number,water:number}} */
+function vInnate(pillars) {
+  const acc = {木:0,火:0,土:0,金:0,水:0};
+  for (const gz of pillars) {
+    const s = STEMS.indexOf(gz[0]), br = BRANCHES.indexOf(gz[1]);
+    if (s < 0 || br < 0) continue;
+    acc[STEM_WX[s]] += 1.0;                 // 天干 1.0
+    for (const [gi, w] of CANG[br]) acc[STEM_WX[gi]] += w; // 地支藏干
+  }
+  const total = acc.木 + acc.火 + acc.土 + acc.金 + acc.水 || 1;
+  /* 银行家舍入（与 python round / qingmeng-engine 输出一致）[PROG-013] */
+  const rb = x => { const f = Math.floor(x), d = x - f;
+    return d > 0.5 ? f + 1 : d < 0.5 ? f : (f % 2 === 0 ? f : f + 1); };
+  return {
+    wood: rb(acc.木 / total * 100), fire: rb(acc.火 / total * 100),
+    earth: rb(acc.土 / total * 100), metal: rb(acc.金 / total * 100),
+    water: rb(acc.水 / total * 100)
+  };
+}
+
+const WX_META = [
+  {key:"water", cn:"水", org:"肾·精·骨", color:"var(--wx-water)", duty:"藏精主水，封藏之本"},
+  {key:"wood",  cn:"木", org:"肝·疏泄",   color:"var(--wx-wood)",  duty:"升发条达，疏泄之机"},
+  {key:"fire",  cn:"火", org:"心·神",     color:"var(--wx-fire)",  duty:"温煦神明，血脉之主"},
+  {key:"earth", cn:"土", org:"脾·运化",   color:"var(--wx-earth)", duty:"受纳运化，后天之本"},
+  {key:"metal", cn:"金", org:"肺·卫外",   color:"var(--wx-metal)", duty:"清肃卫外，皮毛之合"}
+];
+/** 五形向量 → 数组顺序 [水,木,火,土,金] */
+const vArr = v => [v.water, v.wood, v.fire, v.earth, v.metal];
+
+/** 𝓗 判定：H 中心=20 均衡。返回每形状态与建议方向
+ *  @param {{water:number,wood:number,fire:number,earth:number,metal:number}} v
+ *  @returns {{name:string,org:string,val:number,arrow:string,need:number}[]} */
+function assessH(v) {
+  const arr = vArr(v);
+  return WX_META.map((m, i) => {
+    const val = arr[i];
+    const need = 20 - val; // >0 需补，<0 需泄
+    const arrow = val < 14 ? "↓↓" : val < 18 ? "↓" : val > 30 ? "↑↑" : val > 24 ? "↑" : "↔";
+    return {name:m.cn, org:m.org, val, arrow, need};
+  });
+}
+
+/* ── ΔS 数据库（spum-core / qingnang 权威库子集，ΔS=[木,火,土,金,水]）── */
+const FOODS = [
+  ["小米",[0,1,2,0,0],"甘平·脾胃","补土核心，五谷之首"],
+  ["大米",[0,0,2,0,0],"甘平·脾胃","补土基础主食"],
+  ["山药",[0,0,3,0,1],"甘平·脾肺肾","补土第一，平补三焦"],
+  ["南瓜",[0,0,2,0,0],"甘温·脾胃","补土温中"],
+  ["红枣",[0,1,2,0,0],"甘温·脾胃","补土养血，火亢者控量"],
+  ["莲子",[0,1,2,0,1],"甘涩平·脾肾心","补土固涩安神"],
+  ["牛肉",[1,1,2,0,0],"甘温·脾胃","补土壮力"],
+  ["羊肉",[0,2,1,0,0],"甘温·脾肾","温阳第一肉"],
+  ["生姜",[1,2,0,-1,0],"辛温·肺脾胃","温中散寒"],
+  ["燕麦",[0,0,1,0,0],"甘平·脾胃","补土通肠"],
+  ["花生",[1,0,1,0,0],"甘平·脾肺","补土润肺，火亢慎"],
+  ["香菇",[1,0,1,0,0],"甘平·脾胃","补土益气"],
+  ["核桃",[1,0,0,0,2],"甘温·肾肺","补肾固精润肠"],
+  ["黑豆",[0,0,1,0,2],"甘平·脾肾","补肾利水"],
+  ["黑芝麻",[0,0,0,0,2],"甘平·肝肾","滋肾阴首选"],
+  ["桑葚",[1,0,0,0,2],"甘寒·肝肾","滋肝肾"],
+  ["枸杞",[1,0,0,0,2],"甘平·肝肾","平补阴阳"],
+  ["银耳",[0,0,0,1,2],"甘平·肺胃肾","滋阴润肺"],
+  ["鸭肉",[0,-1,1,0,1],"甘凉·脾胃肺","滋阴养胃"],
+  ["猪脊骨",[0,0,1,0,2],"甘咸平·肾","补肾阴填髓"],
+  ["鸡蛋",[0,0,1,0,1],"甘平·脾胃","全营养性平"],
+  ["牛奶",[0,0,1,0,1],"甘平微寒·心肺胃","补虚润燥"],
+  ["菠菜",[1,0,0,0,0],"甘凉·胃肠肝","养血平肝"],
+  ["韭菜",[1,1,0,0,0],"辛温·肝胃肾","助阳行气"],
+  ["薏米",[1,0,-1,0,1],"甘淡微寒·脾胃肺","利水渗湿"],
+  ["绿豆",[-1,-2,0,0,1],"甘凉·心胃","清热解毒"],
+  ["苦瓜",[0,-2,0,0,0],"苦寒·心脾胃","清火第一"],
+  ["番茄",[0,-1,0,0,0],"甘酸微寒·肝胃","清热生津"],
+  ["西瓜",[0,-2,0,0,2],"甘寒·心胃","清热解暑，火虚者禁"],
+  ["冬瓜",[0,-1,0,0,2],"甘淡微寒·肺小肠","利水消肿"],
+  ["梨",[0,-2,0,1,1],"甘微酸凉·肺胃","润肺清火"],
+  ["芹菜",[1,-1,0,0,0],"甘凉·肝胃肺","平肝清热"],
+  ["山楂",[-1,-1,-1,0,0],"酸甘微温·脾胃肝","消食化积"],
+  ["陈皮",[1,-1,-1,-1,0],"辛苦温·脾肺","理气燥湿"],
+  ["白萝卜",[-1,1,0,-1,1],"辛甘凉·肺胃","行气消食"],
+  ["荞麦",[-1,-1,0,0,0],"甘凉·脾胃大肠","降气宽肠"],
+  ["荔枝",[0,2,0,0,0],"甘酸温·肝脾","纯补火，火亢者慎"],
+  ["桂圆",[0,2,1,0,0],"甘温·心脾","补心安神，火亢慎"],
+  ["芒果",[1,1,0,0,0],"甘酸温·胃肺","助火生湿，火亢湿盛慎"],
+  ["螃蟹",[-1,-1,0,0,1],"咸寒·肝胃","清热散瘀，火虚者禁"]
+];
+const COLORS = [
+  ["红色系",[0,2,0,0,0]],["橙色系",[1,1,1,0,0]],["黄色系",[0,1,2,0,0]],
+  ["米色/象牙",[0,0,1,0,0]],["棕色系",[0,0,2,0,0]],["绿色系",[2,0,0,0,0]],
+  ["青绿系",[1,-1,0,0,1]],["蓝色系",[0,-1,0,0,1]],["藏青/深蓝",[0,-1,0,0,2]],
+  ["紫色系",[-1,1,0,1,0]],["黑色系",[0,-1,0,1,1]],["白色系",[0,0,0,1,0]],
+  ["灰色系",[0,0,0,1,0]],["粉色系",[0,1,1,0,0]]
+];
+const FABRICS = [
+  ["棉",[0,0,1,0,0],"柔软贴身·通用最安全"],
+  ["亚麻",[0,-1,0,1,0],"干爽透气·火亢湿热宜"],
+  ["真丝",[0,0,0,0,2],"柔滑凉润·滋阴润肤"],
+  ["羊毛",[0,1,1,0,0],"温暖包裹·火土虚宜"],
+  ["羊绒",[0,1,1,0,1],"温而不燥·火水双虚宜"]
+];
+
+/** ΔS 向量点积（目标方向 × 干预向量）——同向为正（药向），反向为负（毒向）
+ *  @param {number[]} target @param {number[]} deltaS @returns {number} */
+function dot(target, deltaS) {
+  let s = 0; for (let i = 0; i < 5; i++) s += target[i] * deltaS[i];
+  return s;
+}
+/** [META-T7] 药毒食三元判定：方向×幅度 → 药/毒/忌
+ *  @param {number} score 点积 @param {number[]} deltaS
+ *  @returns {"yao"|"du"|"shi"} */
+function classify(score, deltaS) {
+  const mag = deltaS.reduce((a, b) => a + Math.abs(b), 0);
+  if (score >= 1 && mag <= 4) return "yao";     // 方向对、幅度适当 → 药
+  if (score <= -2) return "du";                  // 方向反 → 毒（忌口）
+  if (mag >= 5 && score >= 3) return "shi";      // 方向对但过猛 → 矫枉过正警戒
+  return score >= 1 ? "yao" : "shi";
+}
+
+/* ═══════════════ UI 投影层（σ 压缩：推演链 → 可视等价表示）═══════════════ */
+let S0 = null, hTable = null;
+
+function $(id){ return document.getElementById(id); }
+function fillSelect(id, items){
+  $(id).innerHTML = items.map(x => `<option>${x}</option>`).join("");
+}
+fillSelect("shichen", SHICHEN.map(s => s[0]));
+fillSelect("city", Object.keys(CITIES));
+$("shichen").value = "寅时 03-05";
+$("city").value = "广州";
+
+/* 五形雷达图（SVG，五轴：水木火土金） */
+function drawRadar(svg, series) {
+  const cx = 130, cy = 128, R = 92, N = 5;
+  const angles = WX_META.map((_, i) => -Math.PI / 2 + i * 2 * Math.PI / N);
+  const pt = (i, r) => [cx + r * Math.cos(angles[i]), cy + r * Math.sin(angles[i])];
+  let grid = "";
+  for (let g = 1; g <= 4; g++) {
+    const pts = angles.map((_, i) => pt(i, R * g / 4).join(",")).join(" ");
+    grid += `<polygon points="${pts}" fill="none" stroke="#e6ddd0" stroke-width="1"/>`;
+  }
+  let axes = "", labels = "";
+  WX_META.forEach((m, i) => {
+    const [x, y] = pt(i, R);
+    axes += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#e6ddd0"/>`;
+    const [lx, ly] = pt(i, R + 18);
+    labels += `<text x="${lx}" y="${ly + 4}" text-anchor="middle" font-size="12" fill="#7a6f61" font-weight="bold">${m.cn}</text>`;
+  });
+  const colors = ["#3e5f7e", "#b3432b"];
+  let polys = "";
+  series.forEach((s, si) => {
+    const pts = vArr(s.v).map((val, i) => pt(i, R * Math.min(val, 60) / 60).join(",")).join(" ");
+    polys += `<polygon points="${pts}" fill="${colors[si]}" fill-opacity="${si ? 0.28 : 0.14}" stroke="${colors[si]}" stroke-width="2"/>`;
+  });
+  svg.innerHTML = grid + axes + polys + labels +
+    (series.length > 1 ? `<g font-size="11">
+      <rect x="10" y="10" width="10" height="10" fill="#3e5f7e" fill-opacity="0.3"/><text x="24" y="19" fill="#7a6f61">S₀ 先天</text>
+      <rect x="80" y="10" width="10" height="10" fill="#b3432b" fill-opacity="0.3"/><text x="94" y="19" fill="#7a6f61">S_now 今日</text></g>` : "");
+}
+
+function wxbars(el, table) {
+  el.innerHTML = table.map(r => {
+    const a = r.arrow.includes("↓") ? "arrow-dn" : r.arrow.includes("↑") ? "arrow-up" : "";
+    return `<div class="wxline">
+      <span class="lbl" style="color:${WX_META.find(m=>m.cn===r.name).color}">${r.name} · ${r.org.split("·")[0]}</span>
+      <span class="bar"><i style="width:${Math.min(r.val,60)/60*100}%;background:${WX_META.find(m=>m.cn===r.name).color}"></i></span>
+      <span class="val">${r.val}</span>
+      <span class="${a}">${r.arrow}</span></div>`;
+  }).join("");
+}
+
+/* ── Tab 1 建档 ── */
+$("btnExample").onclick = () => {
+  $("birthDate").value = "1986-08-02"; $("shichen").value = "寅时 03-05"; $("city").value = "广州";
+};
+$("btnBuild").onclick = () => {
+  const [y, m, d] = $("birthDate").value.split("-").map(Number);
+  if (!y) { alert("请选择出生日期"); return; }
+  const sc = SHICHEN.find(s => s[0] === $("shichen").value);
+  const lng = CITIES[$("city").value] || 120;
+  const r = fourPillars({y, m, d, hh: sc[1], mm: 0, lng});
+  S0 = vInnate(r.pillars);
+  hTable = assessH(S0);
+  $("tstLine").innerHTML = `出生地 <b>${$("city").value}</b>（经度 ${lng}）→ 真太阳时修正 → <b>${r.tst}</b> · <b>${r.shichen}</b>${r.note ? ` <span class="muted">| ${r.note}</span>` : ""}`;
+  $("pillarBox").innerHTML = ["年柱","月柱","日柱","时柱"].map((n, i) =>
+    `<div class="pillar"><div class="name">${n}</div><div class="gz">${r.pillars[i]}</div></div>`).join("");
+  drawRadar($("radar1"), [{v: S0}]);
+  wxbars($("wxbars1"), hTable);
+  const weak = hTable.filter(x => x.arrow.includes("↓")).map(x => `${x.name}(${x.val})`);
+  const strong = hTable.filter(x => x.arrow.includes("↑")).map(x => `${x.name}(${x.val})`);
+  $("assess1").innerHTML = `
+    <div class="${weak.length ? "warn" : "okbox"}">
+      ${weak.length
+        ? `𝓗 判定：<b>先天弱项 ${weak.join("、")}</b>——对应功能域关系流储备偏低，属日常调理重点观察位。`
+        : "𝓗 判定：五形分布处于 𝓗 合理区间内，先天格局相对均衡。"}
+      ${strong.length ? ` 先天偏亢：${strong.join("、")}——宜泄不宜补。` : ""}
+    </div>
+    <div class="okbox">把 S₀ 拉回 𝓗 中心所需的日常干预方向：<b>${
+      hTable.filter(x => x.need > 2).map(x => `补${x.name}`).join("、") || "维持均衡"
+    }</b>${
+      hTable.filter(x => x.need < -2).length ? "；适度疏泄：" + hTable.filter(x => x.need < -2).map(x => `泄${x.name}`).join("、") : ""
+    }</div>`;
+  $("s0memo").textContent = `水${S0.water} 木${S0.wood} 火${S0.fire} 土${S0.earth} 金${S0.metal}`;
+  $("result1").classList.remove("hidden");
+  $("result1").scrollIntoView({behavior: "smooth"});
+};
+
+/* ── Tab 2 今日状态 ── */
+const SLIDERS = [
+  ["water","水 · 精力睡眠","睡眠质量、精力续航、腰膝状态"],
+  ["wood","木 · 情绪疏泄","情绪是否顺畅、眼目舒适、肩颈松紧"],
+  ["fire","火 · 心神温煦","心神安宁、手脚温度、面色光泽"],
+  ["earth","土 · 消化运化","食欲、消化、餐后腹胀与否"],
+  ["metal","金 · 呼吸卫外","呼吸通畅、皮肤状态、是否易受寒"]
+];
+$("sliderBox").innerHTML = SLIDERS.map(([k, t, hint]) => `
+  <div class="sl" data-k="${k}">
+    <div class="head"><b>${t}</b><span class="val" id="v_${k}">0</span></div>
+    <input type="range" min="-5" max="5" value="0" id="r_${k}">
+    <div class="muted">${hint}</div>
+  </div>`).join("");
+SLIDERS.forEach(([k]) => {
+  $("r_" + k).oninput = e => $("v_" + k).textContent = (e.target.value > 0 ? "+" : "") + e.target.value;
+});
+
+$("goTab2").onclick = () => switchTab(2);
+$("goTab3").onclick = () => switchTab(3);
+
+$("btnAssess").onclick = () => {
+  if (!S0) { alert("请先在「建档」页完成八字推演"); return; }
+  /* S_current = S₀ + 今日观测读数×2（滑杆 -5~+5 → ΔS -10~+10）
+     [PROG-005] 变量=σ锚点：S₀ 是建档事件的稳定残留，只读不写       */
+  const delta = {};
+  SLIDERS.forEach(([k]) => delta[k] = Number($("r_" + k).value) * 2);
+  const Sc = {water:0, wood:0, fire:0, earth:0, metal:0};
+  for (const k in Sc) Sc[k] = Math.max(0, Math.min(60, S0[k] + delta[k]));
+  /* S_effective = S_current − (S₀ − 𝓗中心)：先天偏离被减去，只剩今日真实偏移 */
+  const Seff = {};
+  for (const k in Sc) Seff[k] = Math.round(Sc[k] - S0[k] + 20);
+  const h2 = assessH(Sc);
+  const hEff = assessH(Seff);
+  drawRadar($("radar2"), [{v: S0}, {v: Sc}]);
+  wxbars($("wxbars2"), h2);
+  const tgt = hEff.map(r => r.need); // [水,木,火,土,金] 补泄方向
+  const needList = hEff.filter(x => x.need > 2).map(x => x.name);
+  const dumpList = hEff.filter(x => x.need < -2).map(x => x.name);
+  $("assess2").innerHTML = `
+    <div class="kv" style="margin:6px 0">S_current = <b>水${Sc.water} 木${Sc.wood} 火${Sc.fire} 土${Sc.earth} 金${Sc.metal}</b>
+     ｜ S_effective = <b>水${Seff.water} 木${Seff.wood} 火${Seff.fire} 土${Seff.earth} 金${Seff.metal}</b> <span class="muted">（先天偏离已扣除）</span></div>
+    <div class="${needList.length || dumpList.length ? "warn" : "okbox"}">
+      ${needList.length ? `今日宜补：<b>${needList.join("、")}</b>。` : "今日五形无显著虚位。"}
+      ${dumpList.length ? `今日宜疏泄：<b>${dumpList.join("、")}</b>。` : ""}
+      ${!needList.length && !dumpList.length ? "S 位于 𝓗 合理区间，维持现有节律即可。" : ""}
+    </div>
+    <div class="muted">ΔS 干预目标向量（水木火土金）：[${tgt.join(", ")}] —— 下一页所有建议均以「与该向量同向=药、反向=毒」判定（META-T7）。</div>`;
+  $("result2").classList.remove("hidden");
+  $("result2").scrollIntoView({behavior: "smooth"});
+  window.__target = tgt;      // [水,木,火,土,金]
+  window.__heff = hEff;
+};
+
+/* ── Tab 3 调理建议 ── */
+function renderAdvice() {
+  const tgtM = window.__target;               // [水,木,火,土,金]
+  const hEff = window.__heff;
+  if (!tgtM) {
+    const msg = `<div class="warn">请先完成「建档」与「今日状态」两步——ΔS 建议依赖你的 S₀ 与今日 S_effective。</div>`;
+    $("foodOut").innerHTML = $("wearOut").innerHTML = $("restOut").innerHTML = msg;
+    return;
+  }
+  /* 目标向量转 ΔS 数据库序（木火土金水）：tgtM[0..4]=水木火土金 → [木,火,土,金,水] */
+  const tgt = [tgtM[1], tgtM[2], tgtM[3], tgtM[4], tgtM[0]];
+  const cls = {"yao":["药","m-yao"],"du":["毒·忌","m-du"],"shi":["适·控量","m-shi"]};
+  /* 食疗：按 ΔS 点积排序，标注药/毒/控量 */
+  const foods = FOODS.map(([n, ds, nw, desc]) => ({n, ds, nw, desc, s: dot(tgt, ds), c: classify(dot(tgt, ds), ds)}))
+    .sort((a, b) => b.s - a.s);
+  const good = foods.filter(f => f.c === "yao").slice(0, 8);
+  const avoid = foods.filter(f => f.c === "du").slice(-5).reverse();
+  const mid = foods.filter(f => f.c === "shi").slice(0, 4);
+  const row = f => `<tr><td><b>${f.n}</b></td><td>${f.nw}</td><td>[${f.ds.join(",")}]</td><td>${f.desc}</td></tr>`;
+  $("foodOut").innerHTML = `
+    <div class="okbox">食疗方向：与目标向量同向者为<b>药</b>（宜），反向者为<b>毒</b>（忌口）。建议食量系数：主料×1.0 / 配菜×0.5 / 调味×0.3——<b>[R4] dv/dt≤const：单帧 ΔS 过大即越界，渐进为要。</b></div>
+    <h2 style="font-size:13px;color:var(--teal);margin-top:8px">✅ 今日宜（药）</h2>
+    <table><tr><th>食材</th><th>性味归经</th><th>ΔS(木火土金水)</th><th>说明</th></tr>${good.map(row).join("")}</table>
+    ${mid.length ? `<h2 style="font-size:13px;color:var(--gold);margin-top:10px">⚖️ 可用控量</h2><table><tr><th>食材</th><th>性味归经</th><th>ΔS</th><th>说明</th></tr>${mid.map(row).join("")}</table>` : ""}
+    ${avoid.length ? `<h2 style="font-size:13px;color:var(--cinnabar);margin-top:10px">⛔ 今日忌口（毒向）</h2><table><tr><th>食材</th><th>性味归经</th><th>ΔS</th><th>说明</th></tr>${avoid.map(row).join("")}</table>` : ""}`;
+
+  /* 穿搭：颜色 + 材质 */
+  const colors = COLORS.map(([n, ds]) => ({n, ds, s: dot(tgt, ds)})).sort((a, b) => b.s - a.s);
+  const fabrics = FABRICS.map(([n, ds, d]) => ({n, ds, s: dot(tgt, ds), d})).sort((a, b) => b.s - a.s);
+  $("wearOut").innerHTML = `
+    <div class="okbox">颜色与材质是通过视觉/触觉通道持续作用于人体 ⟨P,ε⟩ 子图的微弱而持久的 ΔS 信号。今日推荐：<b>${colors.slice(0,3).map(c=>c.n).join(" / ")}</b>；避免大面积：<b>${colors.slice(-2).map(c=>c.n).join("、")}</b>。材质首选：<b>${fabrics[0].n}</b>（${fabrics[0].d}）。</div>
+    <table><tr><th>色系</th><th>ΔS(木火土金水)</th><th>匹配度</th></tr>
+    ${colors.map(c => `<tr><td>${c.n}</td><td>[${c.ds.join(",")}]</td><td>${"★".repeat(Math.max(0, Math.min(5, Math.round(c.s)))) || "—"}</td></tr>`).join("")}</table>`;
+
+  /* 作息：按最弱形给时辰节律建议 */
+  const weakest = hEff ? hEff.slice().sort((a, b) => a.need - b.need).filter(x => x.need > 2).map(x => x.name) : [];  const REST = {
+    "水": "亥子时（21:00–01:00）前入睡——肾主封藏，深睡是补水第一方；忌熬夜耗精。",
+    "木": "卯时（05:00–07:00）起身，晨间散步/拉伸疏肝；忌久视屏幕伤肝血。",
+    "火": "午时（11:00–13:00）小憩 15–30 分钟养心，上午晒背 10 分钟温煦心阳。",
+    "土": "辰巳时（07:00–11:00）吃温热早餐、细嚼慢咽；忌生冷与思虑过度伤脾。",
+    "金": "寅时深呼吸/申酉时（15:00–19:00）温和有氧宣肺；注意颈部背保暖卫外。"
+  };
+  $("restOut").innerHTML = weakest.length
+    ? `<div class="okbox">今日弱项时辰节律：</div><ul class="tight">${weakest.map(w => `<li><b>${w}形</b>：${REST[w]}</li>`).join("")}</ul><div class="muted" style="margin-top:8px">一天 = 一帧评估周期（R3 离散帧 τ）：明早重新自评，逐帧观察 ΔS 是否把 S 拉向 𝓗 中心。</div>`
+    : `<div class="okbox">今日无显著弱项，按常规节律：23:00 前入睡、07:00 起身、三餐规律、午间小憩。</div>`;
+}
+$("goTab3").addEventListener("click", renderAdvice);
+
+/* ── Tab 切换 ── */
+function switchTab(n) {
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab == n));
+  [1,2,3,4].forEach(i => $("tab" + i).classList.toggle("hidden", i != n));
+  if (n === 3) renderAdvice();
+  window.scrollTo({top: 0});
+}
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => switchTab(Number(b.dataset.tab)));
+</script>
+</body>
+</html>

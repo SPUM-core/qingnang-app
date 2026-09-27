@@ -1,0 +1,42 @@
+/* ============================================
+   青囊生活管家 · 设计令牌 (Design Tokens)
+   来源：青囊品牌 UI 系统方案
+   ============================================ */
+:root {
+  /* 色彩 */
+  --qn-color-primary: #17534C;        /* 青囊绿 · 主色（品牌绿，取自 Logo 实测） */
+  --qn-color-primary-light: #2E7D6A;  /* 松烟绿 · 辅助/悬浮态 */
+  --qn-color-primary-press: #123F3A;  /* 按压态 */
+  --qn-color-bg-dark: #0B0F0E;        /* 玄黑 · 深色底 */
+  --qn-color-bg-light: #F2EFE7;       /* 宣纸米 · 浅色底 */
+  --qn-color-accent: #A8442F;         /* 朱砂 · 点缀（警示/强调，慎用） */
+  --qn-color-text-primary: #F0EEE6;   /* 深底主文字 */
+  --qn-color-text-secondary: #9AA8A2; /* 深底次级文字 */
+  --qn-color-text-dark: #33403B;      /* 浅底主文字 */
+  --qn-color-icon-inactive: #A9B5B0;  /* Tab 未选中 */
+  --qn-color-card-bg: #101614;        /* 深底卡片 */
+  --qn-color-card-stroke: rgba(46, 125, 106, 0.45); /* 卡片描边 */
+
+  /* 字体 */
+  --qn-font-title: "Source Han Sans CN", "Noto Sans SC", sans-serif; /* Medium 500 */
+  --qn-font-body: "Noto Sans SC", sans-serif;                        /* Regular 400 */
+  --qn-font-size-title-lg: 52px;
+  --qn-font-size-title: 34px;
+  --qn-font-size-body: 19px;
+  --qn-font-size-caption: 16px;
+  --qn-letter-spacing-en: 6px;        /* 英文大字距 (QINGNANG) */
+
+  /* 圆角 */
+  --qn-radius-card: 16px;
+  --qn-radius-tile: 14px;
+  --qn-radius-button: 28px;           /* 全圆角胶囊（56px 高） */
+  --qn-radius-appicon: 224px;         /* App 图标 1024 圆角 ≈ 22% */
+
+  /* 间距 */
+  --qn-space-xs: 8px;
+  --qn-space-sm: 12px;
+  --qn-space-md: 20px;
+  --qn-space-lg: 32px;
+  --qn-space-xl: 56px;
+  --qn-page-padding: 72px;            /* 画板页边距，页面按 24px 起 */
+}
