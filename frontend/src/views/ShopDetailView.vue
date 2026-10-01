@@ -7,7 +7,10 @@
     </div>
 
     <!-- 返回 -->
-    <button class="back-btn" @click="$router.push('/shop')">← 返回商城</button>
+    <a class="back-link" @click.prevent="$router.back()" aria-label="返回">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      返回商城
+    </a>
 
     <div class="detail-layout">
       <!-- 左列：商品信息 -->
@@ -178,7 +181,10 @@
 
   <div v-else class="shop-detail__notfound">
     <p>😶 商品不存在</p>
-    <button @click="$router.push('/shop')">返回商城</button>
+    <a class="back-link" @click.prevent="$router.back()" aria-label="返回">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      返回商城
+    </a>
   </div>
 </template>
 
@@ -246,11 +252,7 @@ async function submitFeedback() {
 .disclaimer-icon { font-size: 16px; }
 .disclaimer-text b { color: #B8860B; }
 
-.back-btn {
-  background: none; border: none; color: var(--qingnang-spirit);
-  cursor: pointer; font-size: 14px; padding: 8px 0; margin-bottom: 12px;
-}
-.back-btn:hover { text-decoration: underline; }
+/* back-btn 已废弃 → 全局 .back-link */
 
 .detail-layout { display: grid; grid-template-columns: 360px 1fr; gap: 32px; }
 @media (max-width: 900px) { .detail-layout { grid-template-columns: 1fr; } }

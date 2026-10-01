@@ -19,7 +19,7 @@ class User(Base):
 
     # 基本资料
     nickname      = Column(String(50))
-    gender        = Column(String(4))       # male / female
+    gender        = Column(String(10))      # male / female / other
     birth_date    = Column(String(10))      # 1986-08-02
     birth_hour    = Column(String(10))      # 寅时
     height        = Column(Integer)         # cm

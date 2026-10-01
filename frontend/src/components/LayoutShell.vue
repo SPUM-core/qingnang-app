@@ -152,7 +152,7 @@ const mobileNavs = [
 /* ═══════════════════════════════════════════════════════
    窄屏过渡（721px ~ 960px）
    ═══════════════════════════════════════════════════════ */
-@media (max-width: 960px) {
+@media (max-width: 960px), (max-height: 700px), (orientation: portrait) {
   .layout__header { gap: 12px; padding: 0 14px; }
   .layout__nav {
     position: static; transform: none; margin-left: auto;
@@ -172,9 +172,13 @@ const mobileNavs = [
 
 
 /* ═══════════════════════════════════════════════════════
-   移动端竖屏（≤ 720px）—— 完全切换为 APP 布局
+   移动端 —— 完全切换为 APP 布局
+   触发条件（任一满足）：
+     1. max-width: 720px       — 常规手机竖屏
+     2. max-height: 600px      — 扁屏（特殊比例屏幕 F11 全屏等）
+     3. orientation: portrait  — 纵向屏（无论绝对尺寸，height > width 就切移动端）
    ═══════════════════════════════════════════════════════ */
-@media (max-width: 720px) {
+@media (max-width: 720px), (max-height: 600px), (orientation: portrait) {
   /* Header 完全隐藏 */
   .layout__header { display: none; }
 

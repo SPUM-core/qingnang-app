@@ -22,4 +22,14 @@ class Observation(Base):
     # 定性诊断（从 SPUM 引擎输出）
     syndrome_hint = Column(String(200))       # 气结状态 74% 特征匹配
 
+    # ── Phase 3 新增：后端引擎解析结果 ──
+    status        = Column(String(20), default="uploading")
+    # uploading → analyzing → analyzed / failed
+    s_graph       = Column(JSON)              # {"wood": 0.32, "fire": 0.18, ...} 拓扑层五形 0-1
+    pathologies   = Column(JSON)              # ["木僵", "金亢", ...] 病理标签
+    diagnosis_summary = Column(String(500))   # 引擎一句话诊断
+
+    # P0-2 联动：身高必录（单位：米，如 1.70；缺省/非法值时算法链路按"未测量"处理）
+    patient_height_m = Column(Float, nullable=True)
+
     observed_at   = Column(DateTime, server_default=func.now())

@@ -12,13 +12,17 @@
     <!-- ═══ Step 1: 基础信息 → 推演先天八字 ═══ -->
     <div v-if="currentStep === 1" class="card">
       <h2>先让青囊认识你</h2>
-      <p class="step-desc">你的出生时刻蕴含先天节律，青囊会据此推导你的五形基底。</p>
+      <p class="step-desc">请填写您的真实信息，这将影响青囊对您的数字建模。</p>
 
       <div class="form">
         <div class="form-grid">
           <label class="field">
-            <span>怎么称呼你 <em>*</em></span>
-            <input v-model="form.nickname" placeholder="如：胡运涛" />
+            <span>真实姓名 <em>*</em></span>
+            <input v-model="form.nickname" placeholder="如：李四" />
+          </label>
+          <label class="field">
+            <span>小名（可选）</span>
+            <input v-model="form.nickname_alias" placeholder="如：阿涛" />
           </label>
           <label class="field">
             <span>性别 <em>*</em></span>
@@ -63,16 +67,28 @@
           </label>
           <label class="field field-full">
             <span>出生地 <em>*</em></span>
-            <select v-model="form.birthplace">
-              <option disabled value="">请选择你出生的城市</option>
-              <option v-for="c in CITIES" :key="c" :value="c">{{ c }}</option>
-            </select>
-            <span class="field-hint">用于真太阳时经度修正（广州 113.26°E / 北京 116.40°E / 上海 121.47°E …）</span>
+            <div class="cascader">
+              <select v-model="form.birth_province" @change="onProvinceChange">
+                <option disabled value="">请选择省份</option>
+                <option v-for="p in PROVINCES" :key="p.code" :value="p.code">{{ p.name }}</option>
+              </select>
+              <select v-model="form.birth_city" :disabled="!form.birth_province">
+                <option disabled value="">{{ form.birth_province ? '请选择城市' : '先选省份' }}</option>
+                <option v-for="c in availableCities" :key="c.name" :value="c.name">
+                  {{ c.name }}
+                  <span v-if="c.lng" class="city-lng">{{ c.lng.toFixed(2) }}°E</span>
+                </option>
+              </select>
+            </div>
+            <span class="field-hint" v-if="form.birthCityLng">
+              真太阳时经度修正：当前 {{ form.birthCityLng.toFixed(2) }}°E（北京时间以 120°E 为基准，{{ (form.birthCityLng - 120).toFixed(2) }}° → {{ ((form.birthCityLng - 120) * 4).toFixed(1) }} 分钟时差）
+            </span>
+
           </label>
         </div>
         <button class="btn btn-primary" @click="calcBazi" :disabled="calculating || !canCalcBazi">
-          <span v-if="calculating">🧠 青檬引擎推演中…（约 5s）</span>
-          <span v-else>✨ 推演我的先天基底</span>
+          <span v-if="calculating">🧠 推演中…</span>
+          <span v-else>下一步</span>
         </button>
       </div>
     </div>
@@ -82,7 +98,7 @@
       <h2>你的先天五形基底</h2>
       <p class="step-desc">以下画像完全由你的出生时刻通过 SPUM 真太阳时推演得出，是后续所有调理分析的锚点。</p>
 
-      <!-- 八字四柱 + 真太阳时 -->
+      <!-- 八字四柱 + 农历精简信息 -->
       <div class="bazi-panel">
         <div class="pillar-row">
           <div v-for="(p, i) in baziResult.pillars" :key="i" class="pillar">
@@ -91,9 +107,15 @@
           </div>
         </div>
         <div class="meta-row">
-          <span>农历：{{ baziResult.lunar || '—' }}</span>
-          <span v-if="baziResult.true_solar_time">真太阳时：{{ baziResult.true_solar_time }}</span>
-          <span v-if="baziResult.engine">引擎：{{ baziResult.engine }}</span>
+          <template v-if="baziResult.lunar_display">
+            <span>🌙 {{ baziResult.lunar_display }}</span>
+            <span v-if="baziResult.zodiac_year">生肖 {{ baziResult.zodiac_year }}</span>
+          </template>
+          <span v-if="baziResult.day_master">
+            日主 <b>{{ baziResult.day_master }}</b>
+            <em class="dm-tag dm-{{ baziResult.day_master_element }}">{{ wxLabel(baziResult.day_master_element) }}</em>
+          </span>
+          <span v-if="baziResult.nayin_day">纳音 {{ baziResult.nayin_day }}</span>
         </div>
       </div>
 
@@ -147,6 +169,7 @@ import { useRouter } from 'vue-router'
 import { assistant as assistantApi, cases as casesApi } from '../api/client'
 import { useUserStore } from '../stores/user'
 import RadarChart from '../components/charts/RadarChart.vue'
+import { CHINA_PROVINCES, CHINA_CITIES } from '../constants/china-cities.js'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -164,49 +187,81 @@ const steps = [
 ]
 
 const pillarLabels = ['年柱', '月柱', '日柱', '时柱']
+const PROVINCES = CHINA_PROVINCES
 
-// ── 城市列表（精简覆盖主要城市） ──
-const CITIES = [
-  '北京', '天津', '上海', '重庆',
-  '石家庄', '太原', '呼和浩特',
-  '沈阳', '大连', '长春', '哈尔滨',
-  '南京', '苏州', '杭州', '宁波',
-  '合肥', '福州', '厦门',
-  '南昌', '济南', '青岛',
-  '郑州', '武汉', '长沙',
-  '广州', '深圳', '南宁', '海口',
-  '成都', '贵阳', '昆明',
-  '拉萨', '西安', '兰州', '西宁',
-  '银川', '乌鲁木齐',
-  '香港', '澳门', '台北',
-]
-
+// ── 表单数据 ──
 const form = reactive({
   nickname: '',
+  nickname_alias: '',     // 小名（可选）
   gender: '',
   birth_date: '',
   birth_date_type: 'solar',   // 'solar' (阳历) | 'lunar' (阴历)
   birth_hour: '',
-  birthplace: '',
+  birth_province: '',      // 省 code
+  birth_city: '',          // 市 name
   answers: {},
+})
+
+// ── 级联联动：省 → 市 ──
+function onProvinceChange() {
+  form.birth_city = ''  // 省变了，清空市
+}
+const availableCities = computed(() => {
+  if (!form.birth_province) return []
+  return CHINA_CITIES[form.birth_province] || []
+})
+/** 当前所选城市的经度（用于真太阳时修正） */
+const birthCityLng = computed(() => {
+  if (!form.birth_province || !form.birth_city) return null
+  const city = CHINA_CITIES[form.birth_province]?.find(c => c.name === form.birth_city)
+  return city?.lng ?? null
 })
 
 // ── Step 1 校验 ──
 const canCalcBazi = computed(() => {
-  return form.nickname.trim() && form.gender && form.birth_date && form.birthplace
+  return form.nickname.trim() && form.gender && form.birth_date && form.birth_city
 })
 
-// ── 弱项提示 ──
+// ── SPUM 健康多面体边界（用于弱项判定）──
+const HEALTH_BOUNDS = {
+  wood:  { min: 35, max: 65, label: '木', emoji: '🌲' },
+  fire:  { min: 30, max: 70, label: '火', emoji: '🔥' },
+  earth: { min: 40, max: 60, label: '土', emoji: '🏭' },
+  metal: { min: 38, max: 62, label: '金', emoji: '⚙️' },
+  water: { min: 35, max: 65, label: '水', emoji: '💧' },
+}
+const WEAKNESS_ADVICE = {
+  wood:  '注意情绪/疏泄，忌压抑',
+  fire:  '注意防寒/温补，忌寒凉',
+  earth: '注意饮食/脾胃，忌生冷',
+  metal: '注意皮肤/呼吸，忌干燥',
+  water: '注意作息/保暖，忌熬夜',
+}
+function wxLabel(el) { return HEALTH_BOUNDS[el]?.label || el }
+
+// ── 弱项提示（只给偏离中心最远的 TOP 3，不全部列）──
 const weaknessAdvice = computed(() => {
   if (!baziResult.value?.v_innate) return ''
   const v = baziResult.value.v_innate
-  const weak = []
-  if (v.water < 40) weak.push('💧 水形偏弱：注意作息/保暖，忌熬夜')
-  if (v.fire < 40) weak.push('🔥 火形偏弱：注意防寒/温补，忌寒凉')
-  if (v.earth < 40) weak.push('🏭 土形偏弱：注意饮食/脾胃，忌生冷')
-  if (v.metal < 40) weak.push('⚙️ 金形偏弱：注意皮肤/呼吸，忌干燥')
-  if (v.wood < 40) weak.push('🌲 木形偏弱：注意情绪/疏泄，忌压抑')
-  return weak.join(' · ') || '五形较均衡，继续保持'
+  const items = Object.entries(v).map(([el, score]) => ({
+    el, score, cfg: HEALTH_BOUNDS[el],
+    deviation: score - 50,              // 偏离中心程度
+    outsideBand: score < HEALTH_BOUNDS[el].min || score > HEALTH_BOUNDS[el].max,
+  }))
+  // 按偏离绝对大小排序
+  items.sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation))
+  const top3 = items.slice(0, 3)
+
+  const tips = top3.map(it => {
+    if (it.score < it.cfg.min) {
+      return `${it.cfg.emoji} ${it.cfg.label}形偏弱（${it.score}）：${WEAKNESS_ADVICE[it.el]}`
+    } else if (it.score > it.cfg.max) {
+      return `${it.cfg.emoji} ${it.cfg.label}形偏旺（${it.score}）：${WEAKNESS_ADVICE[it.el]}`
+    } else {
+      return `${it.cfg.emoji} ${it.cfg.label}形略偏（${it.score}）：${WEAKNESS_ADVICE[it.el]}`
+    }
+  })
+  return tips.join(' · ')
 })
 
 // ── 问诊题（基于弱项动态生成） ──
@@ -253,7 +308,7 @@ async function calcBazi() {
     const resp = await assistantApi.bazi(
       form.birth_date,
       form.birth_hour || null,
-      form.birthplace,
+      form.birth_city,   // 城市名（含省/市信息）
       form.birth_date_type,
     )
     baziResult.value = resp.data || resp
@@ -276,10 +331,13 @@ async function submitAll() {
     const v = baziResult.value
     const onboardingBody = {
       nickname: form.nickname,
+      nickname_alias: form.nickname_alias || null,
       gender: form.gender,
       birth_date: form.birth_date,
       birth_hour: form.birth_hour || null,
-      birthplace: form.birthplace,
+      birth_province: form.birth_province,
+      birthplace: form.birth_city,
+      longitude: birthCityLng.value,   // 真太阳时修正用
       engine: v?.engine || 'spum_bazi',
       v_innate: v?.v_innate,
       bazi_result: v,  // 让后端可直接复用所有推演结果
@@ -338,7 +396,31 @@ async function submitAll() {
 .field input:focus, .field select:focus { outline: none; border-color: var(--qingnang-emerald); }
 .field input::placeholder { color: var(--ink-tertiary); }
 .field-full { grid-column: 1 / -1; }
-.field-hint { font-size: 11px; color: var(--ink-tertiary); }
+.field-hint { font-size: 11px; color: var(--ink-tertiary); line-height: 1.6; }
+
+/* 级联选择器（省/市 两级联动） */
+.cascader {
+  display: grid; grid-template-columns: 1fr 2fr; gap: 8px;
+}
+.cascader select {
+  padding: 9px 12px; border: 1px solid var(--ink-line); border-radius: var(--radius-sm);
+  font-size: 14px; font-family: var(--font-body); background: #fff; color: var(--ink-primary);
+  transition: border-color 0.15s;
+}
+.cascader select:focus { outline: none; border-color: var(--qingnang-emerald); }
+.cascader select:disabled { background: #f9f9f6; color: var(--ink-tertiary); cursor: not-allowed; }
+.city-lng { font-size: 11px; color: var(--ink-tertiary); margin-left: 2px; }
+
+/* 日主标签颜色（五形对应） */
+.dm-tag {
+  font-style: normal; font-size: 11px; padding: 1px 6px; border-radius: 10px;
+  margin-left: 4px; font-weight: 500;
+}
+.dm-wood  { background: #e6f4e6; color: #2d7a3a; }
+.dm-fire  { background: #fde8e0; color: #c54a1e; }
+.dm-earth { background: #fdf5e0; color: #9a7b1c; }
+.dm-metal { background: #e8eaed; color: #5a6270; }
+.dm-water { background: #e0f0f8; color: #1f6a9a; }
 
 /* 阳历/阴历切换 */
 .date-toggle { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: normal; margin-left: 8px; cursor: pointer; color: var(--ink-secondary); }
@@ -400,5 +482,6 @@ async function submitAll() {
   .form-grid { grid-template-columns: 1fr; }
   .pillar-row { grid-template-columns: repeat(2, 1fr); }
   .steps { flex-wrap: wrap; }
+  .cascader { grid-template-columns: 1fr; }
 }
 </style>

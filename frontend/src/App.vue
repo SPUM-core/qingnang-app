@@ -93,6 +93,28 @@ onMounted(() => {
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body, #app { height: 100%; }
 
+/* 全局防弹：禁止横向溢出（治"发现/通知"页面偶发超出屏幕问题） */
+html, body { overflow-x: hidden; max-width: 100vw; }
+.app-shell { width: 100%; max-width: 100vw; overflow-x: hidden; }
+
+/* 全局防弹 2: flex/grid 子项允许 shrink，文本强制换行 */
+*::before, *::after { box-sizing: border-box; }
+img, svg { max-width: 100%; height: auto; }
+
+/* 所有包含长文本的元素强制换行 */
+.page, .card, .rem-card, .kb-card, .notice, .timeline, .today-card {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* flex 容器内的子项允许收缩（经典 flex 撑爆 bug 修复） */
+.page > * { min-width: 0; }
+.card-grid > * { min-width: 0; }
+.kb-grid > * { min-width: 0; }
+.timeline > * { min-width: 0; }
+.card-grid, .kb-grid { width: 100%; max-width: 100%; }
+.timeline { width: 100%; max-width: 100%; }
+
 body {
   font-family: var(--font-body);
   background: var(--qingnang-paper);
@@ -106,9 +128,32 @@ body {
 }
 
 /* 全局页面容器 */
-.page { max-width: 1200px; margin: 0 auto; padding: 24px 20px; }
+.page { max-width: 1200px; margin: 0 auto; padding: 24px 20px; width: 100%; overflow-x: hidden; }
 .page h1 { font-family: var(--font-title); color: var(--qingnang-emerald); font-size: 22px; margin-bottom: 4px; letter-spacing: 1px; font-weight: 600; }
 .page__desc { color: var(--ink-tertiary); font-size: 13px; margin-bottom: 16px; }
+
+/* 全局返回按钮（箭头图标 + 文字）—— 所有子页面复用 */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  color: var(--qingnang-spirit);
+  text-decoration: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 4px 8px 4px 0;
+  border-radius: 6px;
+  transition: all 0.15s;
+  font-weight: 500;
+}
+.back-link:hover { background: rgba(46,125,106,0.08); color: var(--qingnang-emerald); }
+.back-link svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+/* 纵向屏：页面 padding 减小，让 grid 占更多宽度 */
+@media (orientation: portrait) {
+  .page { padding: 16px 14px; }
+}
 
 /* 全局卡片样式（纯白浮层 + 淡灰边框 + 轻微阴影 — 层级感 ↑） */
 .card {

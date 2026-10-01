@@ -13,61 +13,94 @@ HU_YUNTAO = {
     "password": "qingnang2026",
     "nickname": "胡运涛",
     "gender": "male",
-    "birth_date": "1986-08-02",
+    "birth_date": "1987-09-12",
     "birth_hour": "寅时",
-    "height": 176,
-    "weight": 78,
+    "height": 173,
+    "weight": 57.7,
     "is_doctor": False,
     "is_onboarded": True,
 
-    # 八字
+    # 八字（寅时确定版）
     "bazi": "丁卯 己酉 甲子 丙寅",
-    "ganzhi_year": "丙午",
-    "ganzhi_month": "丁酉",
-    "ganzhi_day": "癸酉",
+    "ganzhi_year": "丁卯",
+    "ganzhi_month": "己酉",
+    "ganzhi_day": "甲子",
 
-    # 五形向量
-    "v_innate": {"wood": 72, "fire": 55, "earth": 58, "metal": 68, "water": 65},
-    "v_baseline": {"wood": 80, "fire": 70, "earth": 40, "metal": 50, "water": 60},
-    "v_current": {"wood": 82, "fire": 68, "earth": 42, "metal": 51, "water": 58},
+    # ═══ S_0^0 先天基底（v5.4 出生事件校核版）═══
+    # 量化：木↑↑↑→60  火↑↑(郁)→58  土↓→35  金↔→50  水↔(伤)→48
+    "v_innate": {"wood": 60, "fire": 58, "earth": 35, "metal": 50, "water": 48},
+    # v_baseline = 初诊 S_effective（与 v_innate 同值，治疗前即 S_0 状态）
+    "v_baseline": {"wood": 60, "fire": 58, "earth": 35, "metal": 50, "water": 48},
+    # v_current = 最新观测（2026-09-15 湿遏·火衰·水滞）
+    "v_current": {"wood": 51.2, "fire": 32.4, "earth": 39.2, "metal": 50.8, "water": 26.0},
 
     "syndrome": "湿遏·气结74%·土枯·水形精·火形悖论",
-    "chief_complaint": "长期疲乏，工作压力大，睡眠质量下降，午子冲节律异常",
+    "chief_complaint": "长期疲乏·失眠·食欲不振·性欲旺盛（相火妄动）·百会穴麻木疼痛",
 
-    # 观测记录（8 次 PPG）
+    # ═══ 12 次真实 PPG 观测（来自青囊/病历/胡运涛/数据/脉象/）═══
+    # 转换公式：v_obs = 50 + ΔF * 40
+    # 按时间升序排列（后端查询时 asc 顺序）
     "observations": [
-        {"date": "2026-09-15", "sqi": 87,
-         "delta_f": {"wood": -0.06, "fire": -0.41, "earth": -0.15, "metal": -0.04, "water": -0.62},
-         "v_obs": {"wood": 47.6, "fire": 33.6, "earth": 44.0, "metal": 48.4, "water": 25.2},
-         "syndrome_hint": "气结状态 74% 特征匹配，湿遏指标上升"},
-        {"date": "2026-09-12", "sqi": 82,
-         "delta_f": {"wood": -0.08, "fire": -0.38, "earth": -0.12, "metal": -0.05, "water": -0.58},
-         "v_obs": {"wood": 45.2, "fire": 35.8, "earth": 45.5, "metal": 47.8, "water": 27.8},
-         "syndrome_hint": "湿遏初现苗头，气结 68%"},
-        {"date": "2026-09-10", "sqi": 91,
-         "delta_f": {"wood": -0.05, "fire": -0.44, "earth": -0.18, "metal": -0.03, "water": -0.55},
-         "v_obs": {"wood": 48.8, "fire": 32.1, "earth": 42.2, "metal": 49.2, "water": 29.1},
-         "syndrome_hint": "火形分量下降明显"},
-        {"date": "2026-09-08", "sqi": 79,
-         "delta_f": {"wood": -0.07, "fire": -0.35, "earth": -0.14, "metal": -0.06, "water": -0.52},
-         "v_obs": {"wood": 46.5, "fire": 37.2, "earth": 44.8, "metal": 46.9, "water": 30.5},
-         "syndrome_hint": "第一次观测，基线建立"},
-        {"date": "2026-09-05", "sqi": 85,
-         "delta_f": {"wood": -0.04, "fire": -0.32, "earth": -0.10, "metal": -0.02, "water": -0.50},
-         "v_obs": {"wood": 49.2, "fire": 38.5, "earth": 46.1, "metal": 49.8, "water": 31.2},
-         "syndrome_hint": "基线"},
-        {"date": "2026-08-02", "sqi": 88,
-         "delta_f": {"wood": -0.03, "fire": -0.28, "earth": -0.08, "metal": -0.01, "water": -0.45},
-         "v_obs": {"wood": 50.1, "fire": 40.2, "earth": 47.3, "metal": 50.5, "water": 33.8},
-         "syndrome_hint": "出生事件校核，先天基底确认"},
-        {"date": "2026-07-18", "sqi": 90,
-         "delta_f": {"wood": -0.02, "fire": -0.25, "earth": -0.06, "metal": -0.01, "water": -0.42},
-         "v_obs": {"wood": 51.0, "fire": 41.8, "earth": 48.5, "metal": 50.8, "water": 35.2},
-         "syndrome_hint": "重要发现：木形基线比预期高"},
-        {"date": "2026-07-01", "sqi": 76,
-         "delta_f": {"wood": -0.01, "fire": -0.22, "earth": -0.05, "metal": 0.00, "water": -0.40},
-         "v_obs": {"wood": 52.0, "fire": 43.1, "earth": 49.5, "metal": 51.2, "water": 36.0},
-         "syndrome_hint": "第一次 PPG 观测"},
+        # day=1  07-18 18:00 — 首诊（假性充盈：土+0.60→74 临床为 S_土↓↓↓）
+        {"date": "2026-07-18", "sqi": 76,
+         "delta_f": {"wood": -0.36, "fire": +0.62, "earth": +0.60, "metal": -0.28, "water": -0.60},
+         "v_obs": {"wood": 35.6, "fire": 74.8, "earth": 74.0, "metal": 38.8, "water": 26.0},
+         "syndrome_hint": "脾虚湿困+上热下寒·PPG土+0.60=假性充盈≠真旺"},
+        # day=2  07-18 18:01 — 重复采集
+        {"date": "2026-07-18", "sqi": 77,
+         "delta_f": {"wood": -0.35, "fire": +0.67, "earth": +0.60, "metal": -0.28, "water": -0.60},
+         "v_obs": {"wood": 36.0, "fire": 76.8, "earth": 74.0, "metal": 38.8, "water": 26.0},
+         "syndrome_hint": "脾虚湿困+上热下寒"},
+        # day=3  07-21 18:17 — 湿热化火（心率84.8·舌厚黄苔·肝俞痛）
+        {"date": "2026-07-21", "sqi": 74,
+         "delta_f": {"wood": -0.31, "fire": +0.75, "earth": +0.60, "metal": -0.25, "water": -0.60},
+         "v_obs": {"wood": 37.6, "fire": 80.0, "earth": 74.0, "metal": 40.0, "water": 26.0},
+         "syndrome_hint": "湿热化火·舌厚黄苔·肝俞痛"},
+        # day=4  08-02 15:57 — 气滞血瘀（置信度88%·服药前）
+        {"date": "2026-08-02", "sqi": 84,
+         "delta_f": {"wood": +0.50, "fire": -0.25, "earth": -0.35, "metal": +0.40, "water": -0.60},
+         "v_obs": {"wood": 70.0, "fire": 40.0, "earth": 36.0, "metal": 66.0, "water": 26.0},
+         "syndrome_hint": "气滞血瘀（置信度88%）"},
+        # day=5  08-02 16:06 — 火衰（温差趋零）
+        {"date": "2026-08-02", "sqi": 63,
+         "delta_f": {"wood": +0.32, "fire": -0.51, "earth": -0.44, "metal": +0.26, "water": -0.60},
+         "v_obs": {"wood": 62.8, "fire": 29.6, "earth": 32.4, "metal": 60.4, "water": 26.0},
+         "syndrome_hint": "火衰（温差趋零）"},
+        # day=6  08-02 16:17 — 收敛正常（服方后）
+        {"date": "2026-08-02", "sqi": 84,
+         "delta_f": {"wood": +0.11, "fire": -0.07, "earth": -0.13, "metal": +0.09, "water": +0.11},
+         "v_obs": {"wood": 54.4, "fire": 47.2, "earth": 44.8, "metal": 53.6, "water": 54.4},
+         "syndrome_hint": "五形趋于正常（肝气郁结44%）"},
+        # day=7  08-02 16:23 — 收敛正常
+        {"date": "2026-08-02", "sqi": 85,
+         "delta_f": {"wood": +0.15, "fire": -0.02, "earth": -0.12, "metal": +0.12, "water": +0.19},
+         "v_obs": {"wood": 56.0, "fire": 49.2, "earth": 45.2, "metal": 54.8, "water": 57.6},
+         "syndrome_hint": "五形趋于正常（肝气郁结53%）"},
+        # day=8  09-08 12:50 — 服方on（v5.7桂枝汤·透火郁主频效验）
+        {"date": "2026-09-08", "sqi": 80,
+         "delta_f": {"wood": +0.07, "fire": +0.15, "earth": -0.07, "metal": +0.06, "water": +0.10},
+         "v_obs": {"wood": 52.8, "fire": 56.0, "earth": 47.2, "metal": 52.4, "water": 54.0},
+         "syndrome_hint": "正常脉象（服方on·透火郁主频效验）"},
+        # day=9  09-08 12:51 — 服方on
+        {"date": "2026-09-08", "sqi": 85,
+         "delta_f": {"wood": +0.04, "fire": +0.18, "earth": -0.01, "metal": +0.03, "water": +0.18},
+         "v_obs": {"wood": 51.6, "fire": 57.2, "earth": 49.6, "metal": 51.2, "water": 57.2},
+         "syndrome_hint": "正常脉象（服方on）"},
+        # day=10 09-10 16:08 — 停药off（on-off验证·肝郁87%·水亏）
+        {"date": "2026-09-10", "sqi": 71,
+         "delta_f": {"wood": +0.13, "fire": -0.13, "earth": -0.22, "metal": +0.10, "water": -0.29},
+         "v_obs": {"wood": 55.2, "fire": 44.8, "earth": 41.2, "metal": 54.0, "water": 38.4},
+         "syndrome_hint": "停药off·肝郁87%·水亏-0.29"},
+        # day=11 09-12 18:35 — 爬山后气阴两虚
+        {"date": "2026-09-12", "sqi": 71,
+         "delta_f": {"wood": -0.19, "fire": -0.22, "earth": -0.24, "metal": -0.15, "water": -0.21},
+         "v_obs": {"wood": 42.4, "fire": 41.2, "earth": 40.4, "metal": 44.0, "water": 41.6},
+         "syndrome_hint": "气阴两虚·清阳不升"},
+        # day=12 09-15 11:25 — 湿遏·火衰-0.41·水滞-0.62
+        {"date": "2026-09-15", "sqi": 59,
+         "delta_f": {"wood": +0.03, "fire": -0.44, "earth": -0.27, "metal": +0.02, "water": -0.60},
+         "v_obs": {"wood": 51.2, "fire": 32.4, "earth": 39.2, "metal": 50.8, "water": 26.0},
+         "syndrome_hint": "湿遏·火衰-0.41·水滞-0.62"},
     ],
 
     # 方案版本链（9 版）

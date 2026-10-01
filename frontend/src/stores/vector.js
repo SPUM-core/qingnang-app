@@ -17,6 +17,8 @@ export const useVectorStore = defineStore('vector', {
     plans: [],            // /treatment/versions 返回的版本链
     loading: false,
     error: null,
+    // v0.2 三曲线轨迹数据
+    trajectory: null,     // { target: [{t,score}], actual: [{t,score}], events: [...] }
     // ── CaseDetailView 需要的扩展 mock 字段（dev seed 未建档时 fallback）──
     casePatient: null,
     casePathogenesis: [],
@@ -201,6 +203,11 @@ export const useVectorStore = defineStore('vector', {
           this.plans = pr.data
         } catch {}
 
+        // v0.2 三曲线轨迹
+        try {
+          await this.fetchTrajectory()
+        } catch {}
+
         this.trendState = 'treatment_active'
         return d
       } catch (e) {
@@ -223,6 +230,53 @@ export const useVectorStore = defineStore('vector', {
         const r = await api.get('/api/v1/ppg/history')
         return r.data  // [{ sqi, delta_f, v_obs, syndrome_hint, observed_at }]
       } catch { return [] }
+    },
+
+    async fetchTrajectory() {
+      try {
+        const r = await api.get('/api/v1/cases/trajectories')
+        const d = r.data
+        // 兼容：actual_elements 有就用它，否则 fallback 从 actual.v_obs 提取
+        let elements = d.actual_elements || []
+        if (elements.length === 0 && d.actual?.length > 0) {
+          elements = d.actual.map((p, i) => ({
+            day: p.day ?? i + 1,
+            t: p.t,
+            wood: p.v_obs?.wood ?? 50,
+            fire: p.v_obs?.fire ?? 50,
+            earth: p.v_obs?.earth ?? 50,
+            metal: p.v_obs?.metal ?? 50,
+            water: p.v_obs?.water ?? 50,
+          }))
+        }
+        if (d && (d.actual?.length > 0 || elements.length > 0)) {
+          this.trajectory = {
+            target: d.target || [],
+            actual: d.actual || [],
+            actual_elements: elements,
+            // ── SPUM v1 新字段（后端 trajectories 端点升级后自动透传）──
+            algorithm: d.algorithm,
+            elems: d.elems || elements,
+            driftData: d.driftData,
+            yinTop: d.yinTop,
+            yangBot: d.yangBot,
+            diseaseModes: d.diseaseModes,
+            elArr: d.elArr,
+            spum_healthy_zone: d.spum_healthy_zone,
+            // ── 老字段（兼容）──
+            innate_elements: d.innate_elements || d.v_innate || {},
+            v_innate: d.v_innate,
+            events: d.events || [],
+            health_zone: d.health_zone,
+          }
+        } else {
+          this.trajectory = null
+        }
+        return this.trajectory
+      } catch {
+        this.trajectory = null
+        return null
+      }
     },
 
     setTimePoint(t) { this.timeRange = t },

@@ -39,7 +39,8 @@ STRIP_WORDS = [
 
 
 def compliance_filter(text: str) -> str:
-    """LLM 输出合规后处理 — 替换禁用词，添加合规声明"""
+    """LLM 输出合规后处理 — 替换禁用词 + 去重相邻重复"""
+    import re
     if not text:
         return text
     # 1. 整词替换
@@ -48,6 +49,8 @@ def compliance_filter(text: str) -> str:
     # 2. 直接剔除的短语
     for bad in STRIP_WORDS:
         text = text.replace(bad, "")
+    # 3. 去重相邻重复替换词（如 "苦寒药材/苦寒药材" → "苦寒药材"）
+    text = re.sub(r'([^/\s]+)[\s]*[\/、][\s]*\1', r'\1', text)
     return text
 
 
@@ -205,36 +208,232 @@ def _generate_generic_reply(user: User, db: Session, keyword: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════
+# 高频结构化问题 — 引擎直接返回，绕过 LLM
+# ═══════════════════════════════════════════════════════
+
+def _intent_shortcut(message: str, brief: dict | None) -> str | None:
+    """检测高频结构化问题，用 daily_brief 数据直接拼自然语言回答。
+
+    返回 None = 不是高频问题（走 LLM 路径）
+    返回 str = 引擎直接生成的回答（零延迟，确定性）
+    """
+    if not brief or not message:
+        return None
+
+    msg = message.lower()
+
+    # ── 颜色/穿搭类 ──
+    if any(k in msg for k in ("颜色", "穿什么", "配饰", "穿搭", "衣服", "好看")):
+        cloth = brief.get("cloth", [])
+        if not cloth:
+            return None
+        lines = []
+        cloth_ok = [c for c in cloth if "宜穿" in c["title"]]
+        cloth_bad = [c for c in cloth if c["title"].startswith("避免") or "忌" in c["title"]]
+        accessories = [c for c in cloth if "配饰" in c["title"]]
+
+        if cloth_ok:
+            colors = [c["title"].replace("宜穿：", "").replace("色系", "") for c in cloth_ok]
+            lines.append("根据你的 SPUM 状态，推荐你试试 %s。" % "、".join(colors))
+            for c in cloth_ok[:2]:
+                lines.append("  · %s —— %s" % (c["title"], c["desc"]))
+        if accessories:
+            for a in accessories:
+                lines.append("另外，%s。" % a["desc"])
+        if cloth_bad:
+            lines.append("要注意 %s。" % "、".join(c["title"] for c in cloth_bad[:2]))
+        return "\n".join(lines)
+
+    # ── 食物/饮食类 ──
+    if any(k in msg for k in ("吃什么", "饮食", "食物", "推荐吃", "今天吃", "食谱", "早餐", "午餐", "晚餐")):
+        fg = brief.get("food_good", [])
+        fb = brief.get("food_bad", [])
+        if not fg and not fb:
+            return None
+        lines = []
+        anchor = brief.get("anchor", {})
+        state = anchor.get("state", "")
+        if state and state != "调和":
+            lines.append("你当前状态偏 %s，" % state)
+
+        if fg:
+            lines.append("今天推荐 %s。" % "、".join(f["title"] for f in fg))
+            for f in fg[:3]:
+                lines.append("  · %s —— %s" % (f["title"], f["desc"]))
+        if fb:
+            lines.append("这些尽量别碰：%s。" % "、".join(f["title"] for f in fb))
+        return "\n".join(lines)
+
+    # ── 宜忌/今日类 ──
+    if any(k in msg for k in ("宜忌", "宜什么", "忌什么", "今天注意", "今天宜", "今天忌", "今天适合", "今日宜忌")):
+        anchor = brief.get("anchor", {})
+        if not anchor:
+            return None
+        lines = []
+        gz = anchor.get("ganzhi", "")
+        if gz:
+            line = "今天是 %s 日" % gz
+            if anchor.get("chong"):
+                line += "，冲 %s" % anchor["chong"]
+            lines.append(line + "。")
+        if anchor.get("yi"):
+            lines.append("宜：%s。" % anchor["yi"])
+        if anchor.get("ji"):
+            lines.append("忌：%s。" % anchor["ji"])
+        state = anchor.get("state", "")
+        if state and state != "调和":
+            lines.append("你当前状态：%s。" % state)
+        return "\n".join(lines)
+
+    # ── 干支/日期类 ──
+    if any(k in msg for k in ("干支", "今天几号", "今天什么日", "今日干支")):
+        anchor = brief.get("anchor", {})
+        if not anchor or not anchor.get("ganzhi"):
+            return None
+        gz = anchor["ganzhi"]
+        line = "今天是 %s" % gz
+        if anchor.get("chong"):
+            line += "，冲 %s" % anchor["chong"]
+        line += "。"
+        return line
+
+    return None  # 不匹配任何高频 intent → 走 LLM
+
+
+# ═══════════════════════════════════════════════════════
 # 主路由 - /v1/assistant/chat
 # ═══════════════════════════════════════════════════════
 @router.post("/chat")
 async def chat(body: ChatIn,
                db: Session = Depends(get_db),
                current: User = Depends(get_current_user)):
-    """青囊管家 AI 对话"""
-    # 1. 构建 System Prompt
+    """青囊管家 AI 对话（Phase 4 — 全链路确定性产出物注入）
+
+    完整管线:
+      1. 构建 System Prompt（DB 查询用户上下文）
+      2. httpx.POST /v1/reasoning/daily_brief — 拿一揽子确定性产出物
+         （真干支 + 病理标签 + 食物宜忌 + 时辰养生 + 家居/穿搭建议 + 禁忌）
+      3. 把全量确定性产出物注入 system prompt
+      4. 调 qingmeng-engine chat completions（LLM 只做语言转述）
+      5. 合规后处理
+
+    LLM 职责降级：用温暖的口吻转述确定性产出物，不得编造日期/宜忌/食物。
+    """
+    # ── 1. 构建 System Prompt ──
     system_prompt = build_system_prompt(current, db)
 
-    # 2. 组装 messages
+    # ── 2. 拿 daily_brief 确定性产出物（3s timeout，失败静默）──
+    brief = None
+    case = db.query(Case).filter(Case.user_id == current.id).first()
+    v_for_engine = None
+    if case:
+        v_for_engine = case.v_current or case.v_baseline or case.v_innate
+    if v_for_engine:
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as tc:
+                tr = await tc.post(
+                    f"{settings.QINGMENG_URL}/v1/reasoning/daily_brief",
+                    json={"v_base": v_for_engine},
+                )
+                if tr.status_code == 200:
+                    brief = tr.json()
+        except Exception:
+            brief = None
+
+    # ── 3. NEW: 高频结构化问题 → 引擎直接返回自然语言（绕过 LLM）──
+    shortcut_reply = _intent_shortcut(body.message, brief)
+    if shortcut_reply is not None:
+        shortcut_reply = compliance_filter(shortcut_reply)
+        return {
+            "reply": shortcut_reply,
+            "engine": "engine_direct",
+            "latency_ms": 0,
+            "qingmeng_online": True,
+            "brief_context": brief,
+        }
+
+    # ── 4. 把 daily_brief 浓缩后注入 system prompt ──
+    if brief:
+        a = brief.get("anchor", {})
+        brief_sections = [
+            "",
+            "【今日背景数据 — 引擎生成，供你参考】",
+        ]
+
+        # ── 高频用户问题的数据优先放前面 ──
+
+        # 食物（"今天吃什么" 最高频）
+        fg = brief.get("food_good", [])
+        fb = brief.get("food_bad", [])
+        if fg:
+            brief_sections.append("推荐吃：" + "、".join(f['title'] for f in fg))
+        if fb:
+            brief_sections.append("避免吃：" + "、".join(f['title'] for f in fb))
+
+        # 颜色（"我适合什么颜色" 次高频）
+        cloth = brief.get("cloth", [])
+        if cloth:
+            cloth_items = []
+            for c in cloth:
+                if c["title"].startswith("宜穿"):
+                    cloth_items.append(c["title"].replace("宜穿：", ""))
+                elif "配饰" in c["title"]:
+                    cloth_items.append(c["title"])
+            if cloth_items:
+                brief_sections.append("适合颜色/配饰：" + "、".join(cloth_items))
+
+        # 宜忌（"今天宜忌什么"）
+        if a:
+            if a.get("yi"):
+                brief_sections.append("宜：" + a["yi"])
+            if a.get("ji"):
+                brief_sections.append("忌：" + a["ji"])
+
+        # 干支日期
+        if a:
+            line = "今日干支：" + a.get("ganzhi", "")
+            if a.get("chong"):
+                line += "，冲 " + a["chong"]
+            brief_sections.append(line)
+
+        # 诊断（放最后，因为容易让 LLM 陷入理论推演）
+        diag_sum = brief.get("diagnose_summary", "")
+        pathologies = brief.get("pathologies", [])
+        if diag_sum or pathologies:
+            brief_sections.append("用户状态：" + (a.get("state", "") + " · " + diag_sum if a.get("state") else diag_sum))
+            for p in pathologies[:2]:
+                brief_sections.append("  · " + p)
+
+        # 约束（软语气）
+        brief_sections += [
+            "",
+            "回答要求：",
+            "- 先看【今日背景数据】里的具体内容（推荐食物、适合颜色等），自然融入回答",
+            "- 用温暖的口吻，像朋友聊天一样，不要逐条罗列数据",
+            "- 可以补充生活化的解释",
+            "- 用户问'吃什么'优先用推荐食物，问'颜色'优先用适合颜色，不要长篇理论",
+            "",
+        ]
+
+        system_prompt = "\n".join(brief_sections) + "\n" + system_prompt
+
+    # ── 4. 组装 messages ──
     messages = [{"role": "system", "content": system_prompt}]
-    # 历史对话（最多 10 轮）
     for h in (body.history or [])[-10:]:
         if h.get("role") in ("user", "assistant"):
             messages.append({"role": h["role"], "content": h.get("content", "")})
     messages.append({"role": "user", "content": body.message})
 
-    # 3. 尝试调用 qingmeng-engine
+    # ── 5. 调用 qingmeng-engine chat completions ──
     qingmeng_ok = False
     latency_ms = 0
     reply_text = ""
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # 先测 health
             h = await client.get(f"{settings.QINGMENG_URL}/health")
             if h.status_code == 200:
                 qingmeng_ok = True
-                # 调用 chat
                 start = time.time()
                 r = await client.post(
                     f"{settings.QINGMENG_URL}/v1/chat/completions",
@@ -251,12 +450,12 @@ async def chat(body: ChatIn,
     except Exception as e:
         qingmeng_ok = False
 
-    # 4. Fallback：通用规则引擎（基于用户 v_base 动态生成）
+    # ── 6. Fallback：规则引擎 ──
     if not qingmeng_ok:
         reply_text = _generate_generic_reply(current, db, body.message)
         latency_ms = 0
 
-    # 5. 合规后处理 — 消费级非医疗定位
+    # ── 7. 合规后处理 ──
     reply_text = compliance_filter(reply_text)
 
     return {
@@ -264,6 +463,7 @@ async def chat(body: ChatIn,
         "engine": "qingmeng" if qingmeng_ok else "local_fallback",
         "latency_ms": latency_ms,
         "qingmeng_online": qingmeng_ok,
+        "brief_context": brief,
     }
 
 
@@ -287,8 +487,16 @@ async def health():
 # ═══════════════════════════════════════════════════════
 
 async def _forward_reasoning(path: str, payload: dict, db: Session, current: User) -> dict:
-    """通用推理代理：构造用户完整上下文 → 转发到 qingmeng-engine。"""
-    # 1. 注入用户上下文（如果 payload 里没给 v_base）
+    """通用推理代理（Phase 4 升级）。
+
+    完整管线:
+      1. 注入用户上下文（v_base 等）
+      2. 先调 /v1/reasoning/daily_brief 拿一揽子确定性产出物（base）
+      3. 再调 qingmeng-engine 对应推理端点拿 LLM 增强
+      4. LLM 可用 → merge（engine="daily_brief+llm"）
+         LLM 不可用 → daily_brief 直接返回（engine="daily_brief_only"）
+    """
+    # 1. 注入用户上下文（无建档时用健康默认值优雅降级）
     if not payload.get("v_base"):
         case = db.query(Case).filter(Case.user_id == current.id).first()
         if case:
@@ -301,9 +509,35 @@ async def _forward_reasoning(path: str, payload: dict, db: Session, current: Use
                 "chief_complaint": case.chief_complaint,
             }
         else:
-            raise HTTPException(status_code=400, detail="请先完成初始化建档")
+            _DEFAULT_HEALTHY_V = {"wood": 50, "fire": 50, "earth": 50, "metal": 50, "water": 50}
+            payload["v_base"] = _DEFAULT_HEALTHY_V
+            payload["v_current"] = _DEFAULT_HEALTHY_V
+            payload["user_meta"] = payload.get("user_meta") or {
+                "nickname": current.nickname,
+                "gender": current.gender,
+                "syndrome": "未建档",
+                "chief_complaint": "",
+                "fallback": True,
+            }
 
-    # 2. 尝试转发 qingmeng-engine
+    v_base = payload.get("v_base")
+
+    # ── 2. 先拿 daily_brief 全量确定性产出物（3s timeout）──
+    brief_base = None
+    if v_base:
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as tc:
+                tr = await tc.post(
+                    f"{settings.QINGMENG_URL}/v1/reasoning/daily_brief",
+                    json={"v_base": v_base},
+                )
+                if tr.status_code == 200:
+                    brief_base = tr.json()
+        except Exception:
+            brief_base = None
+
+    # ── 3. 调 qingmeng-engine LLM 推理端点 ──
+    llm_result = None
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
             r = await client.post(
@@ -311,13 +545,22 @@ async def _forward_reasoning(path: str, payload: dict, db: Session, current: Use
                 json=payload,
             )
             if r.status_code == 200:
-                data = r.json()
-                data["proxied_from"] = settings.QINGMENG_URL
-                return data
+                llm_result = r.json()
     except Exception:
         pass
 
-    # 3. Fallback：简单规则（最少保证有输出）
+    # ── 4. 组合结果 ──
+    if brief_base and llm_result:
+        llm_result["brief_base"] = brief_base
+        llm_result["engine"] = "daily_brief+llm"
+        llm_result["proxied_from"] = settings.QINGMENG_URL
+        return llm_result
+
+    if brief_base:
+        brief_base["engine"] = "daily_brief_only"
+        brief_base["path"] = path
+        return brief_base
+
     return _simple_fallback(path, payload)
 
 
@@ -401,7 +644,7 @@ async def reasoning_lifestyle(body: LifestyleIn,
 # ═══════════════════════════════════════════════════════
 
 async def _inject_user_context(payload: dict, db: Session, current: User) -> dict:
-    """与 _forward_reasoning 同样的上下文注入逻辑。"""
+    """注入用户五形向量上下文。无建档时用健康默认值优雅降级。"""
     if not payload.get("v_base"):
         case = db.query(Case).filter(Case.user_id == current.id).first()
         if case:
@@ -414,7 +657,17 @@ async def _inject_user_context(payload: dict, db: Session, current: User) -> dic
                 "chief_complaint": case.chief_complaint,
             }
         else:
-            raise HTTPException(status_code=400, detail="请先完成初始化建档")
+            # 优雅降级：健康五形调和默认值（SPUM 拓扑常数 12 附近）
+            _DEFAULT_HEALTHY_V = {"wood": 50, "fire": 50, "earth": 50, "metal": 50, "water": 50}
+            payload["v_base"] = _DEFAULT_HEALTHY_V
+            payload["v_current"] = _DEFAULT_HEALTHY_V
+            payload["user_meta"] = payload.get("user_meta") or {
+                "nickname": current.nickname,
+                "gender": current.gender,
+                "syndrome": "未建档",
+                "chief_complaint": "",
+                "fallback": True,  # 标记：未建档，使用默认值
+            }
     return payload
 
 
@@ -478,7 +731,9 @@ class BaziIn(BaseModel):
 @router.post("/reasoning/bazi")
 async def reasoning_bazi(body: BaziIn,
                          current: User = Depends(get_current_user)):
-    """八字推演 — 前端 onboarding 第一阶段用。"""
+    """八字推演 — 前端 onboarding 第一阶段用。
+    优先调 qingmeng-engine，不可达时用 lunar_python 本地 fallback。"""
+    # 1. 先调青檬引擎
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.post(
@@ -491,4 +746,137 @@ async def reasoning_bazi(body: BaziIn,
                 return data
     except Exception:
         pass
-    raise HTTPException(status_code=502, detail="青檬引擎不可达，请稍后重试")
+    # 2. fallback: lunar_python 本地推演
+    return _local_bazi_fallback(body)
+
+
+def _local_bazi_fallback(body: BaziIn) -> dict:
+    """lunar_python 本地八字推演 — 青檬引擎不可达时兜底。"""
+    from lunar_python import Solar
+
+    birth_date = body.birth_date                    # "1986-08-02"
+    birth_hour = body.birth_hour                    # "寅时（3-5点）" 或 None
+
+    # 解析日期
+    parts = birth_date.split('-')
+    y, m, d = int(parts[0]), int(parts[1]), int(parts[2])
+
+    # 时辰映射 → 小时
+    SHICHEN_HOUR = {
+        '子时': 23, '丑时': 1, '寅时': 3, '卯时': 5, '辰时': 7, '巳时': 9,
+        '午时': 11, '未时': 13, '申时': 15, '酉时': 17, '戌时': 19, '亥时': 21,
+    }
+    hour = 14  # 默认下午2点
+    if birth_hour:
+        for sc, h in SHICHEN_HOUR.items():
+            if sc in birth_hour:
+                hour = h
+                break
+
+    try:
+        solar = Solar.fromYmdHms(y, m, d, hour, 0, 0)
+        lunar = solar.getLunar()
+    except Exception as e:
+        return {
+            "bazi": "未知", "pillars": ["?", "?", "?", "?"],
+            "lunar_display": "", "true_solar_time": "", "longitude": 120.0,
+            "v_innate": _DEFAULT_V_INNATE, "engine": "local_fallback_error",
+            "message": f"日期解析失败: {e}",
+            "day_master": None, "health_index": None,
+        }
+
+    pillars = [
+        lunar.getYearInGanZhiExact(),
+        lunar.getMonthInGanZhiExact(),
+        lunar.getDayInGanZhiExact(),
+        lunar.getTimeInGanZhi(),
+    ]
+    gan_list = [
+        lunar.getYearGanExact(),
+        lunar.getMonthGanExact(),
+        lunar.getDayGanExact(),
+        lunar.getTimeGan(),
+    ]
+    zhi_list = [
+        lunar.getYearZhiExact(),
+        lunar.getMonthZhiExact(),
+        lunar.getDayZhiExact(),
+        lunar.getTimeZhi(),
+    ]
+
+    # ── 五行分布（直接计数法: 天干 1.0 + 地支藏干加权）──
+    TIANGAN_WXING = {'甲': 'wood', '乙': 'wood', '丙': 'fire', '丁': 'fire',
+                    '戊': 'earth', '己': 'earth', '庚': 'metal', '辛': 'metal',
+                    '壬': 'water', '癸': 'water'}
+    DIZHI_HIDDEN = {
+        '子': [('water', 1.0)],
+        '丑': [('earth', 0.6), ('metal', 0.3), ('water', 0.1)],
+        '寅': [('wood', 0.6), ('fire', 0.3), ('earth', 0.1)],
+        '卯': [('wood', 1.0)],
+        '辰': [('earth', 0.5), ('wood', 0.3), ('water', 0.2)],
+        '巳': [('fire', 0.6), ('metal', 0.3), ('earth', 0.1)],
+        '午': [('fire', 0.7), ('earth', 0.3)],
+        '未': [('earth', 0.6), ('fire', 0.3), ('wood', 0.1)],
+        '申': [('metal', 0.5), ('water', 0.3), ('earth', 0.2)],
+        '酉': [('metal', 1.0)],
+        '戌': [('earth', 0.5), ('metal', 0.3), ('fire', 0.2)],
+        '亥': [('water', 0.7), ('wood', 0.3)],
+    }
+
+    raw = {'wood': 0.0, 'fire': 0.0, 'earth': 0.0, 'metal': 0.0, 'water': 0.0}
+    for i in range(4):
+        raw[TIANGAN_WXING.get(gan_list[i], 'earth')] += 1.0   # 天干各 1.0
+        for wx, pct in DIZHI_HIDDEN.get(zhi_list[i], [('earth', 1.0)]):
+            raw[wx] += pct                                     # 地支藏干加权
+
+    total = sum(raw.values()) or 1.0  # 恒 ≈ 8.0（4天+4支藏干和各1.0）
+    v_innate = {k: round(v / total * 100, 1) for k, v in raw.items()}
+
+    # ── 日主旺衰分析 ──
+    DAY_GAN = gan_list[2]            # 日干 = 日主
+    DAY_MASTER = TIANGAN_WXING.get(DAY_GAN, 'earth')
+    # 简化版旺衰: 日主五形得分 vs 月令 + 其他干支同帮
+    day_master_score = raw[DAY_MASTER]
+    # 月令旺度（月支同五形 = 旺 +1.0，生我 = 相 +0.5，我生/我克/克我 = 休囚 -0.3）
+    MONTH_ZHI_WXING = DIZHI_HIDDEN[zhi_list[1]][0][0] if zhi_list[1] in DIZHI_HIDDEN else 'earth'
+
+    # ── 农历精简呈现（只留核心字段）──
+    try:
+        lunar_cn = lunar.toString()   # "一九八七年七月二十"
+        zodiac_year = lunar.getYearShengXiao()  # "兔"
+        # 纳音（只取年柱+日柱）
+        na_yin_year = lunar.getYearNaYin()
+        na_yin_day = lunar.getDayNaYin()
+    except Exception:
+        lunar_cn = ""
+        zodiac_year = ""
+        na_yin_year = ""
+        na_yin_day = ""
+
+    return {
+        "bazi": "/".join(pillars),
+        "pillars": pillars,
+        "ganzhi_year": pillars[0],
+        "ganzhi_month": pillars[1],
+        "ganzhi_day": pillars[2],
+        "ganzhi_hour": pillars[3],
+        # ── 精简农历呈现 ──
+        "lunar_display": lunar_cn,                          # "一九八七年七月二十"
+        "zodiac_year": zodiac_year,                         # "兔"
+        "nayin_year": na_yin_year,                          # "炉中火"
+        "nayin_day": na_yin_day,                            # "海中金"
+        # ── 日主旺衰 ──
+        "day_master": DAY_GAN,                              # "甲"
+        "day_master_element": DAY_MASTER,                   # "wood"
+        "day_master_score": round(day_master_score, 2),     # 原始计数
+        # ── 其他 ──
+        "lunar_raw": lunar.toFullString(),                  # 完整农历（保留可选）
+        "true_solar_time": "",
+        "longitude": 120.0,
+        "v_innate": v_innate,
+        "engine": "local_fallback",
+        "message": "青檬引擎不可达，使用本地 lunar_python 推演",
+    }
+
+
+_DEFAULT_V_INNATE = {'wood': 50, 'fire': 50, 'earth': 50, 'metal': 50, 'water': 50}

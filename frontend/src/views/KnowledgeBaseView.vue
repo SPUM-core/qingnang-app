@@ -1,6 +1,5 @@
 <template>
-  <section class="page kb">
-    <div class="kb-head">
+  <div class="kb-head">
       <div>
         <h1>知识卡片</h1>
         <p class="kb-desc">系统根据你的数字模型，为你推荐这些内容</p>
@@ -61,7 +60,6 @@
     </div>
 
     <p v-if="!filteredItems.length" class="placeholder">暂无匹配的知识卡片</p>
-  </section>
 </template>
 
 <script setup>
@@ -119,7 +117,7 @@ function openItem(item) {
 </script>
 
 <style scoped>
-.kb { max-width: 1400px; }
+/* max-width 由全局 .page 统一管理（1200px） */
 
 .kb-head {
   display: flex; justify-content: space-between; align-items: flex-end;
@@ -215,4 +213,11 @@ function openItem(item) {
 .kb-card-author { font-weight: 500; color: var(--ink-secondary); }
 
 .placeholder { color: var(--ink-tertiary); text-align: center; padding: 40px; font-size: 13px; }
+
+/* ── 纵向屏（portrait）/窄屏：卡片单列、减 padding ── */
+@media (orientation: portrait), (max-width: 480px) {
+  .kb-grid { grid-template-columns: 1fr; gap: 12px; }
+  .kb-head { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .kb-banner { padding: 10px 12px; }
+}
 </style>

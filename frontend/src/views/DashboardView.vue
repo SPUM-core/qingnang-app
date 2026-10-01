@@ -58,14 +58,41 @@
 
     <!-- ════ 第二行：体质调理曲线 + 今日时空锚点（横屏并列） ════ -->
     <div class="top-row">
-      <!-- 左：体质调理曲线（折线图） -->
+      <!-- 左：体质调理曲线（v0.2 三曲线架构） -->
       <div class="card chart-card">
         <div class="card-head">
-          <h2>体质调理曲线</h2>
-          <span class="chip-dv">ΔV {{ vectorStore.trendStateLabel }}</span>
+          <h2>体质曲线</h2>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button
+              @click="demoCase = 'hu'"
+              :style="{
+                padding: '3px 10px',
+                fontSize: 11,
+                border: `1px solid ${demoCase==='hu' ? '#1A4D45' : '#d0d0cb'}`,
+                background: demoCase==='hu' ? '#1A4D45' : 'transparent',
+                color: demoCase==='hu' ? '#fff' : '#6B7277',
+                borderRadius: 4,
+                cursor: 'pointer'
+              }">临床视图</button>
+            <button
+              @click="demoCase = 'zy'"
+              :style="{
+                padding: '3px 10px',
+                fontSize: 11,
+                border: `1px solid ${demoCase==='zy' ? '#1A4D45' : '#d0d0cb'}`,
+                background: demoCase==='zy' ? '#1A4D45' : 'transparent',
+                color: demoCase==='zy' ? '#fff' : '#6B7277',
+                borderRadius: 4,
+                cursor: 'pointer'
+              }">终身视图 · 曾银鸾</button>
+            <span class="chip-dv" style="margin-left:4px;">
+              {{ driftTrajectory ? '综合健康得分' : ('ΔV ' + vectorStore.trendStateLabel) }}
+            </span>
+          </div>
         </div>
         <DriftChart
-          v-if="driftSeries.length"
+          v-if="driftTrajectory || driftSeries.length"
+          :trajectory="driftTrajectory"
           :series="driftSeries"
           height="260px"
           class="curve-chart"
@@ -332,6 +359,7 @@ import RadarChart from '../components/charts/RadarChart.vue'
 import DriftChart from '../components/charts/DriftChart.vue'
 import TodoCard from '../components/TodoCard.vue'
 import QIcon from '../components/ui/QIcon.vue'
+import { MOCK_TRAJECTORY, ZY_LIFETIME_TRAJECTORY, ZY_SPUM_FULL_82, isMockMode } from '../constants/mock'
 
 const router = useRouter()
 
@@ -445,6 +473,19 @@ const stoneSelect = computed(() => stoneReminders.value)
 const vectorStore = useVectorStore()
 const userStore = useUserStore()
 const health = ref({ ok: false })
+
+// v0.2 三曲线 trajectory：真实数据优先 → mock fallback → 旧模式降级
+const demoCase = ref('hu')   // 'hu' = 胡运涛临床视图, 'zy' = 曾银鸾终身视图
+const driftTrajectory = computed(() => {
+  // 终身视图（演示用 — SPUM 三曲线新算法）
+  if (demoCase.value === 'zy') return ZY_SPUM_FULL_82
+  // 1. 真实数据优先（vectorStore.fetchTrajectory 拉后端 /cases/trajectories）
+  if (vectorStore.trajectory?.actual?.length > 0) return vectorStore.trajectory
+  // 2. 后端不可用时（health check 没过）→ mock
+  if (isMockMode(health.value)) return MOCK_TRAJECTORY
+  // 3. 后端可用但暂无观测 → null（降级到旧 ΔV 漂移线模式）
+  return null
+})
 
 const vBase = computed(() => vectorStore.vBase)
 const latestObs = computed(() => vectorStore.latestObs)
@@ -739,7 +780,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.home { max-width: 1400px; }
+/* max-width 由全局 .page 统一管理（1200px） */
 
 /* ── 问候头部 ── */
 .home-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; }

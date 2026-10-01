@@ -13,7 +13,10 @@ const routes = [
   // onboarding: 全屏独占 · 需登录 · 已建档用户自动跳主页 · 未建档用户访问任意页自动跳这里
   { path: '/onboarding', name: 'onboarding', component: () => import('../views/QuestionnaireView.vue'),
     meta: { title: '用户初始化', hidden: true, fullScreen: true, requireAuth: true } },
-  { path: '/collect', name: 'collect', component: () => import('../views/CollectView.vue'), meta: { title: '体态照片/语音样本采集' } },
+  { path: '/collect', name: 'collect', component: () => import('../views/CollectView.vue'), meta: { title: '数据采集' } },
+  { path: '/collect/body', name: 'collect-body', component: () => import('../views/BodyPhotoView.vue'), meta: { title: '体态照片' } },
+  { path: '/collect/voice', name: 'collect-voice', component: () => import('../views/VoiceSampleView.vue'), meta: { title: '语音样本' } },
+  { path: '/collect/ppg', name: 'collect-ppg', component: () => import('../views/PpgCollectView.vue'), meta: { title: '脉搏采集' } },
 
   // 发现页（知识 + 商城 合并）
   { path: '/discover', name: 'discover', component: () => import('../views/DiscoverView.vue'), meta: { title: '发现' } },

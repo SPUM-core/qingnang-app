@@ -122,7 +122,14 @@ export function lifestyleStream({ onGenerating, onComplete, onNote, onError }) {
     body: JSON.stringify({}),
   }).then(async (response) => {
     if (!response.ok || !response.body) {
-      throw new Error(`HTTP ${response.status}`)
+      // 尝试读取后端返回的 detail 信息（FastAPI 的 HTTPException 会放在 body 里）
+      let detail = `HTTP ${response.status}`
+      try {
+        const errBody = await response.clone().text()
+        const j = JSON.parse(errBody)
+        if (j?.detail) detail = `HTTP ${response.status}: ${typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail)}`
+      } catch {}
+      throw new Error(detail)
     }
     const reader = response.body.getReader()
     const decoder = new TextDecoder()

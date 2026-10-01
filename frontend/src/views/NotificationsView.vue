@@ -313,7 +313,7 @@ const categories = computed(() => [
 </script>
 
 <style scoped>
-.reminders { max-width: 1400px; }
+/* max-width 由全局 .page 统一管理（1200px） */
 
 /* 今日时空卡片 */
 .today-card {
@@ -415,7 +415,10 @@ const categories = computed(() => [
 
 .footer-notice { font-size: 11px; color: var(--ink-tertiary); margin-top: 20px; text-align: center; line-height: 1.6; padding: 0 10px; }
 
-@media (max-width: 720px) {
+@media (max-width: 720px), (orientation: portrait) {
   .today-grid { grid-template-columns: repeat(2, 1fr); }
+  .card-grid { grid-template-columns: 1fr; gap: 12px; }
+  .today-card { padding: 12px 14px; }
+  .rem-card { padding: 14px 14px; }
 }
 </style>

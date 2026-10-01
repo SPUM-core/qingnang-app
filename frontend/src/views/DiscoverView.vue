@@ -54,8 +54,6 @@ watch(() => route.query.tab, (t) => {
 </script>
 
 <style scoped>
-.discover { max-width: 100%; }
-
 .discover-tabs {
   display: flex; gap: 0; margin: 0 16px 8px;
   background: #fff; border: 1px solid var(--ink-line); border-radius: 12px;
@@ -74,5 +72,10 @@ watch(() => route.query.tab, (t) => {
   color: #fff;
   background: linear-gradient(135deg, var(--qingnang-emerald) 0%, var(--qingnang-emerald-dark) 100%);
   font-weight: 600;
+}
+
+/* 纵向屏：tab 自适应宽度 */
+@media (orientation: portrait) {
+  .discover-tabs { margin: 0 0 8px; }
 }
 </style>
