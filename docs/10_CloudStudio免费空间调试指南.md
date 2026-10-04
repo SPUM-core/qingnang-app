@@ -9,19 +9,20 @@
 |---|---|
 | 空间名称 | `qingnang-app` |
 | 空间描述 | 青囊生活管家 · FastAPI 后端 + Vue3 前端调试 |
-| 代码来源 | **导入仓库** → `https://gitee.com/space-particle-universe-model/qingnang-app.git` |
+| 代码来源 | **导入仓库** → GitHub → `SPUM-core/qingnang-app`（私有仓库；若弹出 repo 权限授权页，完成授权并 Grant `SPUM-core` 组织） |
 | 开发环境 | All in One（full 1.0.0，自带 Python + Node） |
 | 规格配置 | 免费版 1核2GB / 8GB |
 
 ## 二、导入前：本地先提交推送（重要）
 
-本地有未提交改动，云端只会拉到已推送的代码：
+本地有未提交改动，云端只会拉到已推送的代码。当前为 Gitee + GitHub 双远仓：
 
 ```bash
 cd E:\工作\qingnang-APP
 git add -A
-git commit -m "sync: 推送本地改动供 Cloud Studio 调试"
-git push origin
+git commit -m "sync: 推送本地改动"
+git push origin   # Gitee
+git push github   # GitHub（Cloud Studio 从这里拉）
 ```
 
 ## 三、进入空间后的初始化
