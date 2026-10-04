@@ -135,16 +135,11 @@ def get_reports(db: Session = Depends(get_db),
 import math
 from datetime import datetime, timedelta
 
-def _health_score (v: dict) -> float:
-    """综合健康得分：0-100，越高越收敛到健康多面体 H (50,50,50,50,50)"""
-    dims = ['wood', 'fire', 'earth', 'metal', 'water']
-    total_sq = 0.0
-    for k in dims:
-        val = v.get(k, 50)
-        if val is None or not isinstance(val, (int, float)):
-            val = 50
-        total_sq += (val - 50) ** 2
-    return round((100 - math.sqrt(total_sq / 5)) * 10, 1)
+# _health_score (v1 启发式 欧氏距离→健康度) 已于 2026-10-02 删除。
+# 统一使用 trajectory_algorithm.compute_health_bounds_v2 的 health_score 字段
+# （基于 SPUM2611 σ 密度场 + 越界深度 + 不完美修正 + dv/dt 钳制）。
+# v2 health_score ∈ [0,1]，前端展示时 × 100 转百分比。
+# _target_curve 保留（指数收敛曲线本身不含理论假设）。
 
 def _target_curve (start_score: float, target_score: float, n_points: int) -> list:
     """指数收敛目标曲线：从 start → target，缓 S 曲线"""
@@ -200,14 +195,13 @@ def get_trajectories(db: Session = Depends(get_db),
             "v_innate": case.v_innate, "v_baseline": case.v_baseline,
         }
 
-    # 计算每个观测点的健康得分
+    # 计算每个观测点的健康得分（统一用 v2 SPUM health_score，在循环后批量注入）
     dims = ['wood', 'fire', 'earth', 'metal', 'water']
     actual_points = []
     actual_scores = []
     actual_elements = []  # per-element 分量时间序列
     for i, ob in enumerate(obs_list):
         v = ob.v_obs or {}
-        hs = _health_score(v)
         t = ob.observed_at
         if t:
             t_str = t.strftime('%m-%d')
@@ -216,12 +210,11 @@ def get_trajectories(db: Session = Depends(get_db),
         actual_points.append({
             'day': i + 1,
             't': t_str,
-            'score': hs,
+            'score': None,  # 将在 v2 compute_health_bounds_v2 后注入
             'observed_at': t.isoformat() if t else None,
             'v_obs': v,
             'syndrome_hint': ob.syndrome_hint,
         })
-        actual_scores.append(hs)
         # per-element — 带 paradoxFlags 和 syndromeHint
         paradox_flags = []
         try:
@@ -242,9 +235,20 @@ def get_trajectories(db: Session = Depends(get_db),
             'paradoxFlags': paradox_flags,
         })
 
-    # 目标收敛曲线：从第一个观测得分 → 72（健康区带中心）
+    # ═══ 统一用 v2 SPUM health_score（替代 v1 _health_score 启发式）═══
+    # health_score 不依赖 events（σ × 越界深度 × 不完美修正 × dv/dt 钳制），
+    # 提前调用拿分数，供 target 曲线和波动推断使用。
+    innate_ref = case.v_innate or {k: 50 for k in dims}
+    spum_bounds_v2_pre = compute_health_bounds_v2(actual_elements, innate_ref, events=None)
+    # health_score ∈ [0,1]，× 100 转前端展示百分比
+    v2_scores = [round(s * 100, 1) for s in spum_bounds_v2_pre['health_score']]
+    for i, pt in enumerate(actual_points):
+        pt['score'] = v2_scores[i] if i < len(v2_scores) else 50.0
+    actual_scores = v2_scores
+
+    # 目标收敛曲线：从第一个观测得分 → 90（v2 SPUM 健康区间中心，对齐 v2 实际范围）
     start_score = actual_scores[0]
-    target_scores = _target_curve(start_score, 72.0, len(actual_scores))
+    target_scores = _target_curve(start_score, 90.0, len(actual_scores))
     target_points = [{'day': i + 1, 't': p['t'], 'score': target_scores[i]}
                      for i, p in enumerate(actual_points)]
 
@@ -283,41 +287,16 @@ def get_trajectories(db: Session = Depends(get_db),
                 'scoreDelta': round(delta, 1),
             })
 
-    # ═══ 预设关键临床事件（基于病历 syndrome_hint 匹配）═══
-    PRESET_EVENTS = [
-        {'contains': '假性充盈', 'type': '悖论态', 'label': 'PPG土+0.60=假性充盈≠真旺',
-         'direction': '注意', 'isParadox': True},
-        {'contains': '湿热化火', 'type': '干预', 'label': 'v5.5方：薏苡仁+竹茹清湿热',
-         'direction': '收敛', 'scoreDelta': 3.5},
-        {'contains': '气滞血瘀', 'type': '排病', 'label': '湿泻+阳虚寒象暴露',
-         'direction': '短期发散', 'isSideEffect': True},
-        {'contains': '趋于正常', 'type': '干预', 'label': 'v5.7最小试探方·桂枝汤透火郁',
-         'direction': '收敛', 'scoreDelta': 8.2},
-        {'contains': '正常脉象', 'type': '收敛', 'label': '服方on·五形回归正常',
-         'direction': '收敛'},
-        {'contains': '停药off', 'type': '偏离', 'label': '停药on-off验证复发·肝郁87%',
-         'direction': '发散', 'scoreDelta': -6.3},
-        {'contains': '气阴两虚', 'type': '偏离', 'label': '爬山耗气·气阴两虚',
-         'direction': '发散', 'isSideEffect': True},
-        {'contains': '湿遏', 'type': '排病', 'label': '湿遏·火衰-0.41·重建v7.0苓桂术甘',
-         'direction': '短期发散', 'isSideEffect': True},
-    ]
-    for ev_def in PRESET_EVENTS:
-        for i, ob in enumerate(obs_list):
-            hint = (ob.syndrome_hint or '')
-            if ev_def['contains'] in hint:
-                day = i + 1
-                exists = any(e.get('day') == day and e.get('type') == ev_def['type'] for e in events)
-                if not exists:
-                    events.append({
-                        'day': day,
-                        'type': ev_def['type'],
-                        'label': ev_def['label'],
-                        'direction': ev_def['direction'],
-                        'scoreDelta': ev_def.get('scoreDelta', 0),
-                        'isParadox': ev_def.get('isParadox', False),
-                        'isSideEffect': ev_def.get('isSideEffect', False),
-                    })
+    # ═══ 自动推断临床事件（基于 Observation 的 syndrome_hint）═══
+    # 仅限 source='auto_infer' 级别启发式规则，已不再硬编码特定患者病历标签。
+    # 历史上的 PRESET_EVENTS（胡运涛/曾银鸾专属综合征推断规则）已于 2026-10-02 移除，
+    # 改为由前端事件编辑器手动写入 TrajectoryEvent 表。seed 脚本见
+    # backend/scripts/seed_clinical_events.py （可选，用于迁移历史病历事件）。
+    for i, ob in enumerate(obs_list):
+        hint = (ob.syndrome_hint or '')
+        # 未来可在这里添加通用的 syndrome_hint 自动推断规则，当前留空。
+        # 所有持久化事件统一由 TrajectoryEvent 表提供。
+        pass
 
     # ═══════════════════════════════════════════════════════
     # 叠加 trajectory_events 表（前端编辑器写入的持久化事件）
@@ -355,8 +334,10 @@ def get_trajectories(db: Session = Depends(get_db),
     # SPUM 三曲线计算 — v1 + v2 并行（向后兼容 + 新功能）
     # v1: compute_health_bounds (Y/X → EMA → 金属弹性)
     # v2: compute_health_bounds_v2 (S向量 + σ场 + 帧动力学 + dv/dt约束)
+    # 注：health_score 已在前面提前用 v2_pre 计算（不带 events），
+    #     保证与 target/波动推断的一致性；此处再调一次 v2（带 events）
+    #     仅用于 diseaseModes/frame_residues 等受事件影响的字段。
     # ═══════════════════════════════════════════════════════
-    innate_ref = case.v_innate or {k: 50 for k in dims}
     spum_bounds_v1 = compute_health_bounds(actual_elements, innate_ref)
     spum_bounds_v2 = compute_health_bounds_v2(actual_elements, innate_ref, events)
 
@@ -394,7 +375,7 @@ def get_trajectories(db: Session = Depends(get_db),
         'polytope_statuses': spum_bounds_v2['polytope_statuses'],
         'violation_depths': spum_bounds_v2['violation_depths'],
         'frame_residues': spum_bounds_v2['frame_residues'],
-        'health_score': spum_bounds_v2['health_score'],
+        'health_score': [s / 100.0 for s in actual_scores],  # 与 actual_points.score 同源
         'S_vectors': spum_bounds_v2['S_vectors'],
     }
 
@@ -407,16 +388,23 @@ def get_trajectories(db: Session = Depends(get_db),
 
 @router.get("/trajectories/year-view")
 def get_year_view(db: Session = Depends(get_db), current: User = Depends(get_current_user),
-                 start_year: int = 1957, end_age: int = 81):
+                 start_year: int | None = None, end_age: int = 81):
     """终身推演年视图 — 用 v_innate + 大运 + 事件构建每年 SPUM 三曲线
 
     Query params:
-      start_year: 起始年份（默认 1957 曾银鸾/1986 胡运涛可推断）
+      start_year: 起始年份（默认从 User.birth_date 自动推导；未传则 1990 兜底）
       end_age:    推演到几岁（默认 81）
     """
     case = db.query(Case).filter(Case.user_id == current.id).first()
     if not case:
         return {"message": "未初始化建档"}
+
+    # 2026-10-02 修复：默认 start_year 从 User.birth_date 推导
+    if start_year is None:
+        try:
+            start_year = int(str(current.birth_date)[:4]) if current.birth_date else 1990
+        except (ValueError, TypeError):
+            start_year = 1990
 
     innate = case.v_innate or {k: 50 for k in dims}
 
@@ -731,6 +719,169 @@ async def do_onboarding(body: dict, db: Session = Depends(get_db),
         "engine": engine,
         "v_innate": v_innate,
         "message": "初始化建档完成，请采集第一次 PPG 观测",
+    }
+
+
+@router.post("/reset")
+async def reset_my_case(db: Session = Depends(get_db),
+                        current: User = Depends(get_current_user)):
+    """重置当前用户的全部数据（"重新开始"按钮）。
+    清：Observations → TreatmentPlans → TrajectoryEvents → Case → User.is_onboarded=False
+    用户账号本身保留。"""
+    deleted = {"observations": 0, "plans": 0, "events": 0, "case": False}
+
+    case = db.query(Case).filter(Case.user_id == current.id).first()
+    if case:
+        cid = case.id
+        deleted["observations"] = db.query(Observation).filter(Observation.case_id == cid).delete()
+        deleted["plans"]       = db.query(TreatmentPlan).filter(TreatmentPlan.case_id == cid).delete()
+        deleted["events"]      = db.query(TrajectoryEvent).filter(TrajectoryEvent.case_id == cid).delete()
+        db.delete(case)
+        deleted["case"] = True
+
+    # 重置用户建档标记 + 清体质向量基底（让重新建档从白纸开始）
+    current.is_onboarded = False
+    current.v_base = None
+    db.commit()
+
+    logger.info(f"[reset] user={current.qingnang_id} 已重置: {deleted}")
+    return {"ok": True, "deleted": deleted, "message": "已重置，请重新建档"}
+
+
+@router.get("/today-todos")
+def get_today_todos(db: Session = Depends(get_db),
+                    current: User = Depends(get_current_user)):
+    """今日生活建议 Todo 聚合端点。
+
+    合并三个数据源 → 统一格式 Todo 卡片：
+      1. /notifications/today 的动态生活提醒（food_good + home + 睡眠类）
+      2. 最近 assistant 消息的 analysis.suggestions（AI 从对话中给出的建议）
+      3. LifeSignal 最近标签（给前端做"你聊过这些"提示）
+
+    返回结构:
+      todos: [{id, title, desc, icon, priority, source, route?}]
+      chief_complaint: str  # 自动回填到 Case 的主诉
+      recent_signals: [{tag, label, count}]  # 30 天聚合
+    """
+    import json as _json
+    from datetime import datetime, timedelta
+    from ...models import ChatMessage, LifeSignal
+
+    case = db.query(Case).filter(Case.user_id == current.id).first()
+    todos = []
+
+    # ═══ 数据源 1：notifications 生活提醒 ═══
+    try:
+        from .notifications import _generate_reminders
+        v = (case.v_baseline if case else None) or current.v_base or {}
+        if v:
+            rem = _generate_reminders(v)
+            # food_good → todo
+            for i, f in enumerate(rem.get("food_good", [])):
+                todos.append({
+                    "id": f"food-good-{i}",
+                    "title": f.get("title", ""),
+                    "desc": f.get("desc", ""),
+                    "icon": "🍜",
+                    "priority": "medium",
+                    "source": "lifestyle",
+                    "route": "/notifications",
+                })
+            # home → todo（最多 3 条）
+            for i, h in enumerate(rem.get("home", [])[:3]):
+                todos.append({
+                    "id": f"home-{i}",
+                    "title": h.get("title", ""),
+                    "desc": h.get("desc", ""),
+                    "icon": "🏠",
+                    "priority": "high" if h.get("urgent") else "medium",
+                    "source": "lifestyle",
+                    "route": "/notifications",
+                })
+    except Exception as e:
+        logger.info(f"[today-todos] notifications 源跳过: {e}")
+
+    # ═══ 数据源 2：AI 对话的 analysis.suggestions ═══
+    # 找最近 24h 的 assistant 消息，signals 里有 suggestions
+    cutoff = datetime.utcnow() - timedelta(hours=48)
+    recent_ai_msgs = db.query(ChatMessage).filter(
+        ChatMessage.user_id == current.id,
+        ChatMessage.role == "assistant",
+        ChatMessage.created_at >= cutoff,
+        ChatMessage.signals.isnot(None),
+    ).order_by(ChatMessage.created_at.desc()).all()
+
+    seen_titles = set()
+    for m in recent_ai_msgs:
+        signals = m.signals if isinstance(m.signals, dict) else {}
+        suggestions = signals.get("suggestions", [])
+        chief_complaint = signals.get("chief_complaint", "")
+
+        # 自动回填 chief_complaint
+        if chief_complaint and case and not case.chief_complaint:
+            case.chief_complaint = chief_complaint
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        for s in suggestions:
+            title = s.get("title", "")
+            if not title or title in seen_titles:
+                continue
+            seen_titles.add(title)
+            cat = s.get("category", "lifestyle")
+            icon_map = {"diet": "🍜", "herb": "🌿", "exercise": "🏃",
+                        "avoid": "⚠️", "lifestyle": "💡", "sleep": "🌙"}
+            todos.append({
+                "id": f"ai-{m.id}-{len(seen_titles)}",
+                "title": title,
+                "desc": s.get("detail", ""),
+                "icon": icon_map.get(cat, "💡"),
+                "priority": s.get("priority", "medium"),
+                "source": f"ai·{cat}",
+                "route": "/shop" if cat in ("diet", "herb") else "/discover",
+            })
+
+    # ═══ 数据源 3：LifeSignal 最近 30 天聚合 ═══
+    recent_signals = []
+    try:
+        cutoff30 = datetime.utcnow() - timedelta(days=30)
+        sigs = db.query(
+            LifeSignal.tag, LifeSignal.label,
+            func.count(LifeSignal.id).label("cnt")
+        ).filter(
+            LifeSignal.user_id == current.id,
+            LifeSignal.created_at >= cutoff30,
+        ).group_by(LifeSignal.tag, LifeSignal.label).order_by(
+            func.count(LifeSignal.id).desc()
+        ).limit(15).all()
+        # 聚合成 tag→count 摘要
+        tag_counts = {}
+        for tag, label, cnt in sigs:
+            tag_counts[tag] = tag_counts.get(tag, 0) + cnt
+            recent_signals.append({"tag": tag, "label": label, "count": cnt})
+    except Exception as e:
+        logger.info(f"[today-todos] signals 源跳过: {e}")
+
+    # 去重 todos（按 title）
+    deduped = []
+    seen = set()
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    for t in sorted(todos, key=lambda x: priority_order.get(x["priority"], 9)):
+        if t["title"] not in seen:
+            seen.add(t["title"])
+            deduped.append(t)
+
+    return {
+        "todos": deduped[:12],  # 最多 12 条
+        "total": len(deduped),
+        "chief_complaint": case.chief_complaint if case else "",
+        "recent_signals": recent_signals,
+        "sources": {
+            "lifestyle": len([t for t in deduped if t["source"] == "lifestyle"]),
+            "ai": len([t for t in deduped if t["source"].startswith("ai")]),
+        },
     }
 
 

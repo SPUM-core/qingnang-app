@@ -21,7 +21,19 @@ export const useUserStore = defineStore('user', {
   getters: {
     loggedIn:   (s) => !!s.token,
     onboarded:  (s) => s.isOnboarded,
-    displayName:(s) => s.nickname || s.qingnangId?.slice(0, 12) || '青囊用户',
+    /** 亲切名：去掉姓氏后的 1-2 字。如 "胡运涛" → "运涛"，"素娟" → "素娟"，null → "朋友" */
+    displayName:(s) => {
+      const raw = s.nickname?.trim()
+      if (!raw || raw.startsWith('青囊用户')) return '朋友'
+      // 单字名 → 直接返回
+      if (raw.length <= 2) return raw
+      // 多字 → 去掉姓氏（中文姓氏一般 1 字，欧阳/司马等复姓 2 字）
+      // 简化处理：先试去掉前 1 字，得到 2+ 字就返回；否则去掉前 2 字
+      const without1 = raw.slice(1)
+      if (without1.length >= 2) return without1
+      const without2 = raw.slice(2)
+      return without2 || raw
+    },
   },
   actions: {
     // 启动时从 localStorage 恢复登录态
@@ -119,6 +131,7 @@ export const useUserStore = defineStore('user', {
       try {
         const r = await api.post('/api/v1/cases/onboarding', data)
         this.isOnboarded = true
+        localStorage.setItem(LS_ONBOARD, 'true')  // ← 导航守卫依赖此 key
         localStorage.setItem(LS_USER, JSON.stringify({
           ...JSON.parse(localStorage.getItem(LS_USER) || '{}'),
           is_onboarded: true,

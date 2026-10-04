@@ -13,6 +13,18 @@ BACKEND_DIR = Path(__file__).resolve().parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+# ══ 理论源头桥接（唯一真源：e:/工作/qingnang/青囊/脉诊/理论）══
+# bridge.py / ppg_processing.py / syndrome_decoder.py 必须从理论真源 import，
+# 禁止在 backend/ 下维护副本（多源漂移 → 理论和实现脱节）
+_THEORY_DIR_CANDIDATES = [
+    Path(__file__).resolve().parent.parent.parent.parent / 'qingnang' / '青囊' / '脉诊' / '理论',
+    Path(r'e:/工作/qingnang/青囊/脉诊/理论'),
+]
+for _c in _THEORY_DIR_CANDIDATES:
+    if _c.is_dir() and str(_c) not in sys.path:
+        sys.path.insert(0, str(_c))
+        break
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware

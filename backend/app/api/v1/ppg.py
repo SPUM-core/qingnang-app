@@ -1,6 +1,7 @@
 """ppg - PPG 采集上传 + 查询 + 硬件 SSE 桥接"""
 import json
 import logging
+import math
 import sys
 import threading
 import time
@@ -15,10 +16,26 @@ from sqlalchemy.orm import Session
 from ...database import get_db
 from ...models import User, Case, Observation
 from ...config import settings
+from ...utils.trajectory_algorithm import normalize_S_effective
 from ..deps import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger("qingnang.ppg")
+
+
+def _sanitize_vector_dict(d: dict | None) -> dict:
+    """清洗五形向量字典中的 inf/nan → 0.0。"""
+    if not d:
+        return {}
+    out = {}
+    for k, v in d.items():
+        try:
+            f = float(v)
+            out[k] = f if math.isfinite(f) else 0.0
+        except (TypeError, ValueError):
+            out[k] = 0.0
+    return out
+
 
 
 # ═══════════════════════════════════════════════════════
@@ -68,6 +85,282 @@ _hw_lock = threading.Lock()
 
 # collect 模式下 SSE handler 缓存的完整 raw filtered 波形（upload handler 读取）
 _last_collect_raw_wave: list | None = None
+
+# ═══════════════════════════════════════════════════════
+# 统一 Monitor 模式（手指检测 → 开始采集 = 单一持续流）
+# ═══════════════════════════════════════════════════════
+# 核心思路：一个 monitor worker 持续读串口，2min 循环 buffer（deque maxlen=15000）
+#   - 点击「手指检测」 → start monitor 流，buffer 累积 + 示波 + 检出度判定
+#   - 点击「开始采集」 → 只打时间戳 mark_ts（**不重启硬件**）
+#   - mark_ts + 60s 到达 → slice buffer[mark_idx:mark_idx+7500] 作为采集段
+# 波形美化：归一化窗口 10s（原 2s）→ 幅值更稳，无跳变
+
+MONITOR_CIRCULAR_SEC = 180.0     # 循环 buffer 长度：3 分钟（给 mark 后留出 120s 缓冲）
+MONITOR_COLLECT_SEC = 60.0      # 采集段长度（从 mark 到 mark+60s）
+PARTIAL_WINDOW_SEC = 3.0        # 实时示波窗口
+NORM_WINDOW_SEC = 10.0          # 归一化滑动窗口（原 2s → 更稳）
+
+_monitor_result: dict = {
+    "status": "idle",            # idle / running / collecting / ready / error
+    "start_time": 0.0,
+    "elapsed": 0.0,
+    "port": "", "mode": "", "fs": 125.0,
+    "partial_wave": [],
+    "hr": None, "hrv": None,
+    "peak_count": 0,
+    "sample_count": 0,
+    "hb_confidence": 0.0,
+    # 采集相关（mark 后才有值）
+    "collect_mark_ts": None,      # mark 时刻（绝对时间戳）
+    "collect_mark_hw_total": 0,   # mark 时刻硬件总样本数（精确切片锚点）
+    "collect_elapsed": 0.0,       # mark 到 now 的秒数
+    "collect_wave_norm": [],      # ready 时完整采集段波形（~7500 点）
+    "error": None,
+}
+_monitor_thread: threading.Thread | None = None
+
+
+def _compute_hb_confidence(peak_times: list[float], current_hr: float | None) -> float:
+    """简化版心跳检出度：基于最近 10s 峰值数 + RR 间期稳定性 + 心率合理范围。"""
+    import time as _t
+    now = _t.time() * 1000   # ms
+    recent = [t for t in peak_times if now - t <= 10000]
+    n = len(recent)
+    if n < 3: return 0.0
+    # 3~5 个峰值：初步检出（30~50 BPM 合理范围下界）
+    if n < 5: return 0.3
+    if n < 7: return 0.45
+    ivs = [recent[i] - recent[i-1] for i in range(1, n)]
+    meanRR = sum(ivs) / len(ivs)
+    avgHR = round(60000 / meanRR)
+    # 检出率：10s 内合理 HR 下应该有 avgHR/60*10 个峰值
+    expected = max(5, min(20, round(avgHR / 60 * 10)))
+    detectionRate = min(1.0, n / expected)
+    # RR 间期一致性（cv=标准差/均值）
+    variance = sum((iv - meanRR) ** 2 for iv in ivs) / len(ivs)
+    cv = (variance ** 0.5) / meanRR
+    consistency = max(0.0, 1 - cv / 0.4)      # 放宽到 cv<0.4 才算一致
+    # 心率合理范围
+    hrOk = 1.0 if 40 <= avgHR <= 180 else (0.6 if avgHR > 0 else 0.0)
+    # 权重：检出率 40% + 一致性 35% + 心率合理 25%
+    return max(0.0, min(1.0, 0.40 * detectionRate + 0.35 * consistency + 0.25 * hrOk))
+
+
+def _run_monitor_worker(port: str | None = None, baud: int = 115200):
+    """统一 Monitor 线程：持续读串口 → 2min 循环 buffer + partial_wave + stats。
+
+    状态转换由前端通过 mark/stop 端点触发，worker 内部只负责：
+    1. 读硬件 → 归一化 → 写入 deque((timestamp, wave_norm), maxlen=15000)
+    2. 每 200ms 更新 stats / partial_wave 到 _monitor_result
+    3. 若 _monitor_result["collect_mark_ts"] 已设且 elapsed ≥ 60s → slice buffer → ready
+    """
+    from collections import deque as _deque
+    global _monitor_result, _hw_streamer
+    _monitor_result = {
+        **_monitor_result,
+        "status": "running",
+        "start_time": time.time(),
+        "elapsed": 0.0,
+        "port": "", "mode": "", "fs": 125.0,
+        "partial_wave": [],
+        "hr": None, "hrv": None,
+        "peak_count": 0, "sample_count": 0,
+        "hb_confidence": 0.0,
+        "collect_mark_ts": None,
+        "collect_elapsed": 0.0,
+        "collect_wave_norm": [],
+        "error": None,
+    }
+
+    try:
+        from ppg_acquisition import (CheezPPGStreamer, PPGStreamer, resolve_port, detect_format)
+    except ImportError as exc:
+        _monitor_result["status"] = "error"
+        _monitor_result["error"] = f"导入 ppg_acquisition 失败: {exc}"
+        return
+
+    def _ring_slice(streamer, channel: str, start_total: int, count: int) -> list:
+        """从 streamer 的环形 _buf 里精确截取 count 个样本。
+
+        Streamer 的 _buf[channel] 是 numpy 环形数组，样本序号 n 在 buf 位置 = n % buffer_size。
+        这比 worker 自维护 circular deque 精确得多——不依赖 worker 循环速度。
+        """
+        buf = streamer._buf[channel]
+        bs = streamer.buffer_size
+        total = streamer._total
+        result = []
+        for i in range(count):
+            n = start_total + i
+            if n >= total:
+                break
+            idx = n % bs
+            result.append(float(buf[idx]))
+        return result
+
+    streamer = None
+    try:
+        with _hw_lock:
+            if _hw_streamer is not None:
+                _hw_streamer.stop()
+                _hw_streamer = None
+
+            resolved_port = port or resolve_port()
+            if not resolved_port:
+                _monitor_result["status"] = "error"
+                _monitor_result["error"] = "未检测到串口"
+                return
+
+            fmt = detect_format(resolved_port, baud)
+            is_cheez = fmt["mode"] == "cheez"
+            Cls = CheezPPGStreamer if is_cheez else PPGStreamer
+            # buffer_seconds 够大装下预采集 + mark 后 60s 段 + 余量
+            buf_sec = max(MONITOR_CIRCULAR_SEC + MONITOR_COLLECT_SEC + 10, 90)
+            streamer = Cls(port=resolved_port, baud=baud, buffer_seconds=buf_sec)
+            if not streamer.connect():
+                _monitor_result["status"] = "error"
+                _monitor_result["error"] = f"连接 {resolved_port} 失败"
+                return
+
+            streamer.start(duration=None)
+            _hw_streamer = streamer
+            _monitor_result["port"] = resolved_port
+            _monitor_result["mode"] = fmt["mode"]
+            _monitor_result["fs"] = fmt["fs"]
+
+        # —— 锁外：monitor 主循环 ——
+        CIRCULAR_MAX = int(MONITOR_CIRCULAR_SEC * 125)   # 15000
+        PARTIAL_MAX = int(PARTIAL_WINDOW_SEC * 125)     # 375
+        NORM_MAX = int(NORM_WINDOW_SEC * 125)           # 1250
+
+        circular = _deque(maxlen=CIRCULAR_MAX)          # (timestamp, wave_norm, hw_sample_idx)
+        peaks: list[float] = []                         # 自检测峰值时刻(ms)
+        partial_wave: list[float] = []
+        _peak_buf: list[float] = []                      # 平滑值缓存，用于峰值检测
+        last_hr: float | None = None
+        last_hrv: float | None = None
+        _last_sample_seen = 0
+        _last_stats_copy_t = 0.0
+        _last_partial_copy_t = 0.0
+        prev_mark_ts = None
+
+        while streamer._running:
+            now = time.time()
+            latest = streamer._latest
+            sample_idx = streamer._total
+
+            if sample_idx <= _last_sample_seen:
+                time.sleep(0.005)
+                continue
+            _last_sample_seen = sample_idx
+
+            if is_cheez:
+                # SerialPlot 风格：用 smooth 列（保留 DC 基线 + 脉搏波动）
+                # Pulsesensor 空载 smooth≈208，放手指 smooth 在 400~600 之间跳
+                wn = float(latest.get("smooth", latest.get("filtered", 0)))
+            else:
+                wn = latest.get("adc", 0)
+
+            circular.append((now, round(wn, 4), sample_idx))
+            partial_wave.append(round(wn, 4))
+            if len(partial_wave) > PARTIAL_MAX:
+                partial_wave = partial_wave[-PARTIAL_MAX:]
+
+            # —— 自做峰值检测（不再依赖硬件 peak 列）——
+            _peak_buf.append(wn)
+            if len(_peak_buf) > 5:
+                _peak_buf = _peak_buf[-5:]
+            # 5 点窗口：v=[v0,v1,v2,v3,v4]
+            # 真正的峰形状：连续上升到 v2，再连续下降（v0<v1<v2>v3>v4）
+            # 且峰谷差 >= 5（防抖），最小间隔 300ms
+            if len(_peak_buf) == 5:
+                v = _peak_buf
+                if v[0] < v[1] < v[2] > v[3] > v[4] and (v[2] - min(v[0], v[4])) >= 5:
+                    t_ms = now * 1000
+                    if not peaks or (t_ms - peaks[-1]) >= 300:
+                        peaks.append(t_ms)
+                        peaks = [p for p in peaks if t_ms - p < 30000]
+
+            # —— 自算 HR/HRV（基于 peaks，而非硬件 HR 列）——
+            if len(peaks) >= 2:
+                now_ms = now * 1000
+                # 最近 10s 的 RR 间期
+                recent = [t for t in peaks if now_ms - t <= 10000]
+                if len(recent) >= 4:
+                    ivs = [recent[i] - recent[i-1] for i in range(1, len(recent))]
+                    meanRR = sum(ivs) / len(ivs)
+                    last_hr = round(60000 / meanRR, 1)
+                    if len(ivs) >= 2:
+                        # RMSSD（相邻 RR 差的均方根）
+                        diffs = [(ivs[i+1] - ivs[i]) for i in range(len(ivs) - 1)]
+                        rmssd = (sum(d * d for d in diffs) / len(diffs)) ** 0.5
+                        last_hrv = round(rmssd, 1)
+
+            # stats 降频：200ms
+            if now - _last_stats_copy_t >= 0.2:
+                mr = _monitor_result
+                mr["hr"] = last_hr
+                mr["hrv"] = last_hrv
+                mr["peak_count"] = len(peaks)
+                mr["sample_count"] = sample_idx
+                mr["hb_confidence"] = round(_compute_hb_confidence(peaks, last_hr), 3)
+                mr["elapsed"] = round(now - mr["start_time"], 1)
+
+                # —— 采集段进度（若已 mark）——
+                if mr["collect_mark_ts"] is not None:
+                    mr["collect_elapsed"] = round(now - mr["collect_mark_ts"], 1)
+                    if mr["status"] == "running":
+                        mr["status"] = "collecting"
+
+                    # 第一次进入：记录 mark 时刻的硬件总样本数（锚点）
+                    if mr["collect_mark_hw_total"] == 0 and _hw_streamer is not None:
+                        mr["collect_mark_hw_total"] = _hw_streamer._total
+
+                    # 到达 deadline → 从 streamer 环形 buffer 精确切片 → ready
+                    if mr["collect_elapsed"] >= MONITOR_COLLECT_SEC and mr["status"] != "ready":
+                        mark_total = mr["collect_mark_hw_total"]
+                        want = int(MONITOR_COLLECT_SEC * 125)   # 7500
+                        wave_slice = _ring_slice(_hw_streamer, 'smooth', mark_total, want)
+                        if len(wave_slice) >= 100:
+                            mr["collect_wave_norm"] = wave_slice
+                            mr["status"] = "ready"
+                            mr["sample_count"] = sample_idx
+                            mr["hr"] = last_hr
+                            mr["hrv"] = last_hrv
+                            mr["hb_confidence"] = round(_compute_hb_confidence(peaks, last_hr), 3)
+                            logger.info(f"[ppg] monitor ready: {len(wave_slice)} samples, collect_elapsed={mr['collect_elapsed']}")
+                        else:
+                            mr["status"] = "error"
+                            mr["error"] = f"采集样本不足: {len(wave_slice)} (mark_total={mark_total})"
+
+                _last_stats_copy_t = now
+
+            # partial_wave 拷贝降频：150ms
+            if now - _last_partial_copy_t >= 0.15:
+                _monitor_result["partial_wave"] = list(partial_wave)
+                _last_partial_copy_t = now
+
+            # 如果 status 变成 ready（采集段结束），但 streamer 还在跑——我们继续保持流活
+            # 等前端调 /monitor/stop 来停掉
+
+            time.sleep(0.02)   # ~50fps，波形流畅 + CPU 可控
+
+        # streamer 被停了（disconnect 等）
+        if _monitor_result["status"] in ("running", "collecting"):
+            _monitor_result["status"] = "idle"
+
+    except Exception as exc:
+        _monitor_result["status"] = "error"
+        _monitor_result["error"] = str(exc)
+        logger.error(f"[ppg] monitor worker error: {exc}")
+    finally:
+        if streamer is not None:
+            try:
+                streamer.stop()
+                with _hw_lock:
+                    if _hw_streamer is streamer:
+                        _hw_streamer = None
+            except Exception:
+                pass
 
 
 class PpgUpload(BaseModel):
@@ -163,8 +456,11 @@ def upload_ppg(body: PpgUpload, db: Session = Depends(get_db),
 
         # ── Step 3: 组装五形向量（delta_f ∈ [-1,1] → v_obs ∈ [0,100]）──
         LABELS = ["wood", "fire", "earth", "metal", "water"]
-        v_obs = {lab: float(50 + 50 * delta_f_list[i]) for i, lab in enumerate(LABELS)}
-        delta_f_dict = {lab: float(delta_f_list[i]) for i, lab in enumerate(LABELS)}
+        v_obs_raw = {lab: float(50 + 50 * delta_f_list[i]) for i, lab in enumerate(LABELS)}
+        delta_f_raw = {lab: float(delta_f_list[i]) for i, lab in enumerate(LABELS)}
+        # 清洗 bridge 可能返回的 inf/nan
+        v_obs = _sanitize_vector_dict(v_obs_raw)
+        delta_f_dict = _sanitize_vector_dict(delta_f_raw)
 
         # 写回 Observation
         ob.v_obs = v_obs; ob.delta_f = delta_f_dict
@@ -230,8 +526,13 @@ def upload_ppg(body: PpgUpload, db: Session = Depends(get_db),
         ob.diagnosis_summary = bridge_summary
     ob.status = "analyzed"; db.commit()
 
-    # ── Step 5: 更新 case.v_current（引擎结果或 v_obs fallback）──
-    case.v_current = ob.s_graph or v_obs; db.commit()
+    # ── Step 5: 更新 case.v_current（归一化消除先天偏移）──
+    # 2026-10-02 修复：v_current 必须是 S_effective = S_current − (S₀ − H_centroid)
+    # 消除先天偏移后，radar 端点的 delta_normalized 才有意义
+    raw_v = ob.s_graph or v_obs
+    innate = case.v_innate or {k: 50 for k in ['wood','fire','earth','metal','water']}
+    case.v_current = normalize_S_effective(raw_v, innate)
+    db.commit()
 
     # ── Step 6: 返回完整报告 ──
     return {
@@ -277,8 +578,8 @@ def ppg_history(limit: int = 20, db: Session = Depends(get_db),
         {
             "id": o.id,
             "sqi": o.sqi,
-            "delta_f": o.delta_f,
-            "v_obs": o.v_obs,
+            "delta_f": _sanitize_vector_dict(o.delta_f),
+            "v_obs": _sanitize_vector_dict(o.v_obs),
             "syndrome_hint": o.syndrome_hint,
             "patient_height_m": o.patient_height_m,
             "observed_at": o.observed_at.isoformat(),
@@ -348,7 +649,7 @@ def hardware_status():
 # ═══════════════════════════════════════════════════════
 @router.get("/stream")
 def ppg_sse_stream(
-    duration: float = 20.0,
+    duration: float = 60.0,
     port: str | None = None,
     baud: int = 115200,
     preview: int = 0,
@@ -498,15 +799,125 @@ def ppg_sse_stream(
 
 @router.post("/disconnect")
 def ppg_disconnect():
-    """主动停止当前采集/预览流，释放串口（前端点「断开」时调用）。
-
-    用户可安全拔线的依据：COM3 被 _hw_streamer.stop() 释放后，
-    后端不再持有串口句柄。
-    """
-    global _hw_streamer
+    """主动停止当前 monitor 流，释放串口（前端点「断开」时调用）。"""
+    global _hw_streamer, _monitor_thread, _monitor_result
+    # 先停掉可能存在的 monitor 线程
+    if _monitor_thread is not None and _monitor_thread.is_alive():
+        try:
+            with _hw_lock:
+                if _hw_streamer is not None:
+                    _hw_streamer.stop()
+                    _hw_streamer = None
+            _monitor_thread.join(timeout=2.0)
+        except Exception:
+            pass
+        _monitor_thread = None
+        _monitor_result["status"] = "idle"
+        return {"ok": True, "released": True, "stopped": "monitor"}
+    # 兜底：停 streamer
     with _hw_lock:
         if _hw_streamer is not None:
             _hw_streamer.stop()
             _hw_streamer = None
             return {"ok": True, "released": True}
         return {"ok": True, "released": False}
+
+
+# ═══════════════════════════════════════════════════════
+# Monitor 统一端点（手指检测 → 采集 → 停止，单一持续流）
+# ═══════════════════════════════════════════════════════
+
+class MonitorStartIn(BaseModel):
+    port: str | None = None
+    baud: int = 115200
+
+
+@router.post("/collect/monitor/start")
+def monitor_start(body: MonitorStartIn | None = None):
+    """启动 monitor 流 — 2min 循环 buffer，采集/检测用同一个流。
+
+    前端点「手指检测」时调用，后端开串口持续累积波形。
+    """
+    global _monitor_thread, _monitor_result, _hw_streamer
+    if _monitor_thread is not None and _monitor_thread.is_alive():
+        return {"ok": False, "error": "monitor 已在运行中"}
+
+    port = body.port if body else None
+    baud = body.baud if body else 115200
+
+    # 确保串口空闲
+    if _hw_streamer is not None:
+        with _hw_lock:
+            _hw_streamer.stop()
+            _hw_streamer = None
+
+    _monitor_thread = threading.Thread(
+        target=_run_monitor_worker,
+        args=(port, baud),
+        daemon=True,
+    )
+    _monitor_thread.start()
+    return {"ok": True, "status": "running"}
+
+
+@router.post("/collect/monitor/mark")
+def monitor_mark():
+    """标记开始采集时间戳（**不重启硬件**！）。
+
+    前端点「开始采集」时调用 — 只打 mark_ts，monitor 流继续跑。
+    mark_ts + 60s 到达后 worker 自动 slice buffer 填 collect_wave_norm。
+    """
+    global _monitor_thread, _monitor_result
+    if _monitor_thread is None or not _monitor_thread.is_alive():
+        return {"ok": False, "error": "monitor 未运行"}
+    if _monitor_result["collect_mark_ts"] is not None:
+        return {"ok": False, "error": "已标记过采集起点，请先停止"}
+
+    _monitor_result["collect_mark_ts"] = time.time()
+    _monitor_result["collect_elapsed"] = 0.0
+    logger.info(f"[ppg] monitor MARK @ {_monitor_result['collect_mark_ts']}")
+    return {"ok": True, "collect_mark_ts": _monitor_result["collect_mark_ts"]}
+
+
+@router.get("/collect/monitor/result")
+def monitor_result():
+    """获取 monitor 最新状态 / 波形 / 采集进度。
+    running     → partial_wave + stats（手指检测中）
+    collecting  → partial_wave + stats + collect_elapsed（采集中）
+    ready       → collect_wave_norm（完整采集段，前端直接取）+ collect_elapsed=60
+    error       → error 描述
+    """
+    global _monitor_result
+    r = dict(_monitor_result)
+    if r["status"] in ("running", "collecting"):
+        r.pop("collect_wave_norm", None)   # 未 ready 时不返回完整波形（省带宽）
+    return r
+
+
+@router.post("/collect/monitor/stop")
+def monitor_stop():
+    """停止 monitor 流，释放串口。ready 后前端调这个释放硬件。"""
+    global _monitor_thread, _monitor_result, _hw_streamer
+    if _hw_streamer is not None:
+        with _hw_lock:
+            _hw_streamer.stop()
+            _hw_streamer = None
+    if _monitor_thread is not None:
+        _monitor_thread.join(timeout=3.0)
+        _monitor_thread = None
+    # 保留 collect_wave_norm（前端 upload 还可能用），但重置其他
+    wave_keep = _monitor_result.get("collect_wave_norm", [])
+    _monitor_result = {
+        "status": "idle",
+        "start_time": 0.0, "elapsed": 0.0,
+        "port": "", "mode": "", "fs": 125.0,
+        "partial_wave": [],
+        "hr": None, "hrv": None,
+        "peak_count": 0, "sample_count": 0,
+        "hb_confidence": 0.0,
+        "collect_mark_ts": None, "collect_mark_hw_total": 0,
+        "collect_elapsed": 0.0,
+        "collect_wave_norm": wave_keep,
+        "error": None,
+    }
+    return {"ok": True, "released": True}

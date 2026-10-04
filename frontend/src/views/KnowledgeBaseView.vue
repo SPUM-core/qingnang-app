@@ -20,7 +20,7 @@
       <span class="banner-icon">🎯</span>
       <div class="banner-body">
         <p class="banner-title">青囊为你定制推荐</p>
-        <p class="banner-desc">基于你的数字模型（湿遏状态 · S_土↓↓↓ · 气结 74%），
+        <p class="banner-desc">基于你的数字模型（{{ myCoreDeviation || '五形分布' }}），
           优先推荐{{ personalizedHints.join('、') }}相关内容</p>
       </div>
     </div>
@@ -65,6 +65,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { api } from '../api/client'
+import { useVectorStore, toCoreDeviation } from '../stores/vector'
+
+const vectorStore = useVectorStore()
+const myCoreDeviation = computed(() => toCoreDeviation(vectorStore.latestVector || vectorStore.vBase))
 
 const ITEMS = ref([])
 const loading = ref(true)

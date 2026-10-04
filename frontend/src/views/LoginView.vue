@@ -177,7 +177,9 @@ async function doRegister() {
   if (password.value !== password2.value) return (error.value = '两次密码不一致')
   loading.value = true
   try {
-    await user.register({ phone: phone.value, password: password.value })
+    await user.register({
+      phone: phone.value, password: password.value,
+    })
     router.replace({ name: 'onboarding' })
   } catch (e) {
     error.value = e.response?.data?.detail || '注册失败，请稍后重试'
@@ -308,8 +310,10 @@ async function doRegister() {
 
 .auth-form { display: flex; flex-direction: column; gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
+.field-row { display: flex; gap: 10px; }
+.field-half { flex: 1; min-width: 0; }
 .field span { font-size: 13px; color: #2C3E3C; font-weight: 500; }
-.field input {
+.field input, .field select {
   padding: 11px 14px;
   border: 1px solid rgba(26,77,69,0.20);
   border-radius: 10px;
@@ -318,7 +322,7 @@ async function doRegister() {
   background: rgba(255,255,255,0.92);
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
-.field input:focus {
+.field input:focus, .field select:focus {
   outline: none;
   border-color: #17534C;
   box-shadow: 0 0 0 3px rgba(23,83,76,0.12);

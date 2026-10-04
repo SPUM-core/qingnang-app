@@ -3,6 +3,41 @@ import { api, auth as authApi } from '../api/client'
 import { TREND_STATE_LABELS } from '../constants/compliance'
 import { useUserStore } from './user'
 
+// ═══════════════════════════════════════════════════════════
+// 共享纯函数：五形向量 → 箭头/摘要（所有组件统一复用）
+// ═══════════════════════════════════════════════════════════
+
+/** 五形值 → 箭头字符串。center=50 为理想中心，偏离度决定箭头层数 */
+export function toArrow(v, center = 50) {
+  if (v == null || v === '') return '↔'
+  const d = +v - center
+  const abs = Math.abs(d)
+  if (abs <= 2) return '↔'
+  if (abs <= 8) return d > 0 ? '↑' : '↓'
+  if (abs <= 18) return d > 0 ? '↑↑' : '↓↓'
+  return d > 0 ? '↑↑↑' : '↓↓↓'
+}
+
+/** 五形字典 → "木↑↑↑ 火↓↓ 土↔ 金↑ 水↓" 格式字符串 */
+export function toModelSummary(v, center = 50) {
+  if (!v) return '五形数据待建档'
+  const labels = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
+  return ['wood', 'fire', 'earth', 'metal', 'water']
+    .map(k => `${labels[k]}${toArrow(v[k], center)}`)
+    .join(' ')
+}
+
+/** 五形字典 → 核心偏失摘要，如 "木↓↓↓ · 土↓↓ · 水↑" */
+export function toCoreDeviation(v, center = 50, topN = 3) {
+  if (!v) return ''
+  const labels = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
+  const arr = ['wood', 'fire', 'earth', 'metal', 'water']
+    .map(k => ({ k, v: v[k], d: (v[k] ?? center) - center }))
+    .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
+    .slice(0, topN)
+  return arr.map(x => `${labels[x.k]}${toArrow(x.v, center)}`).join(' · ')
+}
+
 export const useVectorStore = defineStore('vector', {
   state: () => ({
     vBase: null,          // { wood, fire, earth, metal, water }
@@ -85,11 +120,17 @@ export const useVectorStore = defineStore('vector', {
           const now = new Date()
           age = now.getFullYear() - bd.getFullYear() - ((now.getMonth() < bd.getMonth() || (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) ? 1 : 0)
         }
+        const nObs = this.vObsList?.length || 0
+        const stageLabel = nObs === 0 ? '数据收集中' : (nObs < 3 ? '基线建立中' : (nObs < 8 ? '调理进行中' : '稳定观察'))
+
         // patient
+        // 八字四柱拼接（去掉胡运涛硬编码 fallback）
+        const pillars = [c.ganzhi_year, c.ganzhi_month, c.ganzhi_day, c.ganzhi_hour]
+          .filter(Boolean).join(' ') || c.bazi || ''
         this.casePatient = {
           name: user.displayName || userDetail.nickname || '体质档案',
-          case_status: '调理进行中',
-          birth_ganzhi: c.ganzhi_year || c.bazi || '丁卯 己酉 甲子 丙寅',
+          case_status: stageLabel,
+          birth_ganzhi: pillars,
           age: age,
           gender: userDetail.gender || '',
           birth_date: userDetail.birth_date || '',
@@ -99,24 +140,18 @@ export const useVectorStore = defineStore('vector', {
         }
         // S_effective = 先天八字 v_innate
         this.caseSEffectiveBaseline = c.v_innate || c.v_baseline
-        // 病机链：从 syndrome 构建三级
+        // 病机链：从 syndrome 构建三级（无 syndrome 则留空，不再硬编码胡运涛的 "木旺克土"）
         const syn = c.syndrome || ''
         this.casePathogenesis = syn ? syn.split(/[·、]/).filter(Boolean).map((s, i) => ({
           level: i + 1,
           title: s.trim(),
           desc: s.trim(),
-          s_vector: i === 0 ? '木旺克土' : (i === 1 ? '火上炎' : '水不足'),
-          s_shift: i === 0 ? '土↓↓↓' : (i === 1 ? '火↑' : '水↓'),
         })) : []
         this.caseParadoxStates = syn ? [{ label: syn, desc: c.chief_complaint || '' }] : []
         this.caseTreatmentTarget = { strategy: syn, chief_complaint: c.chief_complaint }
-        this.caseLifestyle = {
-          diet: '温淡盐水 · 小米粥 · 鲫鱼汤',
-          avoid: '冷饮 / 生冷 / 苦寒直折',
-          sleep: '22:30 前入睡',
-          exercise: '八段锦 · 散步 30-40min',
-        }
-        this.caseContraindications = ['黄连', '黄芩', '大黄', '苦寒直折', '剧烈运动']
+        // 生活方式建议 → 空（后端 plans 有 lifestyle 时会覆盖；不再硬编码胡运涛的"温淡盐水"）
+        this.caseLifestyle = { diet: '', avoid: '', sleep: '', exercise: '' }
+        this.caseContraindications = []
 
         // 先塞 latest_observation 到 vObsList
         if (d.latest_observation) {
@@ -184,13 +219,13 @@ export const useVectorStore = defineStore('vector', {
                   diagnosis: h.syndrome_hint || '',
                 },
                 strategy: isLatest ? c.syndrome : null,
-                formula: isLatest ? '苓桂术甘汤 + 白芍 + 砂仁 · 6 味药' : null,
-                key_herbs: isLatest ? '茯苓、桂枝、白术、甘草、白芍、砂仁' : null,
-                rationale: isLatest ? '湿遏土枯·木旺克土·相火妄动 → 苓桂术甘汤温阳化湿、白术健脾、白芍柔肝、砂仁醒脾' : null,
+                formula: isLatest ? (c.formula || null) : null,
+                key_herbs: isLatest ? (c.key_herbs || null) : null,
+                rationale: isLatest ? (c.rationale || null) : null,
                 feedback: null,
                 symptoms: null,
                 result: null,
-                next_check: isLatest ? '7 天后 PPG 复查' : null,
+                next_check: isLatest ? (c.next_check || null) : null,
               }
             })
         } else {

@@ -41,8 +41,13 @@
 
           <!-- 选择 -->
           <select v-else-if="item.type === 'select'" v-model="settings[item.key]" class="select">
-            <option v-for="opt in item.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            <option v-for="opt in item.options" :key="opt.value" :value="opt.value">{{ opt.label }}{{ opt.hint ? '  ' + opt.hint : '' }}</option>
           </select>
+
+          <!-- 只读值（动态计算） -->
+          <span v-else-if="item.type === 'readonly'" class="row-value">
+            {{ typeof item.value === 'function' ? item.value() : item.value }}
+          </span>
 
           <!-- 按钮 -->
           <button v-else-if="item.type === 'button'" class="row-btn" :class="{ danger: item.danger }"
@@ -88,11 +93,17 @@ const user   = useUserStore()
 // ── 状态 ──
 const busy     = ref(null)
 const caseData = ref(null)
+const providerInfo = ref({ providers: {}, default_provider: 'spum' })
 
+// 加载后端 provider 配置（哪些可用）
 onMounted(async () => {
   try {
     const r = await api.get('/api/v1/cases/mine')
     caseData.value = r.data?.case || null
+  } catch {}
+  try {
+    const h = await api.get('/api/v1/assistant/health')
+    providerInfo.value = h.data || providerInfo.value
   } catch {}
 })
 
@@ -116,6 +127,7 @@ const defaults = {
   share_data_anonymous: true,
   primary_goal: 'dispatch_qi',
   secondary_goal: 'warm_earth',
+  llm_provider: 'spum',   // spum=SPUM本地模型(默认), deepseek=云端
 }
 const settings = reactive({ ...defaults })
 try { Object.assign(settings, JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')) } catch {}
@@ -194,6 +206,33 @@ const groups = [
     ]
   },
   {
+    key: 'ai', icon: 'spark', title: '推理模型',
+    items: [
+      { key: 'llm_provider', type: 'select', icon: 'spark', label: 'AI 助手模型',
+        desc: 'SPUM 本地模型（默认·离线可用）或 DeepSeek 云端',
+        options: [
+          {
+            value: 'spum',
+            label: 'SPUM 本地模型',
+            hint: providerInfo.value.providers?.spum?.online ? '· 在线' : '· 离线（fallback 规则引擎）'
+          },
+          {
+            value: 'deepseek',
+            label: 'DeepSeek 云端',
+            hint: providerInfo.value.providers?.deepseek?.online ? '· 已配置' : '· 未配置 API KEY'
+          },
+        ],
+      },
+      {
+        key: 'llm_provider_readonly', type: 'readonly', icon: 'doc',
+        get value() {
+          const p = providerInfo.value.providers?.[settings.llm_provider]
+          return p ? `${p.model}  @ ${p.url?.replace(/^https?:\/\//, '')}` : '--'
+        },
+      },
+    ]
+  },
+  {
     key: 'privacy', icon: 'lock', title: '隐私与数据',
     items: [
       { key: 'share_family', type: 'toggle', icon: 'user', label: '与家人共享' },
@@ -237,12 +276,25 @@ async function handleAction(action) {
     }
 
     case 'reinit': {
-      if (!confirm('重新走一遍建档流程？当前数字模型不会被删除。')) return
-      // 同步清理 localStorage + Pinia store 状态
-      localStorage.removeItem('qingnang_onboarded')
-      user.isOnboarded = false
-      // 硬跳转：避免 LayoutShell/Pinia 残留导致 onboarding 守卫或组件异常
-      window.location.href = '/onboarding'
+      if (!confirm('重新开始将清除你的数字模型（体质档案、观测记录、调理方案），仅保留账号。继续？')) return
+      busy.value = 'reinit'
+      try {
+        // 1. 清后端数据
+        await api.post('/api/v1/cases/reset')
+        // 2. 清前端状态
+        localStorage.removeItem('qingnang_onboarded')
+        try {
+          const u = JSON.parse(localStorage.getItem('qn_user') || '{}')
+          u.is_onboarded = false
+          localStorage.setItem('qn_user', JSON.stringify(u))
+        } catch {}
+        user.isOnboarded = false
+        caseData.value = null
+        // 3. 跳 onboarding
+        window.location.href = '/onboarding'
+      } catch (e) {
+        alert('重置失败：' + (e.response?.data?.detail || e.message))
+      } finally { busy.value = null }
       break
     }
 

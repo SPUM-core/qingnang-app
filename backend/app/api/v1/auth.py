@@ -16,11 +16,11 @@ class RegisterIn(BaseModel):
     phone: str = Field(..., min_length=6, max_length=20)
     password: str = Field(..., min_length=6)
     nickname: str = Field(default="")
-    gender: str = Field(default="male")
+    gender: str = Field(default="")
+    height: int | None = Field(default=None, ge=30, le=250)   # cm, onboarding 补填
+    weight: float | None = Field(default=None, ge=10, le=250)  # kg, onboarding 补填
     birth_date: str = Field(default="")
     birth_hour: str = Field(default="")
-    height: int = Field(default=170)
-    weight: int = Field(default=65)
 
 
 class LoginIn(BaseModel):
@@ -111,3 +111,24 @@ def me(current: User = Depends(get_current_user)):
         "is_onboarded": current.is_onboarded,
         "v_base": current.v_base,
     }
+
+
+class MePatch(BaseModel):
+    nickname: str | None = None
+    gender: str | None = None
+    # PATCH 端点放宽 ge/le — 问诊自动补填场景可能来自 number input，允许更宽范围
+    height: int | None = Field(default=None, ge=30, le=250)
+    weight: float | None = Field(default=None, ge=10, le=250)
+    birth_date: str | None = None
+    birth_hour: str | None = None
+
+
+@router.patch("/me")
+def patch_me(body: MePatch, db: Session = Depends(get_db), current: User = Depends(get_current_user)):
+    """更新当前用户信息（问诊流程补填身高体重走这里）"""
+    data = body.model_dump(exclude_unset=True)
+    for k, v in data.items():
+        setattr(current, k, v)
+    db.commit()
+    db.refresh(current)
+    return me(current)

@@ -1,16 +1,19 @@
-"""assistant - 青囊管家 AI 对话代理（转发到本地 qingmeng-engine）"""
+﻿"""assistant - 青囊管家 AI 对话代理（转发到本地 qingmeng-engine）"""
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 import httpx
 import json
 import time
 
 from ...database import get_db
-from ...models import User, Case, Observation, TreatmentPlan
+from ...models import User, Case, Observation, TreatmentPlan, ChatMessage, LifeSignal
 from ...config import settings
 from ..deps import get_current_user
+from ...utils.life_signal_extractor import extract_signals, signals_to_dict_list
+from ...utils.conversation_analyzer import analyze_conversation
 
 router = APIRouter()
 
@@ -57,6 +60,7 @@ def compliance_filter(text: str) -> str:
 class ChatIn(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     history: list[dict] = Field(default_factory=list)  # [{role, content}] 最近 N 轮
+    provider: str = "spum"  # "spum"=青檬引擎(本地), "deepseek"=云端, 未来可扩展
 
 
 # ═══════════════════════════════════════════════════════
@@ -208,6 +212,97 @@ def _generate_generic_reply(user: User, db: Session, keyword: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════
+# Action Router — AI 调用应用功能的路由表
+#
+# 核心设计：AI 在对话回复后，根据用户数据状态和本轮对话内容，
+# 动态决定要不要引导用户执行某个 App 内操作。
+# 返回的 actions 是一组 {label, route, reason, priority}，
+# 前端渲染成可点击按钮（RouterLink to=route）。
+# ═══════════════════════════════════════════════════════
+
+def _generate_actions(user: User, db: Session, user_message: str,
+                      analysis: dict | None, extracted_signals: list) -> list:
+    """根据用户状态 → 决定青囊管家应该引导哪些 App 功能。
+
+    路由表（前端 Router path）：
+      /collect/ppg       → 脉象采集
+      /notifications     → 生活提醒
+      /case       → 体质档案（先天基底 + 时间线）
+      /onboarding     → 建档（如果没建档）
+      /discover → 医生咨询
+      /discover    → 知识卡片
+      /shop              → 商城
+
+    返回 list[dict]，每条 = {"label": str, "route": str, "icon": str, "priority": "high"/"medium"/"low"}
+    """
+    actions = []
+    case = db.query(Case).filter(Case.user_id == user.id).first()
+    obs_count = db.query(Observation).filter(
+        Observation.case_id == case.id if case else None
+    ).count() if case else 0
+
+    msg = (user_message or "").lower()
+
+    # 规则 1：没建档 → 强引导建档
+    if not case or not case.v_baseline:
+        actions.append({"label": "先完成数字模型建档", "route": "/onboarding",
+                        "icon": "📋", "priority": "high"})
+        return actions  # 建档是 P0，其他都等建档后再说
+
+    # 规则 2：没脉诊数据 → 强引导采集
+    if obs_count == 0:
+        actions.append({"label": "去做第一次脉搏采集", "route": "/collect/ppg",
+                        "icon": "💓", "priority": "high"})
+
+    # 规则 3：提到"脉诊/脉搏/采集/PPG" → 引导采集
+    if any(kw in msg for kw in ["脉诊", "脉搏", "采集", "ppg", "测一测", "量一下"]):
+        actions.append({"label": "立即做脉搏采集", "route": "/collect/ppg",
+                        "icon": "💓", "priority": "high"})
+
+    # 规则 4：提到"吃/饮食/早餐/午餐/晚餐/忌口" → 引导生活提醒的饮食 tab
+    if any(kw in msg for kw in ["吃", "饮食", "早餐", "午餐", "晚餐", "忌口", "宜", "食谱"]):
+        actions.append({"label": "今日饮食宜忌速查", "route": "/notifications",
+                        "icon": "🍜", "priority": "medium"})
+
+    # 规则 5：提到"睡眠/失眠/睡/熬夜" → 引导知识卡片（睡眠类）
+    if any(kw in msg for kw in ["睡", "失眠", "熬夜", "入睡", "多梦", "早醒"]):
+        actions.append({"label": "看看睡眠改善方法", "route": "/discover",
+                        "icon": "🌙", "priority": "medium"})
+
+    # 规则 6：提到"方案/调理/档案/模型" → 引导体质档案
+    if any(kw in msg for kw in ["方案", "调理", "档案", "模型", "体质", "先天"]):
+        actions.append({"label": "查看我的体质档案", "route": "/case",
+                        "icon": "📋", "priority": "medium"})
+
+    # 规则 7：AI 给了 suggestions → 有 "diet/herb" 类建议 → 引导商城
+    if analysis:
+        for s in analysis.get("suggestions", []):
+            cat = s.get("category", "")
+            if cat in ("diet", "herb") and len(actions) < 3:
+                actions.append({"label": f"看看相关调养物品", "route": "/shop",
+                                "icon": "🛒", "priority": "low"})
+                break
+
+    # 规则 8：有 extracted_signals → 引导生活提醒（把对话信号转化成日常执行计划）
+    if extracted_signals and len(actions) < 3:
+        actions.append({"label": "把这些信号加到我的生活提醒", "route": "/notifications",
+                        "icon": "🔔", "priority": "low"})
+
+    # 去重 + 最多 3 条（避免按钮过载）
+    seen_routes = set()
+    deduped = []
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    for a in sorted(actions, key=lambda x: priority_order.get(x["priority"], 9)):
+        if a["route"] not in seen_routes:
+            seen_routes.add(a["route"])
+            deduped.append(a)
+        if len(deduped) >= 3:
+            break
+
+    return deduped
+
+
+# ═══════════════════════════════════════════════════════
 # 高频结构化问题 — 引擎直接返回，绕过 LLM
 # ═══════════════════════════════════════════════════════
 
@@ -344,12 +439,60 @@ async def chat(body: ChatIn,
     shortcut_reply = _intent_shortcut(body.message, brief)
     if shortcut_reply is not None:
         shortcut_reply = compliance_filter(shortcut_reply)
+        # shortcut 路径也需要持久化对话 + 抽信号
+        case = db.query(Case).filter(Case.user_id == current.id).first()
+        signals_now = []
+        try:
+            user_msg = ChatMessage(
+                user_id=current.id, case_id=case.id if case else None,
+                role="user", content=body.message, provider="engine_direct",
+            )
+            db.add(user_msg)
+            db.flush()
+            db.add(ChatMessage(
+                user_id=current.id, case_id=case.id if case else None,
+                role="assistant", content=shortcut_reply, provider="engine_direct",
+            ))
+            hits = extract_signals(body.message)
+            if hits:
+                signal_dicts = signals_to_dict_list(hits)
+                for sd in signal_dicts:
+                    existing = db.query(LifeSignal).filter(
+                        LifeSignal.user_id == current.id,
+                        LifeSignal.tag == sd["tag"],
+                        LifeSignal.label == sd["label"],
+                    ).first()
+                    if not existing:
+                        db.add(LifeSignal(
+                            user_id=current.id, case_id=case.id if case else None,
+                            source="chat", source_id=user_msg.id, **sd,
+                        ))
+                signals_now = signal_dicts
+                user_msg.signals = signal_dicts
+            db.commit()
+        except Exception:
+            db.rollback()
+
+        # shortcut 路径也生成 actions（无 analysis，传 None）
+        try:
+            shortcut_actions = _generate_actions(
+                user=current, db=db,
+                user_message=body.message,
+                analysis=None,
+                extracted_signals=signals_now or [],
+            )
+        except Exception:
+            shortcut_actions = []
+
         return {
             "reply": shortcut_reply,
             "engine": "engine_direct",
             "latency_ms": 0,
             "qingmeng_online": True,
             "brief_context": brief,
+            "extracted_signals": signals_now,
+            "actions": shortcut_actions,
+            "analysis": None,
         }
 
     # ── 4. 把 daily_brief 浓缩后注入 system prompt ──
@@ -424,62 +567,336 @@ async def chat(body: ChatIn,
             messages.append({"role": h["role"], "content": h.get("content", "")})
     messages.append({"role": "user", "content": body.message})
 
-    # ── 5. 调用 qingmeng-engine chat completions ──
-    qingmeng_ok = False
+    # ── 5. 按用户选择的 provider 调 LLM ──
+    llm_ok = False
     latency_ms = 0
     reply_text = ""
+    provider_used = body.provider or "spum"
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            h = await client.get(f"{settings.QINGMENG_URL}/health")
-            if h.status_code == 200:
-                qingmeng_ok = True
-                start = time.time()
-                r = await client.post(
-                    f"{settings.QINGMENG_URL}/v1/chat/completions",
-                    json={
-                        "model": settings.QINGMENG_MODEL,
-                        "messages": messages,
-                        "max_tokens": 800,
-                    }
-                )
-                latency_ms = int((time.time() - start) * 1000)
-                if r.status_code == 200:
-                    data = r.json()
-                    reply_text = data["choices"][0]["message"]["content"]
-    except Exception as e:
-        qingmeng_ok = False
+    if provider_used == "deepseek":
+        # ── DeepSeek 云端 ──
+        if settings.DEEPSEEK_API_KEY:
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    start = time.time()
+                    r = await client.post(
+                        f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": settings.DEEPSEEK_MODEL,
+                            "messages": messages,
+                            "max_tokens": 800,
+                        }
+                    )
+                    latency_ms = int((time.time() - start) * 1000)
+                    if r.status_code == 200:
+                        data = r.json()
+                        reply_text = data["choices"][0]["message"]["content"]
+                        llm_ok = True
+            except Exception:
+                llm_ok = False
+        # 没有 API KEY 就 fallback
+        if not settings.DEEPSEEK_API_KEY:
+            llm_ok = False
+    else:
+        # ── SPUM 本地模型（青檬引擎） ──
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                h = await client.get(f"{settings.QINGMENG_URL}/health")
+                if h.status_code == 200:
+                    llm_ok = True
+                    start = time.time()
+                    r = await client.post(
+                        f"{settings.QINGMENG_URL}/v1/chat/completions",
+                        json={
+                            "model": settings.QINGMENG_MODEL,
+                            "messages": messages,
+                            "max_tokens": 800,
+                        }
+                    )
+                    latency_ms = int((time.time() - start) * 1000)
+                    if r.status_code == 200:
+                        data = r.json()
+                        reply_text = data["choices"][0]["message"]["content"]
+        except Exception:
+            llm_ok = False
 
     # ── 6. Fallback：规则引擎 ──
-    if not qingmeng_ok:
+    if not llm_ok:
         reply_text = _generate_generic_reply(current, db, body.message)
         latency_ms = 0
 
     # ── 7. 合规后处理 ──
     reply_text = compliance_filter(reply_text)
 
+    # engine 标签反映真实执行路径
+    engine_tag = {
+        "deepseek": "deepseek" if llm_ok else "local_fallback",
+        "spum": "qingmeng" if llm_ok else "local_fallback",
+    }.get(provider_used, "qingmeng" if llm_ok else "local_fallback")
+
+    # ── 8. 持久化对话 + 抽取生活信号（青囊生活管家的数据化核心）──
+    case = db.query(Case).filter(Case.user_id == current.id).first()
+    signals_user_msg = []        # 返回给前端的本轮信号（规则引擎快速命中）
+    analysis_result: dict = {}   # LLM 解析出的完整结构化数据（异步落库）
+    try:
+        # 8a. 落 user message
+        user_msg = ChatMessage(
+            user_id=current.id, case_id=case.id if case else None,
+            role="user", content=body.message,
+            provider=engine_tag, latency_ms=latency_ms,
+        )
+        db.add(user_msg)
+        db.flush()
+        user_msg_id = user_msg.id
+
+        # 8b. 落 assistant reply
+        ai_msg = ChatMessage(
+            user_id=current.id, case_id=case.id if case else None,
+            role="assistant", content=reply_text,
+            provider=engine_tag, latency_ms=latency_ms,
+        )
+        db.add(ai_msg)
+        db.flush()
+        ai_msg_id = ai_msg.id
+
+        # 8c. 快速规则引擎抽取 → 立即返回给前端（低延迟）
+        hits = extract_signals(body.message)
+        if hits:
+            signal_dicts = signals_to_dict_list(hits)
+            for sd in signal_dicts:
+                # 全局去重（同用户同 tag 同 label 只存一次）
+                existing = db.query(LifeSignal).filter(
+                    LifeSignal.user_id == current.id,
+                    LifeSignal.tag == sd["tag"],
+                    LifeSignal.label == sd["label"],
+                ).first()
+                if not existing:
+                    db.add(LifeSignal(
+                        user_id=current.id, case_id=case.id if case else None,
+                        source="chat", source_id=user_msg.id, **sd,
+                    ))
+            signals_user_msg = signal_dicts
+            user_msg.signals = signal_dicts
+
+        # 8d. LLM 深度解析（主力，10s timeout）
+        #    输出 signals（补充规则没覆盖的）+ pathologies + suggestions + chief_complaint
+        analysis_result = await analyze_conversation(
+            user_message=body.message,
+            assistant_reply=reply_text,
+            history=body.history,
+            provider=provider_used,
+        )
+
+        # 8e. LLM signals 写 DB（去重）
+        llm_sigs = analysis_result.get("signals", []) if analysis_result else []
+        for s in llm_sigs:
+            tag = s.get("tag")
+            label = s.get("label")
+            if not tag or not label:
+                continue
+            existing = db.query(LifeSignal).filter(
+                LifeSignal.user_id == current.id,
+                LifeSignal.tag == tag,
+                LifeSignal.label == label,
+            ).first()
+            if not existing:
+                from datetime import datetime
+                db.add(LifeSignal(
+                    user_id=current.id, case_id=case.id if case else None,
+                    tag=tag, label=label,
+                    raw_text=f"[llm] {body.message[:80]}",
+                    confidence=s.get("confidence"),
+                    source="chat_llm", source_id=user_msg.id,
+                ))
+
+        # 8f. AI 回复的 signals 快照也存回 user_msg（规则+LLM 合并）
+        if llm_sigs:
+            # 合并规则信号 + LLM 信号 → 给前端
+            seen_tags = {h.tag for h in hits}
+            for s in llm_sigs:
+                if s.get("tag") not in seen_tags:
+                    signals_user_msg.append({
+                        "tag": s["tag"], "label": s["label"],
+                        "confidence": s.get("confidence"),
+                    })
+
+        # 8g. 把完整 LLM 分析结果挂到 assistant message.signals 字段（复用 signals 字段存复杂 JSON）
+        #     前端以后可以直接从 ChatMessage.signals 读到 pathologies / suggestions / chief_complaint
+        if analysis_result:
+            ai_msg.signals = analysis_result
+
+        db.commit()
+    except Exception:
+        db.rollback()  # 持久化失败不影响返回对话结果
+
+    # ── 9. Action Router：决定青囊管家应该引导用户做什么 ──
+    try:
+        actions = _generate_actions(
+            user=current, db=db,
+            user_message=body.message,
+            analysis=analysis_result or None,
+            extracted_signals=signals_user_msg or [],
+        )
+    except Exception:
+        actions = []
+
+    # ── 10. 如果 analysis 里有 chief_complaint 且 Case.chief_complaint 为空 → 自动回填 ──
+    if analysis_result and analysis_result.get("chief_complaint"):
+        cc = analysis_result["chief_complaint"]
+        if case and not case.chief_complaint:
+            case.chief_complaint = cc
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
     return {
         "reply": reply_text,
-        "engine": "qingmeng" if qingmeng_ok else "local_fallback",
+        "engine": engine_tag,
+        "provider": provider_used,
         "latency_ms": latency_ms,
-        "qingmeng_online": qingmeng_ok,
+        "llm_online": llm_ok,
         "brief_context": brief,
+        "extracted_signals": signals_user_msg,
+        # ── AI 调用应用功能（Tool Calling）──
+        "actions": actions,
+        # ── LLM 深度解析结果（结构化给前端直接消费）──
+        "analysis": {
+            "pathologies": (analysis_result or {}).get("pathologies", []),
+            "suggestions": (analysis_result or {}).get("suggestions", []),
+            "chief_complaint": (analysis_result or {}).get("chief_complaint", ""),
+        } if analysis_result else None,
+    }
+
+
+# ═══════════════════════════════════════════════════════
+# Chat 历史 + LifeSignal 存档查询
+# ═══════════════════════════════════════════════════════
+
+@router.get("/chat/messages")
+async def list_chat_messages(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """当前用户的所有聊天记录（user + assistant 交替），返回时间升序"""
+    msgs = db.query(ChatMessage).filter(
+        ChatMessage.user_id == current.id,
+    ).order_by(ChatMessage.created_at.asc()).limit(limit).all()
+    return [
+        {
+            "id": m.id,
+            "role": m.role,
+            "content": m.content,
+            "provider": m.provider,
+            "latency_ms": m.latency_ms,
+            "signals": m.signals,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        }
+        for m in msgs
+    ]
+
+
+@router.get("/chat/signals")
+async def list_life_signals(
+    tag: str | None = None,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """当前用户的所有 LifeSignal 存档（最近在前）
+
+    可按 tag 过滤：bowel/sweat/sleep/appetite/menses/mood/energy/thirst/skin/breath/other
+    """
+    q = db.query(LifeSignal).filter(LifeSignal.user_id == current.id)
+    if tag:
+        q = q.filter(LifeSignal.tag == tag)
+    signals = q.order_by(LifeSignal.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": s.id,
+            "tag": s.tag,
+            "label": s.label,
+            "raw_text": s.raw_text,
+            "confidence": s.confidence,
+            "source": s.source,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        }
+        for s in signals
+    ]
+
+
+@router.get("/chat/signals/summary")
+async def life_signals_summary(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """摘要：按 tag 聚合最近 N 天的信号频次 + 最新 label
+
+    前端展示用：一个小卡片告诉用户"最近 30 天你提到过 3 次排便异常、2 次多汗..."
+    """
+    from datetime import datetime, timedelta
+    since = func.now() - timedelta(days=days)
+    rows = db.query(
+        LifeSignal.tag,
+        LifeSignal.label,
+        func.count(LifeSignal.id).label("cnt"),
+    ).filter(
+        LifeSignal.user_id == current.id,
+        LifeSignal.created_at >= since,
+    ).group_by(LifeSignal.tag, LifeSignal.label).order_by(
+        func.count(LifeSignal.id).desc()
+    ).all()
+
+    # 按 tag 聚合
+    by_tag: dict[str, list] = {}
+    for tag, label, cnt in rows:
+        by_tag.setdefault(tag, []).append({"label": label, "count": cnt})
+
+    return {
+        "days": days,
+        "total_signals": sum(r.cnt for r in rows),
+        "tags": by_tag,
     }
 
 
 @router.get("/health")
 async def health():
-    """检查青檬引擎是否可达"""
+    """检查各 provider 可用性 — 前端设置页据此显示哪些选项可用。"""
+    # SPUM 本地
+    spum_online = False
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             r = await client.get(f"{settings.QINGMENG_URL}/health")
-            return {
-                "qingmeng_online": r.status_code == 200,
-                "qingmeng_url": settings.QINGMENG_URL,
-                "model": settings.QINGMENG_MODEL,
-            }
+            spum_online = r.status_code == 200
     except Exception:
-        return {"qingmeng_online": False, "qingmeng_url": settings.QINGMENG_URL}
+        pass
+
+    # DeepSeek：只要配了 API KEY 就算可用（实际连通性在调用时检测）
+    deepseek_configured = bool(settings.DEEPSEEK_API_KEY)
+
+    return {
+        "providers": {
+            "spum": {
+                "label": "SPUM 本地模型",
+                "online": spum_online,
+                "model": settings.QINGMENG_MODEL,
+                "url": settings.QINGMENG_URL,
+            },
+            "deepseek": {
+                "label": "DeepSeek 云端",
+                "online": deepseek_configured,
+                "model": settings.DEEPSEEK_MODEL,
+                "url": settings.DEEPSEEK_BASE_URL,
+            },
+        },
+        "default_provider": "spum",
+    }
 
 
 # ═══════════════════════════════════════════════════════
@@ -724,8 +1141,9 @@ async def reasoning_treatment(body: TreatmentIn,
 
 class BaziIn(BaseModel):
     birth_date: str                              # "YYYY-MM-DD"
-    birth_hour: str | None = None                # "寅时" / None
+    birth_hour: str | None = None                # "寅时（3-5点）" / None
     birthplace: str | None = None                # 城市名
+    birth_date_type: str | None = None           # "solar"(默认)/"lunar" — 前端阳历/阴历标识
 
 
 @router.post("/reasoning/bazi")
@@ -752,10 +1170,11 @@ async def reasoning_bazi(body: BaziIn,
 
 def _local_bazi_fallback(body: BaziIn) -> dict:
     """lunar_python 本地八字推演 — 青檬引擎不可达时兜底。"""
-    from lunar_python import Solar
+    from lunar_python import Solar, Lunar
 
-    birth_date = body.birth_date                    # "1986-08-02"
+    birth_date = body.birth_date                    # "1986-08-02" 或 "1986-06-27"（阴历）
     birth_hour = body.birth_hour                    # "寅时（3-5点）" 或 None
+    birth_date_type = body.birth_date_type or 'solar'
 
     # 解析日期
     parts = birth_date.split('-')
@@ -774,8 +1193,14 @@ def _local_bazi_fallback(body: BaziIn) -> dict:
                 break
 
     try:
-        solar = Solar.fromYmdHms(y, m, d, hour, 0, 0)
-        lunar = solar.getLunar()
+        if birth_date_type == 'lunar':
+            # 用户给的是阴历 → 先 Lunar → 再 getSolar 转成阳历真太阳时基准
+            lunar = Lunar.fromYmdHms(y, m, d, hour, 0, 0)
+            solar = lunar.getSolar()
+        else:
+            # 阳历（默认）
+            solar = Solar.fromYmdHms(y, m, d, hour, 0, 0)
+            lunar = solar.getLunar()
     except Exception as e:
         return {
             "bazi": "未知", "pillars": ["?", "?", "?", "?"],
@@ -880,3 +1305,615 @@ def _local_bazi_fallback(body: BaziIn) -> dict:
 
 
 _DEFAULT_V_INNATE = {'wood': 50, 'fire': 50, 'earth': 50, 'metal': 50, 'water': 50}
+
+
+# ═══════════════════════════════════════════════════════
+# 多阶段问诊引擎（新）
+# ═══════════════════════════════════════════════════════
+
+INQUIRY_STAGES = ["initial", "deepen", "expand", "finalize", "done"]
+
+# SPUM 范式的四个问诊阶段中文标签 + 职责
+STAGE_LABELS = {
+    "initial":  {"label": "主诉与核心症状", "desc": "你现在最困扰的感受是什么？"},
+    "deepen":   {"label": "症状深化",     "desc": "什么时候开始的？在什么情况下加重/缓解？"},
+    "expand":   {"label": "整体状态",     "desc": "饮食、睡眠、二便、精神状态怎么样？"},
+    "finalize": {"label": "关键判别点",   "desc": "确认几个关键问题以锁定你的状态倾向"},
+}
+
+
+# ══ 1. LLM JSON 防御层 ══
+
+def _parse_llm_json(raw: str) -> dict | None:
+    """三级防御：直接 parse → 正则提取 → 预设清单。永不返回 None（最低级返回通用问题）。"""
+    import re
+
+    if not raw:
+        return None
+
+    # Level 1: 直接 json.loads
+    try:
+        return json.loads(raw.strip())
+    except Exception:
+        pass
+
+    # Level 2: 正则提取最外层 {...}
+    try:
+        start = raw.index('{')
+        end = raw.rindex('}') + 1
+        extracted = raw[start:end]
+        return json.loads(extracted)
+    except Exception:
+        pass
+
+    # Level 3: 尝试 ```json ... ``` 代码块
+    try:
+        m = re.search(r'```json?\s*\n(.*?)```', raw, re.DOTALL)
+        if m:
+            return json.loads(m.group(1).strip())
+    except Exception:
+        pass
+
+    return None
+
+
+# ══ 2. 预设问诊清单（三级防御的最后兜底层）══
+
+_PRESET_QUESTIONS = {
+    "initial": [
+        {
+            "id": "q1", "text": "你现在最困扰的感受或不适是什么？",
+            "type": "text", "allow_note": True, "note_hint": "简短描述即可",
+        },
+        {
+            "id": "q2", "text": "这种困扰主要体现在哪些方面？",
+            "type": "multi", "allow_note": True,
+            "options": [
+                {"id": "sleep",    "label": "睡眠问题"},
+                {"id": "energy",   "label": "精力/疲劳"},
+                {"id": "digest",   "label": "消化/胃口"},
+                {"id": "mood",     "label": "情绪/压力"},
+                {"id": "body",     "label": "身体疼痛/不适"},
+                {"id": "other",    "label": "其他"},
+            ],
+        },
+    ],
+    "deepen": [
+        {
+            "id": "q3", "text": "这种情况多久了？",
+            "type": "single", "allow_note": True,
+            "options": [
+                {"id": "days",   "label": "几天内"},
+                {"id": "weeks",  "label": "一两周"},
+                {"id": "months", "label": "几个月"},
+                {"id": "years",  "label": "一年以上"},
+            ],
+        },
+        {
+            "id": "q4", "text": "下面哪些情况会让你感觉加重？",
+            "type": "multi", "allow_note": True,
+            "options": [
+                {"id": "night",    "label": "熬夜/睡眠不足"},
+                {"id": "stress",   "label": "紧张/压力大"},
+                {"id": "cold",     "label": "受凉"},
+                {"id": "food",     "label": "吃了生冷/油腻"},
+                {"id": "overwork", "label": "劳累后"},
+                {"id": "none",     "label": "好像没有明显规律"},
+            ],
+        },
+    ],
+    "expand": [
+        {
+            "id": "q5", "text": "你的食欲怎么样？",
+            "type": "single",
+            "options": [
+                {"id": "good",     "label": "正常挺好"},
+                {"id": "decreased","label": "吃不下/容易饱"},
+                {"id": "increased","label": "容易饿/吃得多"},
+                {"id": "irregular","label": "时好时坏不规律"},
+            ],
+        },
+        {
+            "id": "q6", "text": "睡眠情况如何？",
+            "type": "multi", "allow_note": True,
+            "options": [
+                {"id": "early",    "label": "入睡困难"},
+                {"id": "wake",     "label": "容易醒/多梦"},
+                {"id": "late",     "label": "醒得早/醒后睡不着"},
+                {"id": "quality",  "label": "睡得浅/不解乏"},
+                {"id": "good",     "label": "睡眠挺好"},
+            ],
+        },
+        {
+            "id": "q7", "text": "精神状态总体如何？",
+            "type": "single",
+            "options": [
+                {"id": "ok",       "label": "挺好的"},
+                {"id": "tired",    "label": "容易累"},
+                {"id": "low",      "label": "情绪偏消沉"},
+                {"id": "anxious",  "label": "容易焦虑/心烦"},
+            ],
+        },
+    ],
+    "finalize": [
+        {
+            "id": "q8", "text": "手心脚心平时偏热还是偏凉？",
+            "type": "single",
+            "options": [
+                {"id": "warm",   "label": "偏热/怕热"},
+                {"id": "cool",   "label": "偏凉/怕冷"},
+                {"id": "normal", "label": "正常，没特别感觉"},
+            ],
+        },
+        {
+            "id": "q9", "text": "出汗情况？",
+            "type": "single",
+            "options": [
+                {"id": "normal",  "label": "正常"},
+                {"id": "little",  "label": "不太出汗"},
+                {"id": "much",    "label": "容易出汗"},
+                {"id": "night",   "label": "睡着后出汗多（盗汗）"},
+            ],
+        },
+    ],
+}
+
+
+def _preset_questions(stage: str) -> list:
+    """返回该阶段的预设问题（三级防御的最低级兜底）。"""
+    return _PRESET_QUESTIONS.get(stage, [])
+
+
+# ══ 3. System Prompt 模板 ══
+
+INQUIRY_SYSTEM_PROMPT = """你是青囊管家的问诊引擎。你的任务是基于用户的 SPUM 数字模型，在四个阶段中逐个生成结构化的选择题清单。
+
+## 问诊流程（四阶段）
+
+1. **initial** — 主诉与核心症状：用户现在最困扰的感受是什么
+2. **deepen** — 深化：症状细节、诱因、加重/缓解因素
+3. **expand** — 扩展：饮食、睡眠、二便、精神状态
+4. **finalize** — 收束：关键判别点，锁定状态倾向
+
+## 输出要求（严格 JSON）
+
+每个阶段返回一个 JSON 对象，格式如下：
+
+```json
+{{
+  "stage": "initial",
+  "stage_label": "主诉与核心症状",
+  "is_final": false,
+  "questions": [
+    {{
+      "id": "q1",
+      "text": "问题文本",
+      "type": "single",
+      "options": [
+        {{"id": "a", "label": "选项A"}},
+        {{"id": "b", "label": "选项B"}}
+      ],
+      "allow_note": true,
+      "note_hint": "备注提示（可选）"
+    }}
+  ],
+  "next_hint": "下一阶段简述"
+}}
+```
+
+## 规则
+
+- 每个阶段 2-4 题，不要太多
+- type: "single"（单选）/ "multi"（多选）/ "text"（纯文本）
+- 选项必须 2-6 个
+- 最后一个阶段（finalize）返回 "is_final": true
+- 问题必须基于用户的 v_base 五形向量——比如土形偏弱的用户多问饮食/消化相关
+- 语气温暖、像朋友，不是医生
+- 严禁使用"诊断""治疗""处方"等医疗术语"""
+
+
+# ══ 4. 端点 ══
+
+@router.post("/inquiry/start")
+async def inquiry_start(
+    body: dict,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """启动新的问诊会话 → 返回第一阶段问题清单。"""
+    from ...models import InquirySession
+
+    # 1. 注入用户上下文（含身高体重 + LLM provider）
+    provider = (body.get("provider") if body else None) or "spum"
+    case = db.query(Case).filter(Case.user_id == current.id).first()
+    v_base = case.v_baseline if case else _DEFAULT_V_INNATE
+    v_innate = case.v_innate if case else _DEFAULT_V_INNATE
+
+    # 检查基础信息缺失 → 构造补问问题
+    # 条件：None / 0 / 明显不合理（height<120 或 weight<30）都算没填
+    missing = []
+    if not current.height or current.height < 120:
+        missing.append({
+            "id": "info_height", "text": "方便告诉我你的身高吗？（cm）",
+            "type": "number", "allow_note": False,
+        })
+    if not current.weight or current.weight < 30:
+        missing.append({
+            "id": "info_weight", "text": "方便告诉我你的体重吗？（kg）",
+            "type": "number", "allow_note": False,
+        })
+
+    user_context = {
+        "qingnang_id": current.qingnang_id,
+        "nickname": current.nickname,
+        "gender": current.gender,
+        "height": current.height,
+        "weight": current.weight,
+        "v_innate": v_innate,
+        "v_base": v_base,
+        "bazi": case.bazi if case else None,
+        "syndrome": case.syndrome if case else None,
+        "llm_provider": provider,
+    }
+
+    # 2. 创建 session
+    session = InquirySession(
+        user_id=current.id,
+        case_id=case.id if case else None,
+        stage="initial",
+        status="active",
+        user_context=user_context,
+        history=[],
+        answer_bank={},
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+
+    # 3. LLM 生成第一阶段问题 → prepend 补问
+    questions = await _generate_stage_questions("initial", user_context, [], current)
+    if missing:
+        questions = missing + questions
+
+    return {
+        "session_id": session.id,
+        "stage": "initial",
+        "stage_label": STAGE_LABELS["initial"]["label"],
+        "stage_desc": STAGE_LABELS["initial"]["desc"],
+        "questions": questions,
+        "base_info_missing": [q["id"] for q in missing],  # 告诉前端要自动存
+        "is_final": False,
+        "total_stages": 4,
+    }
+
+
+@router.post("/inquiry/{session_id}/answer")
+async def inquiry_answer(
+    session_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """提交一阶段答案 → 返回下一阶段问题（或完成）。
+
+    body = {"stage": "initial", "answers": {"q1": {...}, "q2": {...}}, "note": "..."}
+    """
+    from ...models import InquirySession
+
+    session = db.query(InquirySession).filter(
+        InquirySession.id == session_id,
+        InquirySession.user_id == current.id,
+    ).first()
+    if not session:
+        raise HTTPException(404, "会话不存在")
+    if session.status != "active":
+        raise HTTPException(400, "会话已结束")
+
+    # 1. 记录本轮答案到 history + 累计到 answer_bank
+    answer_payload = body.get("answers", {})
+    stage = session.stage
+
+    # 1b. 自动存基础信息补填（info_height / info_weight）
+    patch_user = {}
+    if "info_height" in answer_payload:
+        v = answer_payload["info_height"]
+        if isinstance(v, dict):
+            num = v.get("number") or v.get("value") or v.get("text")
+        else:
+            num = v
+        try:
+            patch_user["height"] = int(float(num))
+        except (ValueError, TypeError):
+            pass
+    if "info_weight" in answer_payload:
+        v = answer_payload["info_weight"]
+        if isinstance(v, dict):
+            num = v.get("number") or v.get("value") or v.get("text")
+        else:
+            num = v
+        try:
+            patch_user["weight"] = float(num)
+        except (ValueError, TypeError):
+            pass
+    if patch_user:
+        for k, v in patch_user.items():
+            setattr(current, k, v)
+        # 同步到 user_context 里，LLM 后续轮就能用
+
+        session.user_context = {**session.user_context, **patch_user}
+
+    history = session.history or []
+    history.append({
+        "stage": stage,
+        "answers": answer_payload,
+        "note": body.get("note", ""),
+    })
+    session.history = history
+
+    # 扁平化答案（方便 LLM 下轮用）
+    bank = session.answer_bank or {}
+    for qid, ans in answer_payload.items():
+        bank[qid] = ans
+    session.answer_bank = bank
+
+    # 2. 推进到下一阶段
+    idx = INQUIRY_STAGES.index(stage) if stage in INQUIRY_STAGES else 0
+    next_stage = INQUIRY_STAGES[idx + 1] if idx + 1 < len(INQUIRY_STAGES) else "done"
+
+    if next_stage == "done":
+        # 完成 → 写 summary
+        summary = await _generate_summary(session.user_context, history, bank, current)
+        session.stage = "done"
+        session.status = "completed"
+        session.summary = summary
+        session.completed_at = func.now()
+        db.commit()
+        return {
+            "session_id": session.id,
+            "stage": "done",
+            "is_final": True,
+            "summary": summary,
+            "total_stages": 4,
+        }
+
+    # 3. LLM 生成下一阶段问题
+    session.stage = next_stage
+    db.commit()
+
+    questions = await _generate_stage_questions(next_stage, session.user_context, history, current)
+    return {
+        "session_id": session.id,
+        "stage": next_stage,
+        "stage_label": STAGE_LABELS.get(next_stage, {}).get("label", next_stage),
+        "stage_desc": STAGE_LABELS.get(next_stage, {}).get("desc", ""),
+        "questions": questions,
+        "is_final": next_stage == "finalize",
+        "total_stages": 4,
+        "progress": idx + 2,  # 已完成 N 个阶段（当前 + 之前）
+    }
+
+
+@router.get("/inquiry/{session_id}")
+async def inquiry_get(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """查询会话当前状态（刷新页面续上）。"""
+    from ...models import InquirySession
+
+    session = db.query(InquirySession).filter(
+        InquirySession.id == session_id,
+        InquirySession.user_id == current.id,
+    ).first()
+    if not session:
+        raise HTTPException(404, "会话不存在")
+
+    idx = INQUIRY_STAGES.index(session.stage) if session.stage in INQUIRY_STAGES else 0
+    questions = []
+    if session.status == "active":
+        # LLM 重新生成当前阶段问题（简化——预设兜底）
+        questions = await _generate_stage_questions(
+            session.stage, session.user_context, session.history or [], current
+        )
+
+    return {
+        "session_id": session.id,
+        "stage": session.stage,
+        "stage_label": STAGE_LABELS.get(session.stage, {}).get("label", session.stage),
+        "stage_desc": STAGE_LABELS.get(session.stage, {}).get("desc", ""),
+        "status": session.status,
+        "history": session.history or [],
+        "answer_bank": session.answer_bank or {},
+        "questions": questions,
+        "is_final": session.stage == "finalize",
+        "progress": idx + 1,
+        "summary": session.summary,
+        "total_stages": 4,
+    }
+
+
+# ══ 5. LLM 调用器（问诊专用，带 JSON 防御 + fallback）══
+
+async def _generate_stage_questions(
+    stage: str,
+    user_context: dict,
+    history: list,
+    current: User,
+) -> list:
+    """生成某阶段的问题清单。LLM 失败时回退到预设清单。"""
+    # provider 现在从 user_context.llm_provider 读（下面 LLM 调用段）
+
+    # 组装 messages
+    stage_label = STAGE_LABELS.get(stage, {}).get("label", stage)
+    history_text = json.dumps(history, ensure_ascii=False) if history else "（首次问诊）"
+    ctx_text = json.dumps(user_context, ensure_ascii=False, indent=2)
+
+    messages = [
+        {"role": "system", "content": INQUIRY_SYSTEM_PROMPT},
+        {"role": "user", "content": f"""
+请生成 **{stage_label}** 阶段的问题清单（stage="{stage}"）。
+
+## 用户上下文
+{ctx_text}
+
+## 已完成的阶段历史
+{history_text}
+
+## 要求
+- stage="{stage}", stage_label="{stage_label}"
+- 返回 JSON 对象，questions 数组 2-4 题
+- 严禁使用医疗术语，语气温暖像朋友
+- 选项里避免"以上都对"这种偷懒选项
+- 如果前一阶段用户没答或答得模糊，可以重复相关问题换个角度问
+""".strip()},
+    ]
+
+    # 调 LLM（尊重 user_context 里的 llm_provider）
+    raw_text = None
+    provider = user_context.get("llm_provider", "spum")
+    if provider == "deepseek" and settings.DEEPSEEK_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                r = await client.post(
+                    f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}"},
+                    json={
+                        "model": settings.DEEPSEEK_MODEL,
+                        "messages": messages,
+                        "max_tokens": 1200,
+                        "response_format": {"type": "json_object"},
+                    }
+                )
+                if r.status_code == 200:
+                    raw_text = r.json()["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+    else:
+        # SPUM 本地
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                h = await client.get(f"{settings.QINGMENG_URL}/health")
+                if h.status_code == 200:
+                    r = await client.post(
+                        f"{settings.QINGMENG_URL}/v1/chat/completions",
+                        json={
+                            "model": settings.QINGMENG_MODEL,
+                            "messages": messages,
+                            "max_tokens": 1200,
+                        }
+                    )
+                    if r.status_code == 200:
+                        raw_text = r.json()["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+
+    # 解析 + 提取 questions
+    if raw_text:
+        parsed = _parse_llm_json(raw_text)
+        if parsed:
+            questions = parsed.get("questions", [])
+            # 校验：必须是 list，每项必须有 id/text/type
+            if isinstance(questions, list) and all(
+                isinstance(q, dict) and q.get("id") and q.get("text") and q.get("type")
+                for q in questions
+            ):
+                return questions[:4]  # 最多 4 题
+
+    # Fallback：预设清单
+    return _preset_questions(stage)
+
+
+async def _generate_summary(
+    user_context: dict,
+    history: list,
+    answer_bank: dict,
+    current: User,
+) -> dict:
+    """问诊完成后——生成状态摘要 JSON。失败返回最小摘要。"""
+    ctx_text = json.dumps(user_context, ensure_ascii=False, indent=2)
+    ans_text = json.dumps(answer_bank, ensure_ascii=False, indent=2)
+    history_text = json.dumps(history, ensure_ascii=False)
+
+    messages = [
+        {"role": "system", "content": """你是 SPUM 问诊引擎。基于用户回答生成结构化状态摘要 JSON。
+
+输出格式：
+```json
+{
+  "dominant_pattern": "最多出现的 1-2 个核心状态标签（如 '土形偏弱' 或 '木形郁结+火形偏旺'）",
+  "confidence": 0.0-1.0,
+  "key_findings": ["发现1", "发现2", ...],
+  "lifestyle_tips": ["生活建议1", "生活建议2", ...],
+  "next_action": "建议下一步（如 '建议采集一次 PPG 观测' 或 '建议开始体质调理'）",
+  "note": "给调理师的内部提示（可选）"
+}
+```
+语气温暖，严禁医疗术语，不要写诊断/治疗建议。"""},
+        {"role": "user", "content": f"""
+## 用户
+{ctx_text}
+
+## 问诊历史
+{history_text}
+
+## 累计答案
+{ans_text}
+
+请输出状态摘要 JSON。""".strip()},
+    ]
+
+    raw_text = None
+    provider = user_context.get("llm_provider", "spum")
+    if provider == "deepseek" and settings.DEEPSEEK_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                r = await client.post(
+                    f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}"},
+                    json={
+                        "model": settings.DEEPSEEK_MODEL,
+                        "messages": messages,
+                        "max_tokens": 800,
+                        "response_format": {"type": "json_object"},
+                    }
+                )
+                if r.status_code == 200:
+                    raw_text = r.json()["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+    else:
+        # SPUM 本地
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                h = await client.get(f"{settings.QINGMENG_URL}/health")
+                if h.status_code == 200:
+                    r = await client.post(
+                        f"{settings.QINGMENG_URL}/v1/chat/completions",
+                        json={"model": settings.QINGMENG_MODEL, "messages": messages, "max_tokens": 800}
+                    )
+                    if r.status_code == 200:
+                        raw_text = r.json()["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+
+    if raw_text:
+        parsed = _parse_llm_json(raw_text)
+        if parsed:
+            return parsed
+
+    # Fallback：从 answer_bank 推最小摘要
+    v_base = user_context.get("v_base", {})
+    weak = [w for w, val in v_base.items() if isinstance(val, (int, float)) and val < 45]
+    strong = [w for w, val in v_base.items() if isinstance(val, (int, float)) and val > 65]
+    w_name = {"wood": "木", "fire": "火", "earth": "土", "metal": "金", "water": "水"}
+    return {
+        "dominant_pattern": f"{'、'.join(w_name[w]+'形偏弱' for w in weak)}" if weak else "五形暂无明显偏失",
+        "confidence": 0.3,
+        "key_findings": ["使用预设问诊摘要（LLM 暂不可用）"],
+        "lifestyle_tips": ["建议先完成一次 PPG 观测建立基线", "规律作息，避免熬夜"],
+        "next_action": "建议采集脉搏观测（PPG），或直接进入调理建议查看生活指南",
+        "note": "LLM fallback — 摘要由本地规则生成，非个性化",
+        "fallback": True,
+    }
+

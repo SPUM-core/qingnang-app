@@ -17,7 +17,42 @@
 
     <!-- 对话抽屉 -->
     <transition name="drawer">
-      <div v-if="isOpen" class="drawer">
+      <div v-if="isOpen" :class="['drawer', { fullscreen: isFullscreen }]">
+        <!-- 📜 全屏模式专属：历史左栏 -->
+        <aside v-if="isFullscreen" class="history-sidebar">
+          <div class="hs-head">
+            <span class="hs-title">📜 对话历史</span>
+            <button class="hs-btn" @click="clearChat" title="新对话">＋</button>
+          </div>
+          <div class="hs-list">
+            <!-- 今日 -->
+            <div class="hs-group">
+              <div class="hs-group-title">今日</div>
+              <div v-for="(g, gi) in historyToday" :key="'t'+gi" class="hs-item"
+                   @click="loadHistory(g.id)">
+                <span class="hs-time">{{ g.time }}</span>
+                <span class="hs-preview">{{ g.preview }}</span>
+              </div>
+            </div>
+            <!-- 更早 -->
+            <div v-if="historyEarlier.length" class="hs-group">
+              <div class="hs-group-title">更早</div>
+              <div v-for="(g, gi) in historyEarlier" :key="'e'+gi" class="hs-item"
+                   @click="loadHistory(g.id)">
+                <span class="hs-date">{{ g.date }}</span>
+                <span class="hs-preview">{{ g.preview }}</span>
+              </div>
+            </div>
+            <!-- 空态 -->
+            <div v-if="historyToday.length === 0 && historyEarlier.length === 0" class="hs-empty">
+              <p>暂无历史</p>
+              <p class="hs-empty-hint">开始第一段对话吧～</p>
+            </div>
+          </div>
+        </aside>
+
+        <!-- 💬 对话主区 -->
+        <div class="drawer-main">
         <!-- 头部 -->
         <div class="drawer-head">
           <div class="avatar">🌿</div>
@@ -25,6 +60,10 @@
             <h3>青囊管家</h3>
             <p class="head-sub">SPUM · 你的专属健康生活顾问</p>
           </div>
+          <button class="head-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏模式'">
+            <span v-if="isFullscreen" class="fs-icon">⤢</span>
+            <span v-else class="fs-icon">⛶</span>
+          </button>
           <button class="head-btn" @click="clearChat" title="新对话">🔄</button>
           <button class="head-btn close" @click="toggle" title="收起">—</button>
         </div>
@@ -72,6 +111,32 @@
                   <div v-if="m.suggestions?.length" class="suggest-row">
                     <button v-for="(s, i) in m.suggestions" :key="i" class="sugg-btn" @click="send(s)">{{ s }}</button>
                   </div>
+                  <!-- 🎯 AI 调用应用功能（青囊管家的"四肢"） -->
+                  <div v-if="m.actions?.length" class="action-row">
+                    <button v-for="(a, i) in m.actions" :key="i"
+                            :class="['action-btn', a.priority]"
+                            @click="doAction(a)">
+                      <span class="action-icon">{{ a.icon }}</span>
+                      <span>{{ a.label }}</span>
+                      <span class="action-arrow">→</span>
+                    </button>
+                  </div>
+                  <!-- 📊 AI 深度解析摘要（病理 + 建议） -->
+                  <div v-if="m.analysis?.pathologies?.length || m.analysis?.suggestions?.length" class="analysis-card">
+                    <div v-if="m.analysis.pathologies?.length" class="ana-section">
+                      <span class="ana-tag">📌 状态梳理</span>
+                      <span v-for="(p, pi) in m.analysis.pathologies" :key="pi" class="ana-path">
+                        {{ p.label }}<span v-if="p.base" class="ana-base">（{{ p.base }}）</span>
+                      </span>
+                    </div>
+                    <div v-if="m.analysis.suggestions?.length" class="ana-section">
+                      <span class="ana-tag">💡 调理建议</span>
+                      <span v-for="(s, si) in m.analysis.suggestions.slice(0,3)" :key="si"
+                            :class="['ana-sugg', s.priority]">
+                        {{ s.title }}
+                      </span>
+                    </div>
+                  </div>
                   <div v-if="m.footnote" class="msg-footnote">{{ m.footnote }}</div>
                 </template>
                 <div class="msg-time">{{ m.time }}</div>
@@ -98,6 +163,7 @@
           </button>
         </div>
         <p class="disclaimer">* 青囊管家基于你的数字模型给出生活参考，不构成医疗建议</p>
+        </div><!-- /drawer-main -->
       </div>
     </transition>
   </div>
@@ -105,10 +171,12 @@
 
 <script setup>
 import { ref, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { api } from '../api/client'
 
 const userStore = useUserStore()
+const router = useRouter()
 
 // ═══ 状态 ═══
 const isOpen = ref(false)
@@ -118,6 +186,83 @@ const thinking = ref(false)
 const unread = ref(0)
 const msgAreaRef = ref(null)
 const taRef = ref(null)
+const isFullscreen = ref(false)
+
+// ═══ 历史消息侧栏 ═══
+const chatHistory = ref([])  // 从后端 /chat/messages 拉
+const historyLoaded = ref(false)
+
+async function loadHistoryList() {
+  try {
+    const r = await api.get('/api/v1/assistant/chat/messages?limit=50')
+    // 后端返回 [{role, content, created_at, signals?}]
+    // 转成 history 条目：按时间戳分今天/更早
+    chatHistory.value = (r.data || []).map((m, i) => ({
+      id: m.id || i,
+      role: m.role,
+      content: m.content,
+      signals: m.signals || null,
+      ts: new Date(m.created_at).getTime(),
+      dateStr: new Date(m.created_at).toISOString().slice(0, 10),
+      timeStr: new Date(m.created_at).toLocaleTimeString('zh-CN', {
+        hour: '2-digit', minute: '2-digit'
+      }),
+    })).reverse()  // 最新在前
+    historyLoaded.value = true
+  } catch (e) {
+    console.warn('[history] 拉历史失败', e)
+  }
+}
+
+// 按日期分组的历史（给左栏渲染）
+const historyToday = computed(() => {
+  const today = new Date().toISOString().slice(0, 10)
+  const todayItems = chatHistory.value
+    .filter(m => m.role === 'user' && m.dateStr === today)
+    .map(m => ({
+      id: m.id,
+      time: m.timeStr,
+      preview: (m.content || '').slice(0, 30),
+      ts: m.ts,
+    }))
+    .sort((a, b) => b.ts - a.ts)
+  // 每个 user 消息 + 下一个 ai 消息拼成一组（用 ai 的 preview 如果有）
+  return todayItems
+})
+
+const historyEarlier = computed(() => {
+  const today = new Date().toISOString().slice(0, 10)
+  const earlierItems = chatHistory.value
+    .filter(m => m.role === 'user' && m.dateStr !== today)
+    .map(m => ({
+      id: m.id,
+      date: m.dateStr,
+      preview: (m.content || '').slice(0, 30),
+      ts: m.ts,
+    }))
+    .sort((a, b) => b.ts - a.ts)
+  return earlierItems.slice(0, 20)  // 最多显示 20 条更早
+})
+
+function loadHistory(msgId) {
+  // 点击历史条目 → 找到这条消息及其后的所有消息，重建 messages
+  const idx = chatHistory.value.findIndex(m => m.id === msgId)
+  if (idx === -1) return
+  // 从这条消息开始，取后面的（包括这条）
+  const sub = chatHistory.value.slice(idx)
+  messages.value = sub.map(m => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    suggestions: [],
+    footnote: '',
+    actions: m.signals ? [] : [],
+    analysis: m.signals,
+    time: m.timeStr,
+    typing: false,
+  }))
+  scrollBottom()
+}
 
 // ═══ FAB 拖动相关 ═══
 const FAB_STORAGE_KEY = 'qingnang-fab-pos'
@@ -335,6 +480,13 @@ const clearChat = () => {
   if (messages.value.length === 0) return
   if (confirm('开始新的对话？')) messages.value = []
 }
+const toggleFullscreen = async () => {
+  isFullscreen.value = !isFullscreen.value
+  // 进入全屏时拉一次历史（如果还没拉过）
+  if (isFullscreen.value && !historyLoaded.value) {
+    await loadHistoryList()
+  }
+}
 
 // ═══ 发送消息（通过青囊后端代理，不再直连 8000） ═══
 const onKeydown = (e) => {
@@ -409,16 +561,30 @@ const send = async (text) => {
   let replyText = ''
   let footnote = ''
   let engineLabel = ''
+  let r = null  // ⚠️ 先声明，catch 后也能访问
   try {
     const history = messages.value
       .filter(m => m.id !== typingMsg.id && !m.typing)
       .slice(-10)
       .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
 
-    const r = await api.post('/api/v1/assistant/chat', { message: text, history })
+    // 从设置读取用户选择的 provider
+    let provider = 'spum'
+    try { provider = JSON.parse(localStorage.getItem('qingnang_settings') || '{}').llm_provider || 'spum' } catch {}
+
+    r = await api.post('/api/v1/assistant/chat', { message: text, history, provider })
     replyText = r.data?.reply || ''
-    engineLabel = r.data?.engine === 'qingmeng' ? `青檬引擎 · ${r.data.latency_ms}ms` : '本地规则回复'
-    footnote = engineLabel
+    // engine 标签：反映实际 provider + 是否在线
+    const eng = r.data?.engine
+    const prov = r.data?.provider || provider
+    const ms = r.data?.latency_ms || 0
+    if (eng === 'local_fallback') {
+      footnote = '本地规则回复（模型不可达）'
+    } else if (prov === 'deepseek') {
+      footnote = `DeepSeek · ${ms}ms`
+    } else {
+      footnote = `SPUM 本地模型 · ${ms}ms`
+    }
   } catch (e) {
     const code = e.response?.status
     if (code === 401 || code === 403) {
@@ -435,10 +601,25 @@ const send = async (text) => {
     .filter(l => l.trim().length >= 4 && l.trim().length <= 20 && !l.includes('**'))
     .slice(0, 3)
 
+  // 从后端响应读 actions + analysis（AI Tool Calling 结果）
+  const actions = r.data?.actions || []
+  const analysis = r.data?.analysis || null
+  // extracted_signals 也存到全局 window 方便 Dashboard 后续消费
+  if (r.data?.extracted_signals?.length) {
+    try {
+      const key = 'qingnang-latest-signals'
+      localStorage.setItem(key, JSON.stringify({
+        signals: r.data.extracted_signals,
+        at: Date.now(),
+      }))
+    } catch {}
+  }
+
   // 替换 typingMsg
   const finalMsg = {
     id: typingMsg.id, role: 'ai',
     content: replyText, suggestions, footnote,
+    actions, analysis,
     time: nowTime(), typing: false,
     segments: safeParseSegments(replyText),
   }
@@ -459,6 +640,18 @@ const scrollBottom = () => {
   })
 }
 const onScroll = () => {}
+
+// 🎯 AI Tool Calling：点击青囊建议的动作按钮 → 跳转对应页面
+function doAction(a) {
+  // 先关闭抽屉，避免路由跳转时视觉混乱
+  isOpen.value = false
+  // 小延迟让关闭动画完成
+  setTimeout(() => {
+    if (a?.route) {
+      router.push(a.route)
+    }
+  }, 200)
+}
 </script>
 
 <style scoped>
@@ -497,7 +690,71 @@ const onScroll = () => {}
   display: flex; flex-direction: column; overflow: hidden;
   border: 1px solid var(--ink-line);
   z-index: 1001;
-  max-height: calc(100vh - 120px);
+  transition: width .25s ease, height .25s ease, right .25s ease, bottom .25s ease, border-radius .25s ease;
+}
+.drawer.fullscreen {
+  right: 0; bottom: 0; left: 0; top: 0;
+  width: 100vw; height: 100vh;
+  border-radius: 0;
+  z-index: 2000;
+  flex-direction: row;
+}
+
+/* 📜 历史侧栏（全屏专属） */
+.history-sidebar {
+  width: 260px; flex-shrink: 0;
+  background: linear-gradient(180deg, #faf9f5, #f3f1ea);
+  border-right: 1px solid var(--ink-line);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.hs-head {
+  padding: 14px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--ink-line);
+  background: rgba(26,77,69,0.04);
+}
+.hs-title { font-size: 13px; font-weight: 600; color: #1A4D45; }
+.hs-btn {
+  width: 26px; height: 26px; border-radius: 6px;
+  border: 1px solid rgba(26,77,69,0.3); background: #fff;
+  color: #1A4D45; font-size: 14px; line-height: 1;
+  cursor: pointer; transition: all 0.15s;
+}
+.hs-btn:hover { background: #1A4D45; color: #fff; }
+.hs-list { flex: 1; overflow-y: auto; padding: 8px; }
+.hs-group { margin-bottom: 12px; }
+.hs-group-title {
+  font-size: 10px; color: var(--ink-tertiary);
+  padding: 6px 10px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.hs-item {
+  padding: 8px 10px; border-radius: 6px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px;
+  transition: background 0.12s;
+}
+.hs-item:hover { background: rgba(26,77,69,0.06); }
+.hs-time, .hs-date {
+  font-size: 10px; color: var(--ink-tertiary);
+}
+.hs-preview {
+  font-size: 12px; color: var(--ink-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hs-empty {
+  padding: 40px 20px; text-align: center; color: var(--ink-tertiary);
+}
+.hs-empty p { margin: 4px 0; }
+.hs-empty-hint { font-size: 11px; opacity: 0.6; }
+
+/* 💬 全屏下的对话主区 */
+.drawer.fullscreen .drawer-main {
+  flex: 1; display: flex; flex-direction: column;
+  min-width: 0; /* flex 子元素防溢出 */
+}
+/* 非全屏时 drawer-main 就是 drawer 本身 */
+.drawer:not(.fullscreen) .drawer-main {
+  flex: 1; display: flex; flex-direction: column; min-width: 0;
 }
 .drawer-enter-active, .drawer-leave-active { transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .drawer-enter-from, .drawer-leave-to { opacity: 0; transform: translateY(20px) scale(0.95); }
@@ -623,6 +880,55 @@ const onScroll = () => {}
   cursor: pointer; transition: all 0.15s;
 }
 .sugg-btn:hover { background: rgba(26,77,69,0.06); border-color: var(--qingnang-emerald); }
+
+/* 🎯 AI Tool Calling 动作按钮 */
+.action-row {
+  display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
+}
+.action-btn {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 8px 12px;
+  border: 1px solid rgba(26,77,69,0.25); background: linear-gradient(135deg, #f0faf7, #fff);
+  color: #1A4D45; border-radius: 8px;
+  cursor: pointer; transition: all 0.15s;
+  text-align: left; font-weight: 500;
+}
+.action-btn:hover {
+  background: linear-gradient(135deg, #e0f5ee, #f5fff9);
+  border-color: var(--qingnang-emerald);
+  transform: translateX(2px);
+}
+.action-btn.high { border-color: #D84315; color: #D84315; background: linear-gradient(135deg, #fff5f2, #fff); }
+.action-btn.high:hover { background: linear-gradient(135deg, #ffeae2, #fff); }
+.action-icon { font-size: 14px; }
+.action-arrow { margin-left: auto; opacity: 0.5; font-size: 11px; }
+
+/* 📊 AI 深度解析摘要卡 */
+.analysis-card {
+  margin-top: 10px; padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(26,77,69,0.05), rgba(212,160,23,0.04));
+  border: 1px solid rgba(26,77,69,0.12);
+  border-radius: 10px; font-size: 11px; line-height: 1.6;
+}
+.ana-section { margin-bottom: 6px; }
+.ana-section:last-child { margin-bottom: 0; }
+.ana-tag {
+  display: inline-block; margin-right: 6px;
+  color: var(--ink-tertiary); font-weight: 500;
+}
+.ana-path {
+  display: inline-block; margin: 0 3px;
+  background: rgba(216,67,21,0.08); color: #D84315;
+  padding: 1px 7px; border-radius: 4px; font-weight: 500;
+}
+.ana-base { color: var(--ink-tertiary); font-size: 10px; font-weight: 400; }
+.ana-sugg {
+  display: inline-block; margin: 0 3px;
+  background: rgba(26,77,69,0.08); color: #1A4D45;
+  padding: 1px 7px; border-radius: 4px;
+}
+.ana-sugg.high { background: rgba(216,67,21,0.1); color: #D84315; font-weight: 500; }
+.ana-sugg.low { opacity: 0.7; }
 
 .msg-footnote {
   margin-top: 8px; padding-top: 6px;

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="page case">
     <!-- 顶部：数字模型总览 -->
     <div class="case-hero">
@@ -93,15 +93,15 @@
                 <div v-for="k in elements" :key="k" class="ppg-bar-row">
                   <span class="ppg-label" :style="{ color: colors[k] }">{{ labels[k] }}</span>
                   <div class="ppg-track">
-                    <div class="ppg-bar ppg-bar-neg" v-if="r.ppg.delta_f[k] < 0"
-                         :style="{ width: Math.min(Math.abs(r.ppg.delta_f[k]) * 100, 100) + '%', background: colors[k] }"></div>
+                    <div class="ppg-bar ppg-bar-neg" v-if="(r.ppg.delta_f[k] || 0) < 0"
+                         :style="{ width: Math.min(Math.abs(r.ppg.delta_f[k] || 0) * 100, 100) + '%', background: colors[k] }"></div>
                     <div class="ppg-bar ppg-bar-pos" v-else
-                         :style="{ width: Math.min(r.ppg.delta_f[k] * 100, 100) + '%', background: colors[k] }"></div>
+                         :style="{ width: Math.min((r.ppg.delta_f[k] || 0) * 100, 100) + '%', background: colors[k] }"></div>
                   </div>
-                  <span class="ppg-val" :class="r.ppg.delta_f[k] >= 0 ? 'pos' : 'neg'">
-                    {{ r.ppg.delta_f[k] >= 0 ? '+' : '' }}{{ r.ppg.delta_f[k].toFixed(2) }}
+                  <span class="ppg-val" :class="(r.ppg.delta_f[k] || 0) >= 0 ? 'pos' : 'neg'">
+                    {{ (r.ppg.delta_f[k] || 0) >= 0 ? '+' : '' }}{{ (Math.abs(r.ppg.delta_f[k] || 0) === Infinity ? 0 : (r.ppg.delta_f[k] || 0)).toFixed(2) }}
                   </span>
-                  <span class="ppg-vobs">{{ r.ppg.v_obs[k] }}</span>
+                  <span class="ppg-vobs">{{ r.ppg.v_obs[k] ?? r.ppg.v_obs[k] }}</span>
                 </div>
               </div>
 
@@ -156,9 +156,9 @@
     <!-- ═══ Tab: 先天基底 + 病机链 ═══ -->
     <div v-else-if="activeTab === 'foundation'" class="foundation-wrap">
       <!-- S_0 先天基底 -->
-      <div class="card">
-        <h2>1. 先天基底 S_0^0</h2>
-        <p class="s0-desc">S_0^0 = (火↑↑, 水↑, 木↑↑↑, 土↓, 金↔) · 八字 {{ patient?.birth_ganzhi }}</p>
+      <div class="card clickable-card" @click="showInnateReport = true" title="点击查看完整文字报告">
+        <h2>1. 先天基底 S_0^0 <span class="card-hint">点击查看完整报告 →</span></h2>
+        <p class="s0-desc">S_0^0 = ({{ s0ArrowSummary }}) · 八字 {{ patient?.birth_ganzhi || '待推演' }}</p>
         <div class="vector-compare">
           <div class="vector-col">
             <h3>先天基底 V_base</h3>
@@ -183,7 +183,8 @@
             </div>
           </div>
         </div>
-        <p class="paradox-hint">⚠️ 核心偏移：S_土↓↓↓（土形储备三重枯竭）+ S_水↓↓ + 相火妄动（危象征兆）</p>
+        <p class="paradox-hint" v-if="coreDeviation">⚠️ 核心偏移：{{ coreDeviation }}</p>
+        <p class="paradox-hint muted" v-else>💡 先天基底调和，暂无显著偏失</p>
       </div>
 
       <!-- 病机链 -->
@@ -275,6 +276,19 @@
         <p>暂无历史调理方案档案</p>
       </div>
     </div>
+
+    <!-- ═══ 先天基底完整文字报告弹窗 ═══ -->
+    <transition name="modal">
+      <div v-if="showInnateReport" class="modal-overlay" @click.self="showInnateReport = false">
+        <div class="modal-content innate-report-modal">
+          <div class="modal-header">
+            <h2>📜 先天基底完整文字报告</h2>
+            <button class="modal-close" @click="showInnateReport = false">✕</button>
+          </div>
+          <div class="modal-body" v-html="innateReportHtml"></div>
+        </div>
+      </div>
+    </transition>
   </section>
 </template>
 
@@ -282,12 +296,12 @@
 import { computed, ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import QIcon from '../components/ui/QIcon.vue'
-import { useVectorStore } from '../stores/vector'
+import { useVectorStore, toArrow } from '../stores/vector'
 
 const vectorStore = useVectorStore()
 
 onMounted(async () => {
-  // 每次强制拉取后端最新数据（不能跳过，避免 Dashboard 先跑后 caseReportsFull 等字段为空）
+  // 强制拉取后端最新数据
   let ok = false
   try {
     const res = await vectorStore.fetchCase()
@@ -295,10 +309,12 @@ onMounted(async () => {
   } catch {
     ok = false
   }
-  // 只有后端拉失败才用 mock fallback
-  if (!ok || !vectorStore.caseReportsFull?.length) {
-    vectorStore.loadHuCase()
+  // 后端拉不到 → 才算真错误（不再 fallback 到胡运涛种子数据）
+  if (!ok) {
+    vectorStore.loadHuCase()   // 仅后端挂了才 fallback
   }
+  // ⚠️ caseReportsFull 为空 = 用户还没采过 PPG，这是正常新用户态
+  //     不再触发 loadHuCase！让 computed/UI 自己处理空态
 })
 
 const patient = computed(() => vectorStore.casePatient)
@@ -330,7 +346,6 @@ const planTypeLabel = (t) => ({
 
 const labels = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
 const colors = { wood: '#43A047', fire: '#D84315', earth: '#D4A017', metal: '#90A4AE', water: '#0288D1' }
-const arrows = { wood: '↑↑↑', fire: '↑↑', earth: '↓', metal: '↔', water: '↑' }
 const elements = ['wood','fire','earth','metal','water']
 
 const tabs = [
@@ -340,16 +355,17 @@ const tabs = [
 ]
 const activeTab = ref('timeline')
 const expandedId = ref('r8') // 默认展开最新的
+const showInnateReport = ref(false)
 
 const toggleExpand = (id) => {
   expandedId.value = expandedId.value === id ? null : id
 }
 const typeClass = (t) => ({ '首诊': 'first', '调理方案': 'plan', 'on-off 验证': 'verify', '重要发现': 'discover' }[t] || 'plan')
 
-// 最新观测 chip
+// 最新观测 chip（动态，从 vectorStore.latestVector 读）
 const latestVectorChips = computed(() => {
-  const base = vectorStore.vBase || { wood: 80, fire: 70, earth: 40, metal: 50, water: 60 }
-  return elements.map(k => ({ label: labels[k], key: k, arrow: arrows[k] }))
+  const v = vectorStore.latestVector || vectorStore.vBase || vectorStore.caseSEffectiveBaseline || {}
+  return elements.map(k => ({ label: labels[k], key: k, arrow: toArrow(v[k] ?? 50), value: v[k] ?? 50 }))
 })
 
 // 统计
@@ -361,14 +377,143 @@ const spanDays = computed(() => {
   return Math.round((latest - earliest) / (1000 * 60 * 60 * 24))
 })
 
+// 从 v_base 生成 S_0^0 文字描述
+const s0ArrowSummary = computed(() => {
+  const base = vectorStore.vBase || vectorStore.caseSEffectiveBaseline || {}
+  if (!Object.keys(base).length) return '待推演'
+  return elements.map(k => {
+    const arrow = toArrow(base[k])
+    const label = labels[k]
+    return `${label}${arrow}`
+  }).join(', ')
+})
+// 核心偏移描述：找偏离最大的 2-3 个维度
+const coreDeviation = computed(() => {
+  const base = vectorStore.vBase || vectorStore.caseSEffectiveBaseline || {}
+  if (!Object.keys(base).length) return ''
+  const degs = elements.map(k => ({ k, d: Math.abs((base[k] ?? 50) - 50), v: base[k] ?? 50 }))
+  degs.sort((a, b) => b.d - a.d)
+  const top = degs.filter(x => x.d > 10).slice(0, 3)
+  if (!top.length) return ''
+  return top.map(x => {
+    const arrow = toArrow(x.v)
+    const tag = labels[x.k]
+    // 根据五行特性自动解释
+    const descMap = {
+      wood: { low: '木形偏弱（疏泄不足）', high: '木形偏旺（疏泄过亢）' },
+      fire: { low: '火形偏弱（心阳不足）', high: '火形偏旺（相火妄动）' },
+      earth: { low: '土形偏弱（脾失健运）', high: '土形偏旺（湿浊壅滞）' },
+      metal:{ low: '金形偏弱（肺卫不固）', high: '金形偏旺（燥气偏盛）' },
+      water:{ low: '水形偏弱（肾精不足）', high: '水形偏旺（水气泛滥）' },
+    }
+    const desc = (x.v < 50 ? descMap[x.k]?.low : descMap[x.k]?.high) || ''
+    return `S_${tag}${arrow}（${desc}）`
+  }).join(' + ')
+})
+
+// 先天基底完整文字报告（弹窗内容，v-html）
+const innateReportHtml = computed(() => {
+  const base = vectorStore.vBase || vectorStore.caseSEffectiveBaseline || {}
+  const innate = vectorStore.caseSEffectiveBaseline || {}
+  const patient = vectorStore.casePatient || {}
+  const ganzhi = patient.birth_ganzhi || '待推演'
+  const nickname = patient.name || '朋友'
+
+  if (!Object.keys(innate).length && !Object.keys(base).length) {
+    return `<p class="report-empty">尚未完成八字推演，先天基底数据为空。</p>`
+  }
+
+  const descMap = {
+    wood: { low: '木形偏弱——疏泄不足，情志易低落，视力可能下降', high: '木形偏旺——疏泄过亢，性情急躁，头侧易胀痛' },
+    fire: { low: '火形偏弱——心阳不足，手脚发凉，容易心悸', high: '火形偏旺——相火妄动，心烦易怒，睡眠不实' },
+    earth: { low: '土形偏弱——脾失健运，食欲不振，大便不调', high: '土形偏旺——湿浊壅滞，身体沉重，舌苔厚腻' },
+    metal:{ low: '金形偏弱——肺卫不固，容易感冒，皮肤干燥', high: '金形偏旺——燥气偏盛，口鼻发干，干咳少痰' },
+    water:{ low: '水形偏弱——肾精不足，腰膝酸软，健忘耳鸣', high: '水形偏旺——水气泛滥，身体困重，便溏腹泻' },
+  }
+
+  // 每维度一行
+  const dimRows = elements.map(k => {
+    const v = base[k] ?? innate[k] ?? 50
+    const arrow = toArrow(v)
+    const dev = v < 50 ? descMap[k].low : (v > 50 ? descMap[k].high : '调和，无明显偏失')
+    return `<div class="report-dim"><span class="dim-name" style="color:${colors[k]}">${labels[k]} ${arrow}</span><span class="dim-val">${v}</span><span class="dim-desc">${dev}</span></div>`
+  }).join('')
+
+  // 先天 vs 调理前对比
+  let compareHtml = ''
+  if (Object.keys(base).length && Object.keys(innate).length) {
+    compareHtml = elements.map(k => {
+      const v1 = innate[k] ?? 50
+      const v2 = base[k] ?? 50
+      const diff = (v2 - v1).toFixed(1)
+      const sign = diff > 0 ? '+' : ''
+      return `${labels[k]}: ${v1}→${v2} (${sign}${diff})`
+    }).join(' · ')
+  }
+
+  // 核心偏移解读
+  let deviationHtml = ''
+  const top3 = elements.map(k => ({ k, d: Math.abs((base[k] ?? innate[k] ?? 50) - 50), v: base[k] ?? innate[k] ?? 50 }))
+    .sort((a, b) => b.d - a.d).slice(0, 3)
+  const significant = top3.filter(x => x.d > 8)
+  if (significant.length) {
+    deviationHtml = significant.map((x, i) => {
+      const arrow = toArrow(x.v)
+      const tag = labels[x.k]
+      const desc = x.v < 50 ? descMap[x.k].low : descMap[x.k].high
+      return `<p><strong>偏失 #${i+1}：</strong>${tag} ${arrow} → ${desc}</p>`
+    }).join('')
+  }
+
+  // 体质定性（简单规则：看偏离最大维度）
+  const primary = significant[0] || top3[0]
+  let constitution = ''
+  if (significant.length >= 2) {
+    const pair = significant.slice(0, 2).map(x => labels[x.k]).join('+')
+    constitution = `<p><strong>综合定性：</strong>以 ${pair} 失衡为主的复合偏失体质</p>`
+  } else if (primary && primary.d > 8) {
+    constitution = `<p><strong>综合定性：</strong>以 ${labels[primary.k]} 形偏${primary.v < 50 ? '弱' : '旺'} 为主要特征</p>`
+  } else {
+    constitution = `<p><strong>综合定性：</strong>先天五行较为调和，无显著偏失</p>`
+  }
+
+  return `
+    <div class="report-header-block">
+      <p><strong>${nickname}</strong> · 八字 ${ganzhi}</p>
+      <p class="report-sub">先天基底 S_0^0 完整解读（基于 SPUM 结构化五行统一模型）</p>
+    </div>
+    <h3>一、五形先天分布</h3>
+    <div class="report-dims">${dimRows}</div>
+    ${compareHtml ? `<h3>二、先天基底 → 调理前基线 变化</h3><p class="report-compare">${compareHtml}</p>` : ''}
+    <h3>三、核心偏失解读</h3>
+    ${deviationHtml || '<p>五形较为调和，暂无显著偏失</p>'}
+    <h3>四、体质定性</h3>
+    ${constitution}
+    <p class="report-footer">* 本报告基于你的出生时间推演，结合日常观测可动态修正</p>
+  `
+})
+
 const baseTable = computed(() => {
   const base = vectorStore.vBase || {}
-  return elements.map(k => ({ k, label: labels[k], value: base[k] ?? 50, color: colors[k], arrow: arrows[k] }))
+  if (!Object.keys(base).length) {
+    // fallback：从 v_innate 推
+    const innate = vectorStore.caseSEffectiveBaseline || {}
+    return elements.map(k => ({
+      k, label: labels[k], value: innate[k] ?? 50,
+      color: colors[k], arrow: toArrow(innate[k] ?? 50)
+    }))
+  }
+  return elements.map(k => ({
+    k, label: labels[k], value: base[k] ?? 50,
+    color: colors[k], arrow: toArrow(base[k] ?? 50)
+  }))
 })
 const effectiveTable = computed(() => {
   const eff = vectorStore.caseSEffectiveBaseline || {}
-  const arrowsEff = { wood: '↓↓↓', fire: '↓↓↓', earth: '↓↓↓', metal: '↓↓', water: '↓↓' }
-  return elements.map(k => ({ k, label: labels[k], value: eff[k] ?? 0, color: colors[k], arrow: arrowsEff[k] }))
+  return elements.map(k => ({
+    k, label: labels[k], value: eff[k] ?? 50,
+    color: colors[k], arrow: toArrow(eff[k] ?? 50)
+  }))
 })
 </script>
 
@@ -670,4 +815,40 @@ const effectiveTable = computed(() => {
 .plan-reasoning p { margin: 0; font-size: 12px; line-height: 1.7; color: var(--ink-secondary); }
 
 .empty-state { text-align: center; padding: 40px; color: var(--ink-tertiary); font-size: 13px; }
+
+/* ═══ 弹窗 ═══ */
+.clickable-card { cursor: pointer; transition: box-shadow .2s; }
+.clickable-card:hover { box-shadow: 0 6px 24px rgba(26,77,69,0.2); }
+.card-hint { font-size: 12px; color: var(--qingnang-emerald); font-weight: 400; margin-left: 8px; }
+.paradox-hint.muted { color: var(--ink-tertiary); font-size: 12px; }
+
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 3000; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.modal-content { background: #fff; border-radius: 16px; max-width: 640px; width: 100%; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 18px 24px; border-bottom: 1px solid var(--ink-line); flex-shrink: 0; }
+.modal-header h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.modal-close { border: none; background: none; font-size: 18px; cursor: pointer; color: var(--ink-tertiary); padding: 4px 8px; }
+.modal-body { padding: 20px 24px; overflow-y: auto; line-height: 1.7; color: var(--ink-primary); font-size: 14px; }
+
+/* 报告内容样式（v-html 渲染） */
+.modal-body h3 { margin: 18px 0 10px; font-size: 14px; font-weight: 600; color: var(--qingnang-emerald); border-bottom: 1px solid rgba(26,77,69,0.1); padding-bottom: 4px; }
+.modal-body p { margin: 6px 0; }
+.modal-body strong { color: var(--ink-primary); }
+.report-header-block { background: linear-gradient(135deg, rgba(26,77,69,0.06), rgba(46,125,106,0.1)); border-radius: 10px; padding: 14px 18px; margin-bottom: 14px; }
+.report-header-block p { margin: 2px 0; }
+.report-sub { color: var(--ink-tertiary); font-size: 12px; }
+.report-dims { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.report-dim { display: flex; align-items: baseline; gap: 12px; padding: 6px 10px; background: rgba(26,77,69,0.03); border-radius: 6px; }
+.dim-name { font-weight: 600; min-width: 72px; font-size: 14px; }
+.dim-val { font-family: var(--font-mono); color: var(--ink-tertiary); min-width: 30px; font-size: 12px; }
+.dim-desc { flex: 1; font-size: 13px; color: var(--ink-secondary); }
+.report-compare { font-family: var(--font-mono); font-size: 12px; color: var(--ink-secondary); padding: 8px 12px; background: rgba(26,77,69,0.03); border-radius: 6px; }
+.report-footer { margin-top: 20px; color: var(--ink-tertiary); font-size: 11px; font-style: italic; }
+.report-empty { text-align: center; padding: 40px; color: var(--ink-tertiary); }
+
+/* 弹窗过渡 */
+.modal-enter-active, .modal-leave-active { transition: opacity .2s; }
+.modal-enter-from, .modal-leave-to { opacity: 0; }
+.modal-enter-active .modal-content, .modal-leave-active .modal-content { transition: transform .2s; }
+.modal-enter-from .modal-content, .modal-leave-to .modal-content { transform: scale(0.96); }
 </style>
+

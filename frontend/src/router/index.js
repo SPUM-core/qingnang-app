@@ -17,6 +17,7 @@ const routes = [
   { path: '/collect/body', name: 'collect-body', component: () => import('../views/BodyPhotoView.vue'), meta: { title: '体态照片' } },
   { path: '/collect/voice', name: 'collect-voice', component: () => import('../views/VoiceSampleView.vue'), meta: { title: '语音样本' } },
   { path: '/collect/ppg', name: 'collect-ppg', component: () => import('../views/PpgCollectView.vue'), meta: { title: '脉搏采集' } },
+  { path: '/collect/inquiry', name: 'collect-inquiry', component: () => import('../views/InquiryView.vue'), meta: { title: '问诊采集' } },
 
   // 发现页（知识 + 商城 合并）
   { path: '/discover', name: 'discover', component: () => import('../views/DiscoverView.vue'), meta: { title: '发现' } },

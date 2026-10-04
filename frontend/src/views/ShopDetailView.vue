@@ -19,7 +19,7 @@
         <div class="detail-cover" :style="{ background: item.cover_color }">
           <span class="cover-emoji">{{ item.emoji }}</span>
           <div class="match-big">
-            <span class="match-num">{{ item.spum_match_for_hu?.score || '--' }}</span>
+            <span class="match-num">{{ item.spum_match?.score || item.spum_tags?.score || '--' }}</span>
             <span class="match-text">青囊适配度</span>
           </div>
         </div>
@@ -93,15 +93,15 @@
           <!-- 青囊标注说明 -->
           <p class="spum-note">📝 <b>青囊标注：</b>{{ item.spum_tags.note }}</p>
 
-          <!-- 给胡运涛的适配 -->
-          <div v-if="item.spum_match_for_hu" class="spum-for-me">
+          <!-- 🎯 适配你的数字模型（动态匹配，从后端 /shop/recommend 拉） -->
+          <div v-if="item.spum_match" class="spum-for-me">
             <h4>🎯 适配你的数字模型</h4>
             <ul>
-              <li v-for="(r, i) in item.spum_match_for_hu.reasons" :key="i">{{ r }}</li>
+              <li v-for="(r, i) in item.spum_match.reasons" :key="i">{{ r }}</li>
             </ul>
-            <div v-if="item.spum_match_for_hu.warnings?.length" class="spum-warn">
+            <div v-if="item.spum_match.warnings?.length" class="spum-warn">
               <b>⚠️ 注意：</b>
-              <span v-for="(w, i) in item.spum_match_for_hu.warnings" :key="i">{{ w }}<span v-if="i < item.spum_match_for_hu.warnings.length - 1">；</span></span>
+              <span v-for="(w, i) in item.spum_match.warnings" :key="i">{{ w }}<span v-if="i < item.spum_match.warnings.length - 1">；</span></span>
             </div>
           </div>
         </div>

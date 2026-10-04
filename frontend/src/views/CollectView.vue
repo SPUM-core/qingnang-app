@@ -36,6 +36,15 @@
         </div>
         <span class="entry-arrow">›</span>
       </router-link>
+
+      <router-link to="/collect/inquiry" class="entry-btn">
+        <span class="entry-icon">📋</span>
+        <div class="entry-text">
+          <span class="entry-label">AI 问诊</span>
+          <span class="entry-sub">多阶段选择题 · 状态摘要</span>
+        </div>
+        <span class="entry-arrow">›</span>
+      </router-link>
     </div>
   </section>
 </template>

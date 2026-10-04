@@ -24,6 +24,10 @@ class TreatmentPlan(Base):
     from_obs_id   = Column(Integer)           # 基于哪次观测
     reasoning     = Column(Text)              # 推导原理（可存 AI 输出）
 
+    # 2026-10-02 新增：T3 撤方回弹验证所需的 ΔS 向量
+    expected_delta_S = Column(JSON)           # 干预前 SPUM 预期位移 {"wood": +5, "fire": -3, ...}
+    outcome_delta_S  = Column(JSON)           # 停药后实际观测位移（护栏四：区分根因vs压制）
+
     # 审核 / 推送状态
     doctor_signed = Column(Boolean, default=False)   # 医生已签字
     pushed_at     = Column(DateTime)                 # 推送到用户时间

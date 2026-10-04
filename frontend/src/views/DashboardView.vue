@@ -4,7 +4,7 @@
     <div class="home-header">
       <div>
         <h1 class="home-greeting">{{ greeting }}，{{ userStore.displayName }}</h1>
-        <p class="home-date">{{ today }} · {{ weekday }} · 调理进行中</p>
+        <p class="home-date">{{ today }} · {{ weekday }} · {{ caseStatusLabel }}</p>
       </div>
       <div class="home-quick">
         <div class="quick-stat">
@@ -26,8 +26,8 @@
           <p class="hero-tag">今日 · 时空锚点</p>
           <h2 class="hero-title">今日最重要的事</h2>
           <p class="hero-item"><span class="hero-dot"></span>{{ heroTodo?.title || '暂无待办 · 好好休息' }}</p>
-          <p class="hero-sub">{{ anchor.yi }} · 当前状态 {{ anchor.state }}</p>
-          <p class="hero-sub">忌 {{ anchor.ji }} · 顺当日节律</p>
+          <p class="hero-sub">{{ anchorSafe.yi }} · 当前状态 {{ anchorSafe.state }}</p>
+          <p class="hero-sub">忌 {{ anchorSafe.ji }} · 顺当日节律</p>
           <button class="hero-btn" @click="goPending">开始调理</button>
         </div>
       </div>
@@ -41,14 +41,14 @@
             <span class="yj-ico good"><QIcon name="check" :size="13" /></span>
             <div class="yj-text">
               <span class="yj-k">宜</span>
-              <span class="yj-v">{{ anchor.yi }}</span>
+              <span class="yj-v">{{ anchorSafe.yi }}</span>
             </div>
           </div>
           <div class="yj-block ji">
             <span class="yj-ico bad"><QIcon name="forbid" :size="13" /></span>
             <div class="yj-text">
               <span class="yj-k">忌</span>
-              <span class="yj-v">{{ anchor.ji }}</span>
+              <span class="yj-v">{{ anchorSafe.ji }}</span>
             </div>
           </div>
         </div>
@@ -58,34 +58,12 @@
 
     <!-- ════ 第二行：体质调理曲线 + 今日时空锚点（横屏并列） ════ -->
     <div class="top-row">
-      <!-- 左：体质调理曲线（v0.2 三曲线架构） -->
+      <!-- 左：体质调理曲线（仅当前用户数据） -->
       <div class="card chart-card">
         <div class="card-head">
           <h2>体质曲线</h2>
           <div style="display:flex;gap:6px;align-items:center;">
-            <button
-              @click="demoCase = 'hu'"
-              :style="{
-                padding: '3px 10px',
-                fontSize: 11,
-                border: `1px solid ${demoCase==='hu' ? '#1A4D45' : '#d0d0cb'}`,
-                background: demoCase==='hu' ? '#1A4D45' : 'transparent',
-                color: demoCase==='hu' ? '#fff' : '#6B7277',
-                borderRadius: 4,
-                cursor: 'pointer'
-              }">临床视图</button>
-            <button
-              @click="demoCase = 'zy'"
-              :style="{
-                padding: '3px 10px',
-                fontSize: 11,
-                border: `1px solid ${demoCase==='zy' ? '#1A4D45' : '#d0d0cb'}`,
-                background: demoCase==='zy' ? '#1A4D45' : 'transparent',
-                color: demoCase==='zy' ? '#fff' : '#6B7277',
-                borderRadius: 4,
-                cursor: 'pointer'
-              }">终身视图 · 曾银鸾</button>
-            <span class="chip-dv" style="margin-left:4px;">
+            <span class="chip-dv">
               {{ driftTrajectory ? '综合健康得分' : ('ΔV ' + vectorStore.trendStateLabel) }}
             </span>
           </div>
@@ -104,16 +82,16 @@
       <div class="card chart-card anchor-card">
         <div class="card-head">
           <h2><QIcon name="anchor" :size="15" /> 今日时空锚点</h2>
-          <span class="anchor-sub">{{ anchor.ganzhi }}</span>
+          <span class="anchor-sub">{{ anchorSafe.ganzhi }}</span>
         </div>
         <div class="anchor-grid">
           <div class="ag-cell">
             <span class="ag-label">当令时辰</span>
-            <span class="ag-val">{{ anchor.dangling }}</span>
+            <span class="ag-val">{{ anchorSafe.dangling }}</span>
           </div>
           <div class="ag-cell">
             <span class="ag-label">流飞星</span>
-            <span class="ag-val">{{ anchor.feixing }}</span>
+            <span class="ag-val">{{ anchorSafe.feixing }}</span>
           </div>
           <div class="ag-cell">
             <span class="ag-label">今日避忌</span>
@@ -354,76 +332,34 @@ import { computed, onMounted, ref, watch, reactive, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useVectorStore } from '../stores/vector'
 import { useUserStore } from '../stores/user'
-import { healthCheck, assistant as assistantApi, notifications as notifApi, lifestyleStream } from '../api/client'
+import { healthCheck, api, assistant as assistantApi, notifications as notifApi, lifestyleStream } from '../api/client'
 import RadarChart from '../components/charts/RadarChart.vue'
 import DriftChart from '../components/charts/DriftChart.vue'
 import TodoCard from '../components/TodoCard.vue'
 import QIcon from '../components/ui/QIcon.vue'
-import { MOCK_TRAJECTORY, ZY_LIFETIME_TRAJECTORY, ZY_SPUM_FULL_82, isMockMode } from '../constants/mock'
+// mock 数据已移除——所有内容从后端 API / reasoning 端点实时获取
+// 后端不可达时为空占位，不展示任何其他用户的病历数据
 
 const router = useRouter()
 
 // ═══════════════════════════════════════════════════════════
-// 生活提醒数据源（默认值 + 后端动态覆盖）
+// 生活提醒数据源（全部从后端拉取，无任何用户特定硬编码）
+// 后端不可达时显示"加载中"占位，不展示他人病历内容
 // ═══════════════════════════════════════════════════════════
 const anchor = reactive({
-  ganzhi: '丙午年 丁酉月 癸酉日', dangling: '酉时', dangling_elem: '金',
-  feixing: '4绿入中', chong: '兔（卯）',
-  yi: '养生·调理·静养', ji: '大动·辛辣·冷饮',
-  state: '湿遏·气结74%·土枯'
+  ganzhi: '', dangling: '', dangling_elem: '',
+  feixing: '', chong: '',
+  yi: '', ji: '',
+  state: ''
 })
-const todayTimeline = ref([
-  { period: 'zishi', range: '子时', elem: '水', desc: '必睡', type: 'critical' },
-  { period: 'choushi', range: '丑时', elem: '土', desc: '熟睡中', type: 'good' },
-  { period: 'yinshi', range: '寅时', elem: '木', desc: '搓腰·深呼吸', type: 'personal' },
-  { period: 'maoshi', range: '卯时', elem: '木', desc: '温淡盐水', type: 'good' },
-  { period: 'chenshi', range: '辰时', elem: '土', desc: '小米粥', type: 'good' },
-  { period: 'wushi', range: '午时', elem: '火', desc: '闭目20分', type: 'good' },
-  { period: 'weishi', range: '未时', elem: '土', desc: '八段锦', type: 'personal' },
-  { period: 'youshi', range: '酉时', elem: '金', desc: '减工作', type: 'warn' },
-  { period: 'xushi', range: '戌时', elem: '土', desc: '泡脚15min', type: 'good' },
-  { period: 'haishi', range: '亥时', elem: '水', desc: '放下手机', type: 'good' }
-])
-const clothReminders = ref([
-  { id: 'c1', title: '今日宜穿：绿色/青色', desc: '木形补肝 · 疏解气结', level: 'ok' },
-  { id: 'c2', title: '避免：冷色调·深蓝/暗灰', desc: '加剧水形沉潜·加重湿遏', level: 'bad' },
-  { id: 'c3', title: '推荐配饰：红玛瑙/蜜蜡', desc: '替代岫玉翡翠（寒）', level: 'ok' },
-  { id: 'c4', title: '贴身衣物：避免靛蓝', desc: '靛蓝性寒·加重木形悖论', level: 'warn' }
-])
-const foodGood = ref([
-  { id: 'fg1', title: '小米粥（早餐）', desc: '入脾经·温养土形' },
-  { id: 'fg2', title: '鲫鱼汤（午餐）', desc: '利水而不寒·补土不助湿' },
-  { id: 'fg3', title: '温淡盐水（晨起）', desc: '唤醒载流体循环' },
-  { id: 'fg4', title: '蒸蛋·红枣莲子芡实', desc: '温润补中' }
-])
-const foodBad = ref([
-  { id: 'fb1', title: '冷饮/生冷', desc: '载流体急剧降温' },
-  { id: 'fb2', title: '浓茶/咖啡', desc: '提神耗阴·相火更妄' },
-  { id: 'fb3', title: '晚餐后进食', desc: '子时自然降温窗口被破' },
-  { id: 'fb4', title: '辛辣·生姜过量', desc: '短期S_火↑但耗S_水' }
-])
-const homeReminders = ref([
-  { id: 'h1', title: '床头移离窗户 2 米+', desc: '酉时金旺克木·调整到东墙', urgent: true },
-  { id: 'h2', title: '客厅 3-8 盆阔叶绿植', desc: '空间补木·助气结疏解', urgent: false },
-  { id: 'h3', title: '卧室暖黄 2700K 灯光', desc: '助相火归位·入眠快', urgent: false },
-  { id: 'h4', title: '书房加湿器', desc: '滋水护印·脑力空间降温', urgent: false },
-  { id: 'h5', title: '炉灶与冰箱对角', desc: '避免水火对冲煞', urgent: false }
-])
-const absoluteAvoid = ref([
-  { id: 'aa1', title: '苦寒直折（黄连/黄芩/大黄）', desc: '直接伤S_土形', reason: '与湿遏治疗路径完全冲突' },
-  { id: 'aa2', title: '安眠药（强制关闭木环）', desc: '绝对禁止', reason: '与温和重建路径冲突' },
-  { id: 'aa3', title: '岫玉/翡翠/黑曜石', desc: '寒色矿物·直接抑制火形', reason: '已活体验证有效' }
-])
-const relativeAvoid = ref([
-  { id: 'ra1', title: '大热大补（鹿茸/附子/肉桂）', desc: '慎用', reason: '午子冲生火助火' },
-  { id: 'ra2', title: '咖啡/浓茶', desc: '慎用', reason: '提神耗阴→虚火更旺' },
-  { id: 'ra3', title: '辛辣过量', desc: '慎用', reason: '短期S_火↑但耗S_水' }
-])
-const stoneReminders = ref([
-  { id: 's1', title: '岫玉/翡翠（寒）', desc: '直接抑制基线火形' },
-  { id: 's2', title: '白水晶/黑曜石（寒）', desc: '同属寒性' },
-  { id: 's3', title: '推荐：蜜蜡/红玛瑙（温）', desc: '温润而不燥' }
-])
+const todayTimeline = ref([])
+const clothReminders = ref([])
+const foodGood = ref([])
+const foodBad = ref([])
+const homeReminders = ref([])
+const absoluteAvoid = ref([])
+const relativeAvoid = ref([])
+const stoneReminders = ref([])
 
 // ── Lifestyle 流式状态 ──
 const lifestyleLoading = ref(false)
@@ -474,22 +410,26 @@ const vectorStore = useVectorStore()
 const userStore = useUserStore()
 const health = ref({ ok: false })
 
-// v0.2 三曲线 trajectory：真实数据优先 → mock fallback → 旧模式降级
-const demoCase = ref('hu')   // 'hu' = 胡运涛临床视图, 'zy' = 曾银鸾终身视图
+// 三曲线 trajectory：仅显示当前用户真实数据，无硬编码 fallback
 const driftTrajectory = computed(() => {
-  // 终身视图（演示用 — SPUM 三曲线新算法）
-  if (demoCase.value === 'zy') return ZY_SPUM_FULL_82
-  // 1. 真实数据优先（vectorStore.fetchTrajectory 拉后端 /cases/trajectories）
+  // 真实数据优先（vectorStore.fetchTrajectory 拉后端 /cases/trajectories）
   if (vectorStore.trajectory?.actual?.length > 0) return vectorStore.trajectory
-  // 2. 后端不可用时（health check 没过）→ mock
-  if (isMockMode(health.value)) return MOCK_TRAJECTORY
-  // 3. 后端可用但暂无观测 → null（降级到旧 ΔV 漂移线模式）
+  // 无观测数据 → null（降级到 ΔV 漂移线模式，展示当前用户 v_base vs 观测）
   return null
 })
 
 const vBase = computed(() => vectorStore.vBase)
 const latestObs = computed(() => vectorStore.latestObs)
 const driftSeries = computed(() => vectorStore.driftSeries)
+
+/** 根据已采集 PPG 观测数量动态判定用户所处阶段 */
+const caseStatusLabel = computed(() => {
+  const n = driftSeries.value?.length || 0
+  if (n === 0) return '数据收集中'
+  if (n < 3) return '基线建立中'
+  if (n < 8) return '调理进行中'
+  return '调理中 · 稳定观察'
+})
 
 const greeting = computed(() => {
   const h = new Date().getHours()
@@ -505,6 +445,18 @@ const today = computed(() => {
   return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`
 })
 const weekday = computed(() => ['周日','周一','周二','周三','周四','周五','周六'][new Date().getDay()])
+
+// anchor 安全访问：后端不可达时显示中性占位，不展示他人病历内容
+const anchorSafe = computed(() => ({
+  yi: anchor.yi || '加载中...',
+  ji: anchor.ji || '加载中...',
+  state: anchor.state || '',
+  ganzhi: anchor.ganzhi || '待生成',
+  dangling: anchor.dangling || '',
+  dangling_elem: anchor.dangling_elem || '',
+  feixing: anchor.feixing || '',
+  chong: anchor.chong || '',
+}))
 
 const deltaTable = computed(() => {
   const labels = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
@@ -527,19 +479,28 @@ const ARCHIVE_KEY = 'qingnang_archive'
 const activeFilter = ref('pending')  // 默认落在「待处理」，对齐设计稿
 
 function buildTodayTodos() {
-  // 从胡运涛案例构建每日种子
-  return [
-    { id: 't1', title: 'PPG 复查验证 · v7.0 基线调平效果', remind: '苓桂术甘汤 5 天后复查脉搏特征', tag: '数据采集·关键节点', tagClass: 'tag-accent', priority: 'p0', due: '2026-09-20' },
-    { id: 't2', title: '今日草本组合：苓桂术甘汤 + 白芍 + 砂仁', remind: '湿遏状态 · 6 味药', tag: 'v7.0', tagClass: 'tag-treatment', priority: 'p0' },
-    { id: 't3', title: '22:30 前入睡', remind: '子时载流体自然降温·溶质自然析出的唯一窗口', tag: 'P0·最重要', tagClass: 'tag-accent', priority: 'p0', due: '每日 22:30' },
-    { id: 't4', title: '每日脑力 ≤ 3 小时', remind: '脑力=载流体持续湍流+局部加热', tag: 'P1', priority: 'p1', due: '今日' },
-    { id: 't5', title: '杜绝冷饮/生冷', remind: '冰水入口→载流体急剧降温→已沉积组织产生微裂隙', tag: 'P2', priority: 'p2' },
-    { id: 't6', title: '晨起第一杯：温淡盐水', remind: '温淡盐水唤醒载流体循环', tag: '晨起·每日' },
-    { id: 't7', title: '每晚泡脚 15min（40℃ · 不可出汗）', remind: '泡脚促进水形循环，但不可大汗伤阴', tag: '晚间·每日' },
-    { id: 't8', title: '散步 30-40min / 八段锦', remind: '温和运动·不剧烈出汗', tag: '运动·每日' },
-    { id: 't9', title: '今日饮食：小米粥（早）+ 鲫鱼汤（午）', remind: '避免生冷/辛辣/浓茶咖啡', tag: '饮食·每日' },
-    { id: 't10', title: '注意：禁用苦寒直折（黄连/黄芩/大黄）', remind: '绝对禁忌 · 伤 S_土形', tag: '禁忌', tagClass: 'tag-danger' },
-  ]
+  // 空列表——待办由后端 /cases/today-todos 动态聚合
+  // （1）notifications 生活提醒 （2）AI 对话的 analysis.suggestions
+  return []
+}
+
+// 后端 priority → TodoCard priority 映射
+function mapPriority(p) {
+  return ({ high: 'p0', medium: 'p1', low: 'p2' })[p] || 'p1'
+}
+
+// 后端 todos → TodoCard 格式
+function mapBackendTodo(t) {
+  return {
+    id: t.id,
+    title: t.title,
+    remind: t.desc || '',
+    priority: mapPriority(t.priority),
+    done: false,
+    source: t.source,
+    route: t.route,
+    icon: t.icon,
+  }
 }
 
 function getTodayKey() {
@@ -697,7 +658,8 @@ const deltaSummary = computed(() => {
 // ── 时空锚点：今日避忌一行字（只保留一条）──
 const avoidText = computed(() => {
   const chong = String(anchor.chong || '').replace(/（.*$/, '')
-  return `冲${chong || '兔'} · 忌远行`
+  if (!chong) return '待生成'
+  return `冲${chong} · 忌远行`
 })
 
 // ── 时辰节律线：三段式（平稳 / 宜动 / 宜静）──
@@ -725,8 +687,29 @@ const archivedDays = computed(() => archives.value.length)
 const totalFeedbacks = computed(() => archives.value.reduce((s, a) => s + a.totalFeedbacks, 0))
 
 onMounted(async () => {
+  // 进主页先拉一遍最新用户信息（nickname 可能在 onboarding 刚更新）
+  try { await userStore.fetchMe() } catch {}
   health.value = await healthCheck()
   await vectorStore.fetchCase()
+
+  // ── 从后端聚合今日待办（聊天 suggestions + 生活提醒）──
+  try {
+    const r = await api.get('/api/v1/cases/today-todos')
+    const todosFromBackend = (r.data?.todos || []).map(mapBackendTodo)
+    if (todosFromBackend.length > 0) {
+      // 合并：后端新数据覆盖本地缓存
+      todos.value = todosFromBackend
+      saveToday()
+      console.log(`[Dashboard] ✅ 今日待办来自后端聚合：${todosFromBackend.length} 条`)
+      // 也存一下 chief_complaint 到 localStorage 方便青囊聊天读
+      if (r.data?.chief_complaint) {
+        localStorage.setItem('qingnang_chief_complaint', r.data.chief_complaint)
+      }
+    }
+  } catch (e) {
+    console.warn('[Dashboard] 今日待办后端不可达，使用本地缓存', e)
+  }
+
   // 从后端拉动态生活提醒 — 用 SSE 流式（generating 预览 → complete 完整 JSON）
   lifestyleLoading.value = true
   lifestylePreview.value = ''

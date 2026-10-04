@@ -10,7 +10,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8767'
 
 export const api = axios.create({
   baseURL: API_BASE,
-  timeout: 15000,
+  timeout: 60000,  // chat 端点要等 deepseek + analysis，至少 30-60s
 })
 
 // 请求拦截器：自动带 JWT
@@ -46,9 +46,15 @@ export const healthCheck = async () => {
 
 // ── 认证 ──
 export const auth = {
-  login:    (phone, password) => api.post('/api/v1/auth/login', { phone, password }),
-  register: (data)            => api.post('/api/v1/auth/register', data),
-  me:       ()                => api.get('/api/v1/auth/me'),
+  login:     (phone, password) => api.post('/api/v1/auth/login', { phone, password }),
+  register:  (data)            => api.post('/api/v1/auth/register', data),
+  me:        ()                => api.get('/api/v1/auth/me'),
+  patchMe:   (data)            => api.patch('/api/v1/auth/me', data),
+}
+
+// ── AI 问诊引擎（动态生成问题清单） ──
+export const inquiry = {
+  start: () => api.post('/api/v1/assistant/inquiry/start', {}),
 }
 
 // ── 案例 ──

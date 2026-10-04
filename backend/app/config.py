@@ -22,9 +22,14 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_HOURS: int = 72
 
-    # 青檬引擎（AI 对话）
+    # 青檬引擎（AI 对话 · SPUM 本地模型）
     QINGMENG_URL: str = "http://localhost:8000"
     QINGMENG_MODEL: str = "spum-coder:latest"
+
+    # DeepSeek（云端 LLM 备选 — 用户在设置里选择）
+    DEEPSEEK_API_KEY: str | None = None
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
+    DEEPSEEK_MODEL: str = "deepseek-chat"
 
     # CORS 白名单（JSON 数组字符串，从环境变量注入）
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]

@@ -8,6 +8,8 @@ from .friend import Friend
 from .challenge import Challenge, Checkin
 from .shop import ShopItem, ShopReview, ShopOrder
 from .trajectory_event import TrajectoryEvent
+from .inquiry import InquirySession, InquiryStatus, InquiryStage
+from .chat import ChatMessage, LifeSignal
 
 __all__ = [
     "User", "DoctorProfile",
@@ -15,4 +17,6 @@ __all__ = [
     "Friend", "Challenge", "Checkin",
     "ShopItem", "ShopReview", "ShopOrder",
     "TrajectoryEvent",
+    "InquirySession", "InquiryStatus", "InquiryStage",
+    "ChatMessage", "LifeSignal",
 ]

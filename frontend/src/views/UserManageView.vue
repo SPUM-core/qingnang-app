@@ -6,7 +6,7 @@
         <div class="avatar">🌿</div>
         <div class="me-info">
           <p class="me-name">{{ me.name }} · {{ me.age }}岁</p>
-          <p class="me-model">数字模型：木↑↑↑ 火↑↑ 土↓ 金↔ 水↑</p>
+          <p class="me-model">数字模型：{{ me.model_summary }}</p>
           <p class="me-id">青囊 ID：<code>{{ me.id }}</code></p>
         </div>
         <button class="btn btn-ghost btn-small" @click="showInvite = true">📤 邀请朋友</button>
@@ -260,6 +260,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { friends as friendsApi } from '../api/client'
 import { useUserStore } from '../stores/user'
+import { toModelSummary } from '../stores/vector'
 
 // ═══════════════════════════════════════════════════════════
 // 我（当前登录用户）的五形向量 — 从 userStore 动态取
@@ -270,9 +271,7 @@ const me = computed(() => ({
   id: userStore.qingnangId || 'me',
   name: userStore.displayName || '我',
   age: '',
-  model_summary: caseData.value?.v_baseline
-    ? Object.entries(caseData.value.v_baseline).map(([k,v]) => `${{wood:'木',fire:'火',earth:'土',metal:'金',water:'水'}[k] || k}${v>=55?'↑':v<=45?'↓':'↔'}`).join(' ')
-    : '五形数据待建档',
+  model_summary: toModelSummary(caseData.value?.v_baseline || caseData.value?.v_current),
   gradient: 'linear-gradient(135deg, #1A4D45, #2A6B62)',
   vBase: caseData.value?.v_baseline || { wood: 50, fire: 50, earth: 50, metal: 50, water: 50 }
 }))
