@@ -18,6 +18,65 @@
       </div>
     </div>
 
+    <!-- 🎖️ 数字模型成熟度进度卡（4 阶段节点 + 总进度 + next_target） -->
+    <div v-if="maturity" :class="['maturity-card', `stage-${maturity.stage}`]">
+      <!-- 4 阶段节点横向进度 -->
+      <div class="mc-track">
+        <div class="mc-line">
+          <div class="mc-fill" :style="{ width: maturityPercent + '%' }"></div>
+        </div>
+        <div v-for="(node, idx) in STAGE_NODES" :key="idx"
+             :class="['mc-node', { done: idx + 1 < maturity.stage, current: idx + 1 === maturity.stage, locked: idx + 1 > maturity.stage }]">
+          <span class="mc-node-ico">{{ node.icon }}</span>
+          <span class="mc-node-label">{{ node.name }}</span>
+          <span v-if="idx + 1 === maturity.stage" class="mc-node-cur">当前</span>
+        </div>
+      </div>
+      <!-- 分数 + 分项进度 -->
+      <div class="mc-body">
+        <div class="mc-score">
+          <span class="mc-score-num">{{ maturity.score }}</span>
+          <span class="mc-score-max">/ {{ maturity.max_score || 11 }}</span>
+          <span class="mc-score-pct">({{ maturityPercent }}%)</span>
+        </div>
+        <!-- 分项进度条（数据源：后端 /maturity 端点返回的 progress 字段） -->
+        <div class="mc-items">
+          <div class="mc-item" :class="{ done: maturity.progress?.profile_complete >= 4 }">
+            <span class="mc-item-lbl">基本资料</span>
+            <div class="mc-item-bar"><div class="mc-item-fill" :style="{ width: (maturity.progress?.profile_complete / 4 * 100) + '%' }"></div></div>
+            <span class="mc-item-val">{{ maturity.progress?.profile_complete || 0 }}/4</span>
+          </div>
+          <div class="mc-item" :class="{ done: maturity.progress?.has_baseline }">
+            <span class="mc-item-lbl">建档 + 基线</span>
+            <div class="mc-item-bar"><div class="mc-item-fill" :style="{ width: maturity.progress?.has_baseline ? '100%' : '0%' }"></div></div>
+            <span class="mc-item-val">{{ maturity.progress?.has_baseline ? '✅' : '—' }}</span>
+          </div>
+          <div class="mc-item" :class="{ done: (maturity.progress?.observation_count || 0) >= 3 }">
+            <span class="mc-item-lbl">脉搏采集</span>
+            <div class="mc-item-bar"><div class="mc-item-fill" :style="{ width: Math.min(100, (maturity.progress?.observation_count || 0) / 3 * 100) + '%' }"></div></div>
+            <span class="mc-item-val">{{ maturity.progress?.observation_count || 0 }}/3</span>
+          </div>
+          <div class="mc-item" :class="{ done: maturity.progress?.inquiry_done }">
+            <span class="mc-item-lbl">深度问诊</span>
+            <div class="mc-item-bar"><div class="mc-item-fill" :style="{ width: maturity.progress?.inquiry_done ? '100%' : '0%' }"></div></div>
+            <span class="mc-item-val">{{ maturity.progress?.inquiry_done ? '✅' : '—' }}</span>
+          </div>
+          <div class="mc-item" :class="{ done: (maturity.progress?.signal_tag_count || 0) >= 3 }">
+            <span class="mc-item-lbl">生活信号</span>
+            <div class="mc-item-bar"><div class="mc-item-fill" :style="{ width: Math.min(100, (maturity.progress?.signal_tag_count || 0) / 3 * 100) + '%' }"></div></div>
+            <span class="mc-item-val">{{ maturity.progress?.signal_tag_count || 0 }}/3</span>
+          </div>
+        </div>
+      </div>
+      <!-- next_target 引导 -->
+      <p v-if="maturity.next_target" class="mc-next">
+        🎯 下一站：{{ maturity.next_target }}
+      </p>
+      <p v-if="maturity.missing_signals?.length" class="mc-missing">
+        还差：{{ maturity.missing_signals.join(' · ') }}
+      </p>
+    </div>
+
     <!-- ════ 英雄卡组：今日最重要的事 + 今日宜忌（独立两卡） ════ -->
     <div class="hero-row">
       <!-- 英雄卡 1：今日最重要的事 -->
@@ -422,6 +481,22 @@ const vBase = computed(() => vectorStore.vBase)
 const latestObs = computed(() => vectorStore.latestObs)
 const driftSeries = computed(() => vectorStore.driftSeries)
 
+// 🎖️ 四阶段节点定义（图标 + 短名），与后端 STAGE_DEFS 对齐
+const STAGE_NODES = [
+  { icon: '🌱', name: '娱乐级' },
+  { icon: '🍲', name: '食疗级' },
+  { icon: '🏠', name: '调理级' },
+  { icon: '🌿', name: '方剂级' },
+]
+
+// maturity 数据源：优先 userStore 全局缓存，兜底 fetchMe 后拉
+const maturity = computed(() => userStore.maturity)
+const maturityPercent = computed(() => {
+  if (!maturity.value) return 0
+  const max = maturity.value.max_score || 11
+  return Math.min(100, Math.round((maturity.value.score || 0) / max * 100))
+})
+
 /** 根据已采集 PPG 观测数量动态判定用户所处阶段 */
 const caseStatusLabel = computed(() => {
   const n = driftSeries.value?.length || 0
@@ -689,6 +764,10 @@ const totalFeedbacks = computed(() => archives.value.reduce((s, a) => s + a.tota
 onMounted(async () => {
   // 进主页先拉一遍最新用户信息（nickname 可能在 onboarding 刚更新）
   try { await userStore.fetchMe() } catch {}
+  // 🎖️ 成熟度兜底拉取（页面刷新后 store 可能丢失）
+  if (userStore.loggedIn && !userStore.maturity) {
+    try { await userStore.fetchMaturity() } catch {}
+  }
   health.value = await healthCheck()
   await vectorStore.fetchCase()
 
@@ -774,6 +853,124 @@ onMounted(async () => {
 .quick-stat { display: flex; flex-direction: column; gap: 2px; text-align: left; }
 .qs-val { font-size: 22px; font-weight: 600; color: var(--qingnang-emerald); font-family: var(--font-mono); line-height: 1.1; }
 .qs-label { font-size: 12px; color: var(--ink-tertiary); }
+
+/* ═══════════════════════════════════════════════════════════
+   🎖️ 数字模型成熟度进度卡
+   ═══════════════════════════════════════════════════════════ */
+.maturity-card {
+  background: #fff;
+  border: 1px solid rgba(26,77,69,0.12);
+  border-radius: var(--radius-lg);
+  padding: 18px 22px;
+  margin-bottom: 16px;
+  position: relative; overflow: hidden;
+}
+.maturity-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, #1A4D45, #45C4A8);
+  opacity: 0.6;
+}
+/* 不同阶段主题色 */
+.maturity-card.stage-1::before { background: linear-gradient(90deg, #8B7355, #D4A574); }
+.maturity-card.stage-2::before { background: linear-gradient(90deg, #1A4D45, #45C4A8); }
+.maturity-card.stage-3::before { background: linear-gradient(90deg, #1A4D45, #45C4A8, #6BE8C9); }
+.maturity-card.stage-4::before { background: linear-gradient(90deg, #1A4D45, #45C4A8, #6BE8C9, #FFD700); }
+
+/* —— 4 阶段节点轨道 —— */
+.mc-track { position: relative; padding: 12px 0 8px; margin-bottom: 14px; }
+.mc-line {
+  position: absolute; top: 28px; left: 24px; right: 24px;
+  height: 3px; background: rgba(26,77,69,0.1); border-radius: 2px;
+}
+.mc-fill {
+  height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, #1A4D45, #45C4A8);
+  transition: width 0.6s ease;
+}
+.mc-node {
+  position: relative; z-index: 2;
+  display: inline-flex; flex-direction: column; align-items: center; gap: 4px;
+  width: 25%;
+}
+.mc-node-ico {
+  width: 42px; height: 42px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  background: #f5f7f6; border: 2px solid rgba(26,77,69,0.15);
+  transition: all 0.3s;
+}
+.mc-node.done .mc-node-ico {
+  background: var(--qingnang-emerald); border-color: var(--qingnang-emerald);
+  box-shadow: 0 0 0 4px rgba(69,196,168,0.2);
+}
+.mc-node.current .mc-node-ico {
+  background: #fff; border-color: var(--qingnang-emerald);
+  box-shadow: 0 0 0 5px rgba(69,196,168,0.3);
+  animation: pulse-ring 2s infinite;
+}
+.mc-node.locked .mc-node-ico {
+  background: #f0f0f0; border-color: #d0d0d0; opacity: 0.5;
+}
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(69,196,168,0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(69,196,168,0.15); }
+}
+.mc-node-label { font-size: 12px; color: var(--ink-secondary); }
+.mc-node.done .mc-node-label { color: var(--qingnang-emerald); font-weight: 600; }
+.mc-node.current .mc-node-label { color: var(--qingnang-emerald-dark); font-weight: 700; }
+.mc-node.locked .mc-node-label { color: #aaa; }
+.mc-node-cur {
+  position: absolute; top: -4px;
+  font-size: 9px; padding: 1px 6px; border-radius: 8px;
+  background: var(--qingnang-emerald); color: #fff;
+  letter-spacing: 0.5px;
+}
+
+/* —— 主体：分数 + 分项进度 —— */
+.mc-body { display: flex; gap: 24px; align-items: flex-start; }
+.mc-score {
+  flex-shrink: 0; padding: 8px 16px;
+  background: linear-gradient(135deg, rgba(26,77,69,0.08), rgba(69,196,168,0.15));
+  border-radius: var(--radius-md); text-align: center;
+  border: 1px solid rgba(26,77,69,0.12);
+}
+.mc-score-num { font-size: 28px; font-weight: 700; color: var(--qingnang-emerald-dark); }
+.mc-score-max { font-size: 14px; color: var(--ink-tertiary); }
+.mc-score-pct { font-size: 11px; color: var(--ink-tertiary); margin-left: 2px; }
+.mc-items { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.mc-item {
+  display: grid; grid-template-columns: 72px 1fr 48px; gap: 8px;
+  align-items: center; font-size: 12px;
+}
+.mc-item-lbl { color: var(--ink-secondary); }
+.mc-item.done .mc-item-lbl { color: var(--qingnang-emerald); font-weight: 600; }
+.mc-item-bar {
+  height: 6px; background: #eef1f0; border-radius: 3px; overflow: hidden;
+}
+.mc-item-fill {
+  height: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, var(--qingnang-emerald), var(--qingnang-spirit));
+  transition: width 0.5s ease;
+}
+.mc-item.done .mc-item-fill { background: var(--qingnang-emerald); }
+.mc-item-val { text-align: right; color: var(--ink-tertiary); font-variant-numeric: tabular-nums; }
+.mc-item.done .mc-item-val { color: var(--qingnang-emerald); font-weight: 600; }
+
+/* —— next_target / missing_signals —— */
+.mc-next { margin: 12px 0 4px; font-size: 13px; color: var(--qingnang-emerald-dark); font-weight: 500; }
+.mc-missing { margin: 0; font-size: 11px; color: var(--ink-tertiary); }
+
+/* —— 移动端适配 —— */
+@media (max-width: 640px) {
+  .maturity-card { padding: 14px 14px; }
+  .mc-node { width: 24%; }
+  .mc-node-ico { width: 34px; height: 34px; font-size: 16px; }
+  .mc-line { left: 18px; right: 18px; top: 23px; }
+  .mc-node-label { font-size: 10px; }
+  .mc-body { flex-direction: column; gap: 14px; }
+  .mc-score { padding: 6px 12px; align-self: flex-start; }
+  .mc-item { grid-template-columns: 60px 1fr 36px; font-size: 11px; }
+}
 
 /* ── 英雄卡组（桌面并排 / 竖屏上下堆叠） ── */
 .hero-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-bottom: 16px; }

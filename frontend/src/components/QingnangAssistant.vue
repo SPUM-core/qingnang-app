@@ -83,6 +83,12 @@
             <div class="welcome-avatar">🌿</div>
             <h2>{{ greetingTimeText }}，{{ userStore.displayName || '朋友' }}</h2>
             <p class="welcome-time">{{ todayStr }}</p>
+            <!-- 🎖️ 数字模型成熟度徽章 -->
+            <div v-if="stageBadge" class="stage-badge">
+              <span class="sb-icon">{{ stageBadge.icon }}</span>
+              <span class="sb-text">{{ stageBadge.text }}</span>
+              <span class="sb-score">{{ stageBadge.score }}</span>
+            </div>
             <p v-if="ctxSummary" class="welcome-status">你的数字模型：{{ ctxSummary }}</p>
             <p class="welcome-hint">我是你的青囊管家，随时聊聊——</p>
             <div class="quick-chips">
@@ -403,19 +409,38 @@ function onResize() {
 onMounted(() => {
   loadFabPos()
   window.addEventListener('resize', onResize)
+  // 🎖️ 登录后拉一次成熟度（欢迎态徽章立即显示）
+  if (userStore.loggedIn && !userStore.maturity) {
+    userStore.fetchMaturity().catch(() => {})
+  }
 })
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
 })
 
-// ═══ 快捷问题（通用，不再硬编码胡运涛） ═══
-const quickQuestions = computed(() => [
-  '我今天该吃什么？',
-  '晚上几点睡最好？',
-  '推荐一个放松方式',
-  '我适合什么颜色？',
-  '现在可以运动吗？',
-])
+// ═══ 成熟度徽章（从 userStore.maturity 取，chat 响应也会更新）═══
+const stageBadge = computed(() => {
+  const m = userStore.maturity
+  if (!m?.stage) return null
+  return {
+    icon: m.icon || '🌱',
+    text: `Stage ${m.stage} · ${m.name}`,
+    score: `${m.score}/${m.max_score || 11}`,
+    next: m.next_target || '',
+  }
+})
+
+// ═══ 快捷问题（按成熟度阶段动态生成）═══
+const STAGE_QUICK_QUESTIONS = {
+  1: ['今天天气怎么样？', '最近有什么节日？', '推荐一首放松的音乐', '讲讲四季养生常识'],
+  2: ['我今天该吃什么？', '推荐什么颜色适合我？', '简单的食疗建议', '这个季节该注意什么？'],
+  3: ['我的体质适合几点睡？', '适合我的穿衣颜色', '今天饮食宜忌', '家居方位有什么建议？', '做什么运动合适？'],
+  4: ['我的深层调理方案', '方剂方案调整建议', '长期体质调平计划'],
+}
+const quickQuestions = computed(() => {
+  const stage = userStore.maturity?.stage || 1
+  return STAGE_QUICK_QUESTIONS[stage] || STAGE_QUICK_QUESTIONS[1]
+})
 
 const placeholder = computed(() =>
   thinking.value ? '青囊管家正在思考…' : '问问青囊管家…（Enter 发送）'
@@ -574,6 +599,10 @@ const send = async (text) => {
 
     r = await api.post('/api/v1/assistant/chat', { message: text, history, provider })
     replyText = r.data?.reply || ''
+    // 🎖️ 后端返回的成熟度阶段 → 更新 store（下次欢迎态立刻显示）
+    if (r.data?.maturity) {
+      userStore.updateMaturityFromChat(r.data.maturity)
+    }
     // engine 标签：反映实际 provider + 是否在线
     const eng = r.data?.engine
     const prov = r.data?.provider || provider
@@ -816,6 +845,24 @@ function doAction(a) {
 .welcome h2 { margin: 0 0 4px; font-size: 18px; color: var(--ink-primary); }
 .welcome-time { margin: 0 0 12px; font-size: 12px; color: var(--ink-tertiary); }
 .welcome-status { margin: 0 0 6px; font-size: 12px; color: var(--ink-secondary); line-height: 1.6; }
+
+/* 🎖️ 数字模型成熟度徽章 */
+.stage-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 4px 0 8px; padding: 5px 12px;
+  background: linear-gradient(135deg, rgba(26,77,69,0.08), rgba(69,196,168,0.12));
+  border: 1px solid rgba(26,77,69,0.2);
+  border-radius: 16px;
+  font-size: 11px; color: #1A4D45;
+}
+.sb-icon { font-size: 14px; }
+.sb-text { font-weight: 600; }
+.sb-score {
+  margin-left: 2px; padding: 1px 6px;
+  background: rgba(26,77,69,0.12); border-radius: 10px;
+  font-weight: 500; color: var(--qingnang-emerald);
+}
+
 .welcome-hint { margin: 16px 0 10px; font-size: 11px; color: var(--ink-tertiary); letter-spacing: 0.5px; }
 .quick-chips { display: flex; flex-direction: column; gap: 8px; max-width: 320px; margin: 0 auto; }
 .chip-btn {

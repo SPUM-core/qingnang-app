@@ -29,6 +29,7 @@ class User(Base):
     is_doctor     = Column(Boolean, default=False)   # 医生端
     is_onboarded  = Column(Boolean, default=False)   # 已完成初始化建档
     dev_seed      = Column(Boolean, default=False, server_default="false")  # 开发环境测试账号标记（迁移注入）
+    is_member     = Column(Boolean, default=False, server_default="false")  # 会员：解锁 Stage 4 方剂级（隐藏功能）
 
     # 五形先天基底 S_0^0（出生时推导）
     v_base        = Column(JSON)             # {"wood": 70, "fire": 55, ...}

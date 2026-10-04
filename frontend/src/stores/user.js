@@ -17,6 +17,8 @@ export const useUserStore = defineStore('user', {
     token: null,
     loading: false,
     error: null,
+    // ── 用户数字模型成熟度（4 阶段）──
+    maturity: null,   // { stage, name, label, icon, score, max_score, next_target, is_member, missing_signals, allowed_content, forbidden_content, progress }
   }),
   getters: {
     loggedIn:   (s) => !!s.token,
@@ -71,6 +73,8 @@ export const useUserStore = defineStore('user', {
         // 同步守卫依赖的 qingnang_onboarded key
         if (this.isOnboarded) localStorage.setItem(LS_ONBOARD, 'true')
         else localStorage.removeItem(LS_ONBOARD)
+        // 🎖️ 登录后立即拉成熟度（全局可用，不依赖 QingnangAssistant 挂载）
+        this.fetchMaturity().catch(() => {})
         return d
       } catch (e) {
         this.error = e.response?.data?.detail || e.message
@@ -96,6 +100,8 @@ export const useUserStore = defineStore('user', {
         }))
         if (this.isOnboarded) localStorage.setItem(LS_ONBOARD, 'true')
         else localStorage.removeItem(LS_ONBOARD)
+        // 🎖️ 注册成功后也拉成熟度
+        this.fetchMaturity().catch(() => {})
         return d
       } catch (e) {
         this.error = e.response?.data?.detail || e.message
@@ -143,6 +149,26 @@ export const useUserStore = defineStore('user', {
       }
     },
 
+    // ── 拉取数字模型成熟度（每次登录/chat 响应中带，也可单独拉）──
+    async fetchMaturity() {
+      try {
+        const r = await api.get('/api/v1/assistant/maturity')
+        this.maturity = r.data
+        return r.data
+      } catch (e) {
+        // 401 已由 interceptor 处理；其他错误静默——前端用 cached/null
+        console.warn('[userStore] fetchMaturity failed:', e.message)
+      }
+    },
+
+    // ── 接收 chat 响应中的 maturity（chat 返回内嵌 maturity 字段更高效）──
+    updateMaturityFromChat(m) {
+      if (m && m.stage) {
+        // 只更新关键字段（chat 返回的是精简版），完整版等 fetchMaturity
+        this.maturity = { ...(this.maturity || {}), ...m }
+      }
+    },
+
     // ── 登出（彻底清干净，避免串号残留） ──
     logout() {
       this.token = null
@@ -152,6 +178,7 @@ export const useUserStore = defineStore('user', {
       this.isOnboarded = false
       this.isDoctor = false
       this.vBase = null
+      this.maturity = null
       this.loading = false
       this.error = null
       localStorage.removeItem(LS_TOKEN)

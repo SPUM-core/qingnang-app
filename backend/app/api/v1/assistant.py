@@ -1,4 +1,4 @@
-﻿"""assistant - 青囊管家 AI 对话代理（转发到本地 qingmeng-engine）"""
+"""assistant - 青囊管家 AI 对话代理（转发到本地 qingmeng-engine）"""
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -14,6 +14,7 @@ from ...config import settings
 from ..deps import get_current_user
 from ...utils.life_signal_extractor import extract_signals, signals_to_dict_list
 from ...utils.conversation_analyzer import analyze_conversation
+from ...utils.maturity import compute_maturity, STAGE_DEFS
 
 router = APIRouter()
 
@@ -41,8 +42,15 @@ STRIP_WORDS = [
 ]
 
 
-def compliance_filter(text: str) -> str:
-    """LLM 输出合规后处理 — 替换禁用词 + 去重相邻重复"""
+def compliance_filter(text: str, stage: int = 3) -> str:
+    """LLM 输出合规后处理 — 替换禁用词 + 去重相邻重复
+
+    Args:
+        text: LLM 原始输出
+        stage: 用户数字模型成熟度 1-4
+               Stage 1-3 时自动 strip 方剂/处方/药材名（合规硬约束）
+               Stage 4 时放行（会员深层调平）
+    """
     import re
     if not text:
         return text
@@ -52,7 +60,23 @@ def compliance_filter(text: str) -> str:
     # 2. 直接剔除的短语
     for bad in STRIP_WORDS:
         text = text.replace(bad, "")
-    # 3. 去重相邻重复替换词（如 "苦寒药材/苦寒药材" → "苦寒药材"）
+
+    # ── Stage 合规硬约束：Stage < 4 时屏蔽方剂/处方/药材名 ──
+    if stage < 4:
+        # 屏蔽方剂/处方/药材相关（合规红线）
+        STAGE_STRIP = [
+            "方剂", "处方", "药材", "药味",
+            "参苓白术散", "苓桂术甘汤", "柴胡疏肝散", "四物汤",
+            "桂枝汤", "麻黄汤", "补中益气汤",
+            "黄芪", "党参", "当归", "川芎", "白术", "茯苓", "桂枝",
+            "白芍", "甘草", "陈皮", "半夏", "柴胡", "黄芩",
+            "黄连", "附子", "肉桂", "干姜", "生姜", "大枣",
+            "熟地", "生地", "山药", "枸杞子", "菊花", "茯苓皮",
+        ]
+        for term in STAGE_STRIP:
+            text = text.replace(term, "")
+
+    # 3. 去重相邻重复替换词
     text = re.sub(r'([^/\s]+)[\s]*[\/、][\s]*\1', r'\1', text)
     return text
 
@@ -64,10 +88,18 @@ class ChatIn(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════
-# System Prompt 构建器 - 注入用户完整数字模型
+# System Prompt 构建器 - 注入用户完整数字模型 + 成熟度阶段约束
 # ═══════════════════════════════════════════════════════
-def build_system_prompt(user: User, db: Session) -> str:
-    """构建青囊管家 AI 的 System Prompt（2000+ 字完整上下文）"""
+def build_system_prompt(user: User, db: Session, maturity: dict | None = None) -> str:
+    """构建青囊管家 AI 的 System Prompt（2000+ 字完整上下文）
+
+    maturity 预计算可避免重复查询——assistant/chat 路由已预先算好。
+    传 None 时内部重新计算。
+    """
+    if maturity is None:
+        maturity = compute_maturity(user, db)
+
+    # 基础约束 — 合规 + 语气
     parts = [
         "你是青囊管家，基于 SPUM（结构化五行统一模型）的健康生活顾问。",
         "请记住以下关于用户的完整信息，所有回答必须基于这些数据。",
@@ -79,6 +111,9 @@ def build_system_prompt(user: User, db: Session) -> str:
         "- 不要说'建议您去看医生'——青囊管家就是陪伴式的健康顾问",
         "- 禁止说'治愈'、'治疗'、'根治'、'药到病除'等疗效性表述",
         "- 语气温暖、像朋友，不是机器",
+        "",
+        f"【数字模型成熟度：Stage {maturity['stage']} {maturity['name']}】",
+        maturity["llm_constraint"],
         "",
         f"【用户基本信息】",
         f"姓名：{user.nickname}",
@@ -221,8 +256,9 @@ def _generate_generic_reply(user: User, db: Session, keyword: str) -> str:
 # ═══════════════════════════════════════════════════════
 
 def _generate_actions(user: User, db: Session, user_message: str,
-                      analysis: dict | None, extracted_signals: list) -> list:
-    """根据用户状态 → 决定青囊管家应该引导哪些 App 功能。
+                      analysis: dict | None, extracted_signals: list,
+                      maturity: dict | None = None) -> list:
+    """根据用户状态 + 成熟度阶段 → 决定青囊管家应该引导哪些 App 功能。
 
     路由表（前端 Router path）：
       /collect/ppg       → 脉象采集
@@ -233,8 +269,18 @@ def _generate_actions(user: User, db: Session, user_message: str,
       /discover    → 知识卡片
       /shop              → 商城
 
+    成熟度过滤（关键）：
+      Stage 1 娱乐级 — 无 /shop /treatment 路由；/onboarding /collect/ppg 强引导
+      Stage 2 食疗级 — 可引导 /shop（食疗食材）；无 /treatment 路由
+      Stage 3 调理级 — 可引导完整生活提醒；无 /treatment 路由
+      Stage 4 方剂级 — 全部开放（含 /treatment）
+
     返回 list[dict]，每条 = {"label": str, "route": str, "icon": str, "priority": "high"/"medium"/"low"}
     """
+    if maturity is None:
+        maturity = compute_maturity(user, db)
+    stage = maturity["stage"]
+
     actions = []
     case = db.query(Case).filter(Case.user_id == user.id).first()
     obs_count = db.query(Observation).filter(
@@ -259,34 +305,42 @@ def _generate_actions(user: User, db: Session, user_message: str,
         actions.append({"label": "立即做脉搏采集", "route": "/collect/ppg",
                         "icon": "💓", "priority": "high"})
 
-    # 规则 4：提到"吃/饮食/早餐/午餐/晚餐/忌口" → 引导生活提醒的饮食 tab
-    if any(kw in msg for kw in ["吃", "饮食", "早餐", "午餐", "晚餐", "忌口", "宜", "食谱"]):
-        actions.append({"label": "今日饮食宜忌速查", "route": "/notifications",
-                        "icon": "🍜", "priority": "medium"})
+    # ── Stage 过滤：Stage 1 不给饮食/穿搭以外的建议 ──
+    if stage >= 2:
+        # 规则 4：提到"吃/饮食/早餐/午餐/晚餐/忌口" → 引导生活提醒的饮食 tab
+        if any(kw in msg for kw in ["吃", "饮食", "早餐", "午餐", "晚餐", "忌口", "宜", "食谱"]):
+            actions.append({"label": "今日饮食宜忌速查", "route": "/notifications",
+                            "icon": "🍜", "priority": "medium"})
 
-    # 规则 5：提到"睡眠/失眠/睡/熬夜" → 引导知识卡片（睡眠类）
-    if any(kw in msg for kw in ["睡", "失眠", "熬夜", "入睡", "多梦", "早醒"]):
-        actions.append({"label": "看看睡眠改善方法", "route": "/discover",
-                        "icon": "🌙", "priority": "medium"})
+        # 规则 5：AI 给了 suggestions → 有 "diet/herb" 类建议 → Stage≥2 可引导商城（食疗食材）
+        if analysis:
+            for s in analysis.get("suggestions", []):
+                cat = s.get("category", "")
+                if cat in ("diet", "herb") and len(actions) < 3:
+                    if stage >= 4 or cat != "herb":  # Stage 1-3 不给药材商城入口
+                        actions.append({"label": f"看看相关调养物品", "route": "/shop",
+                                        "icon": "🛒", "priority": "low"})
+                        break
 
-    # 规则 6：提到"方案/调理/档案/模型" → 引导体质档案
+    # ── Stage 过滤：Stage 1-2 不给作息/家居方位建议 ──
+    if stage >= 3:
+        # 规则 6：提到"睡眠/失眠/睡/熬夜" → 引导知识卡片（睡眠类）
+        if any(kw in msg for kw in ["睡", "失眠", "熬夜", "入睡", "多梦", "早醒"]):
+            actions.append({"label": "看看睡眠改善方法", "route": "/discover",
+                            "icon": "🌙", "priority": "medium"})
+
+    # 规则 7：提到"方案/调理/档案/模型" → 引导体质档案（全阶段开放）
     if any(kw in msg for kw in ["方案", "调理", "档案", "模型", "体质", "先天"]):
         actions.append({"label": "查看我的体质档案", "route": "/case",
                         "icon": "📋", "priority": "medium"})
 
-    # 规则 7：AI 给了 suggestions → 有 "diet/herb" 类建议 → 引导商城
-    if analysis:
-        for s in analysis.get("suggestions", []):
-            cat = s.get("category", "")
-            if cat in ("diet", "herb") and len(actions) < 3:
-                actions.append({"label": f"看看相关调养物品", "route": "/shop",
-                                "icon": "🛒", "priority": "low"})
-                break
-
-    # 规则 8：有 extracted_signals → 引导生活提醒（把对话信号转化成日常执行计划）
-    if extracted_signals and len(actions) < 3:
+    # 规则 8：有 extracted_signals → 引导生活提醒（Stage≥2 才给生活建议入口）
+    if extracted_signals and stage >= 2 and len(actions) < 3:
         actions.append({"label": "把这些信号加到我的生活提醒", "route": "/notifications",
                         "icon": "🔔", "priority": "low"})
+
+    # Stage 4 专属：方剂方案入口（隐藏——不进公开路由表，仅通过 /treatment 端点间接访问）
+    # 注意：不主动给 Stage < 4 的用户展示任何 treatment 相关入口
 
     # 去重 + 最多 3 条（避免按钮过载）
     seen_routes = set()
@@ -306,16 +360,31 @@ def _generate_actions(user: User, db: Session, user_message: str,
 # 高频结构化问题 — 引擎直接返回，绕过 LLM
 # ═══════════════════════════════════════════════════════
 
-def _intent_shortcut(message: str, brief: dict | None) -> str | None:
+def _intent_shortcut(message: str, brief: dict | None, stage: int = 1) -> str | None:
     """检测高频结构化问题，用 daily_brief 数据直接拼自然语言回答。
 
-    返回 None = 不是高频问题（走 LLM 路径）
+    Stage 守卫（关键）：
+      Stage 1 → 只放行日期/干支类（节气宜忌），屏蔽食物/颜色/宜忌
+      Stage 2+ → 全部放行
+
+    返回 None = 不是高频问题 OR 阶段不允许（走 LLM 路径，那里有 stage constraint 注入）
     返回 str = 引擎直接生成的回答（零延迟，确定性）
     """
     if not brief or not message:
         return None
 
     msg = message.lower()
+
+    # ── Stage 1 守卫：只放节气/干支/日期，屏蔽食物/颜色/宜忌 ──
+    if stage == 1:
+        # 仅干支/日期/节气类关键词放行
+        if not any(k in msg for k in ("干支", "今天几号", "今天什么日", "今日干支", "节气")):
+            return None  # 走 LLM，那里有 stage 约束注入
+        # 但也要检查 stage 1 禁止的类别
+        if any(k in msg for k in ("吃什么", "饮食", "食物", "颜色", "穿什么", "宜忌", "宜什么", "宜")):
+            return None
+
+    # ── Stage 2+：正常处理所有类别 ──
 
     # ── 颜色/穿搭类 ──
     if any(k in msg for k in ("颜色", "穿什么", "配饰", "穿搭", "衣服", "好看")):
@@ -414,8 +483,11 @@ async def chat(body: ChatIn,
 
     LLM 职责降级：用温暖的口吻转述确定性产出物，不得编造日期/宜忌/食物。
     """
+    # ── 0. 预计算成熟度（build_system_prompt + 合规过滤 + actions 都要用）──
+    maturity = compute_maturity(current, db)
+
     # ── 1. 构建 System Prompt ──
-    system_prompt = build_system_prompt(current, db)
+    system_prompt = build_system_prompt(current, db, maturity=maturity)
 
     # ── 2. 拿 daily_brief 确定性产出物（3s timeout，失败静默）──
     brief = None
@@ -436,9 +508,9 @@ async def chat(body: ChatIn,
             brief = None
 
     # ── 3. NEW: 高频结构化问题 → 引擎直接返回自然语言（绕过 LLM）──
-    shortcut_reply = _intent_shortcut(body.message, brief)
+    shortcut_reply = _intent_shortcut(body.message, brief, stage=maturity["stage"])
     if shortcut_reply is not None:
-        shortcut_reply = compliance_filter(shortcut_reply)
+        shortcut_reply = compliance_filter(shortcut_reply, stage=maturity["stage"])
         # shortcut 路径也需要持久化对话 + 抽信号
         case = db.query(Case).filter(Case.user_id == current.id).first()
         signals_now = []
@@ -480,6 +552,7 @@ async def chat(body: ChatIn,
                 user_message=body.message,
                 analysis=None,
                 extracted_signals=signals_now or [],
+                maturity=maturity,
             )
         except Exception:
             shortcut_actions = []
@@ -493,6 +566,12 @@ async def chat(body: ChatIn,
             "extracted_signals": signals_now,
             "actions": shortcut_actions,
             "analysis": None,
+            "maturity": {
+                "stage": maturity["stage"],
+                "name": maturity["name"],
+                "icon": maturity["icon"],
+                "next_target": maturity["next_target"],
+            },
         }
 
     # ── 4. 把 daily_brief 浓缩后注入 system prompt ──
@@ -630,7 +709,7 @@ async def chat(body: ChatIn,
         latency_ms = 0
 
     # ── 7. 合规后处理 ──
-    reply_text = compliance_filter(reply_text)
+    reply_text = compliance_filter(reply_text, stage=maturity["stage"])
 
     # engine 标签反映真实执行路径
     engine_tag = {
@@ -740,6 +819,7 @@ async def chat(body: ChatIn,
             user_message=body.message,
             analysis=analysis_result or None,
             extracted_signals=signals_user_msg or [],
+            maturity=maturity,
         )
     except Exception:
         actions = []
@@ -770,6 +850,14 @@ async def chat(body: ChatIn,
             "suggestions": (analysis_result or {}).get("suggestions", []),
             "chief_complaint": (analysis_result or {}).get("chief_complaint", ""),
         } if analysis_result else None,
+        # ── 用户数字模型成熟度（阶段徽章 + 下次引导目标）──
+        "maturity": {
+            "stage": maturity["stage"],
+            "name": maturity["name"],
+            "icon": maturity["icon"],
+            "next_target": maturity["next_target"],
+            "is_member": maturity["is_member"],
+        },
     }
 
 
@@ -862,6 +950,44 @@ async def life_signals_summary(
         "days": days,
         "total_signals": sum(r.cnt for r in rows),
         "tags": by_tag,
+    }
+
+
+@router.get("/maturity")
+async def get_maturity(
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """查询当前用户的数字模型成熟度阶段 — 前端据此显示徽章、过滤功能入口。
+
+    返回：{ stage: 1-4, name, label, icon, score, missing_signals, next_target, is_member, details }
+    注意：is_member 为 False 时即使 score ≥ 8 也锁在 Stage 3。
+    """
+    m = compute_maturity(current, db)
+    # 把 details 展开给前端展示（profile 各项 true/false、obs_count 等）
+    # 但隐藏 llm_constraint（这是给 LLM 看的 system prompt 片段，不需要暴露给前端）
+    return {
+        "stage": m["stage"],
+        "name": m["name"],
+        "label": m["label"],
+        "icon": m["icon"],
+        "desc": m["desc"],
+        "score": m["score"],
+        "max_score": 11,  # 理论满分：4+2+3+2+2
+        "missing_signals": m["missing_signals"],
+        "next_target": m["next_target"],
+        "is_member": m["is_member"],
+        "allowed_content": m["allowed_content"],
+        "forbidden_content": m["forbidden_content"],
+        # 展开 details 给前端做进度条
+        "progress": {
+            "profile_complete": m["details"].get("profile_score", 0),  # 0-4
+            "has_case": m["details"].get("case_exists", False),
+            "has_baseline": m["details"].get("has_baseline", False),
+            "observation_count": m["details"].get("observation_count", 0),
+            "inquiry_done": m["details"].get("inquiry_completed", False),
+            "signal_tag_count": m["details"].get("signal_tag_count", 0),
+        },
     }
 
 
@@ -1131,7 +1257,26 @@ async def reasoning_lifestyle_stream(body: LifestyleIn,
 async def reasoning_treatment(body: TreatmentIn,
                               db: Session = Depends(get_db),
                               current: User = Depends(get_current_user)):
-    """方案调整建议 — 当前方案+观测 → 调整建议 JSON（青檬引擎推理）。"""
+    """方案调整建议 — 当前方案+观测 → 调整建议 JSON（青檬引擎推理）。
+
+    ⚠️ 双门控：stage≥4 且 is_member=True 才允许访问。
+    Stage 4 方剂级是会员隐藏功能，不在公开说明中提及。
+    """
+    m = compute_maturity(current, db)
+    if m["stage"] < 4 or not m["is_member"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "STAGE_TOO_LOW",
+                "message": "此功能需要更成熟的数字模型和会员权限。先完成更多脉搏采集和问诊吧～",
+                "maturity": {
+                    "stage": m["stage"],
+                    "name": m["name"],
+                    "next_target": m["next_target"],
+                    "missing_signals": m["missing_signals"],
+                },
+            },
+        )
     return await _forward_reasoning(
         "/v1/reasoning/treatment",
         body.model_dump(exclude_none=True),
