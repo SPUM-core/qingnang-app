@@ -1,12 +1,14 @@
 /**
  * 青囊前端 - API 客户端
- * 统一指向 localhost:8766（业务后端）
- * 业务后端内部代理 :8000（青檬引擎 / Ollama）
+ * dev 模式走 vite proxy（/api → localhost:8767），同域无 CORS
+ * prod 模式用 VITE_API_BASE 环境变量覆盖
  * 前端不感知后端架构
  */
 import axios from 'axios'
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8767'
+// dev 默认走相对路径 → vite proxy 代理到 8767（无 CORS）
+// prod（独立部署前端）需要设 VITE_API_BASE 指向后端域名
+const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 export const api = axios.create({
   baseURL: API_BASE,
