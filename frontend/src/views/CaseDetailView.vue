@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="page case">
     <!-- 顶部：数字模型总览 -->
     <div class="case-hero">
@@ -360,7 +360,8 @@ const showInnateReport = ref(false)
 const toggleExpand = (id) => {
   expandedId.value = expandedId.value === id ? null : id
 }
-const typeClass = (t) => ({ '首诊': 'first', '调理方案': 'plan', 'on-off 验证': 'verify', '重要发现': 'discover' }[t] || 'plan')
+const typeClass = (t) => ({ '首诊': 'first', '调理方案': 'plan', 'on-off 验证': 'verify', '重要发现': 'discover',
+  '复诊': 'followup', '迭代': 'iteration', '脉诊': 'ppg', '方案': 'initial', '验证': 'verify' }[t] || 'plan')
 
 // 最新观测 chip（动态，从 vectorStore.latestVector 读）
 const latestVectorChips = computed(() => {
@@ -619,6 +620,10 @@ const effectiveTable = computed(() => {
 .tl-type-badge.type-plan { background: rgba(26,77,69,0.1); color: var(--qingnang-emerald); }
 .tl-type-badge.type-verify { background: rgba(2,136,209,0.1); color: var(--wuxing-water); }
 .tl-type-badge.type-discover { background: rgba(212,160,23,0.15); color: var(--wuxing-earth); }
+.tl-type-badge.type-followup { background: rgba(123,31,162,0.1); color: #6A1B9A; }  /* 紫色 — 复诊 */
+.tl-type-badge.type-iteration { background: rgba(46,125,50,0.12); color: #2E7D32; }   /* 绿色 — 迭代 */
+.tl-type-badge.type-ppg { background: rgba(255,112,67,0.12); color: #E64A19; }        /* 橙色 — 脉诊 */
+.tl-type-badge.type-initial { background: rgba(212,160,23,0.12); color: #8a6300; }     /* 金棕 — 初诊方案 */
 .latest-badge {
   font-size: 10px; padding: 2px 8px; border-radius: 10px;
   background: rgba(67,160,71,0.12); color: var(--wuxing-wood); font-weight: 600;

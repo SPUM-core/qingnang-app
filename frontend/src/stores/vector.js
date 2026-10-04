@@ -181,14 +181,19 @@ export const useVectorStore = defineStore('vector', {
           }]
         }
 
-        // 拉全量 PPG 历史 → vObsList(12条) + driftSeries + caseReportsFull
+        // 先拉方案版本链（含 followup 复诊）— 提前到 PPG 之前
+        try {
+          const pr = await api.get('/api/v1/treatment/versions')
+          this.plans = pr.data
+        } catch {}
+
+        // 拉全量 PPG 历史 → vObsList + driftSeries
         let history = []
         try {
           history = await this.fetchPpgHistory()
         } catch {}
 
         const baseline = this.vBase || {}
-        const innate = c.v_innate || {}
 
         if (history && history.length > 0) {
           this.vObsList = history.map(h => ({
@@ -206,56 +211,85 @@ export const useVectorStore = defineStore('vector', {
             }
             return { t: h.observed_at, delta }
           }).sort((a,b) => a.t.localeCompare(b.t))
-
-          // caseReportsFull：每条 observation → 一份时间线报告
-          // version 按序号编，delta_f 从 v_obs - baseline 算（后端 delta_f 可能是 null）
-          const dims = ['wood','fire','earth','metal','water']
-          this.caseReportsFull = history
-            .slice()
-            .sort((a,b) => b.observed_at.localeCompare(a.observed_at)) // 降序（最新在上）
-            .map((h, idx) => {
-              const delta_f_calc = {}
-              for (const dim of dims) {
-                const b = baseline[dim] ?? 20
-                delta_f_calc[dim] = +(((h.v_obs?.[dim] ?? b) - b) / b * 2).toFixed(2)
-              }
-              const date = h.observed_at?.slice(0, 10) || ''
-              const isLatest = idx === 0
-              return {
-                id: `r${h.id || idx}`,
-                version: isLatest ? 'v7.0' : `v${history.length - idx}.0`,
-                date,
-                type: isLatest ? '调理方案' : (idx === history.length - 1 ? '首诊' : '重要发现'),
-                is_latest: isLatest,
-                delta_summary: h.syndrome_hint || '',
-                chief_complaint: isLatest ? c.chief_complaint : null,
-                ppg: {
-                  source: 'cheezPPG',
-                  sqi: h.sqi,
-                  date,
-                  delta_f: delta_f_calc,
-                  v_obs: h.v_obs || {},
-                  diagnosis: h.syndrome_hint || '',
-                },
-                strategy: isLatest ? c.syndrome : null,
-                formula: isLatest ? (c.formula || null) : null,
-                key_herbs: isLatest ? (c.key_herbs || null) : null,
-                rationale: isLatest ? (c.rationale || null) : null,
-                feedback: null,
-                symptoms: null,
-                result: null,
-                next_check: isLatest ? (c.next_check || null) : null,
-              }
-            })
-        } else {
-          this.caseReportsFull = []
         }
 
-        // 方案版本链
-        try {
-          const pr = await api.get('/api/v1/treatment/versions')
-          this.plans = pr.data
-        } catch {}
+        // ═══ 合并时间线：PPG 观测 + 方案迭代 + 复诊 followup ═══
+        const allReports = []
+        const dims = ['wood','fire','earth','metal','water']
+
+        // 1. PPG 观测
+        if (history && history.length > 0) {
+          history.forEach((h, idx) => {
+            const date = h.observed_at?.slice(0, 10) || ''
+            const delta_f_calc = {}
+            for (const dim of dims) {
+              const b = baseline[dim] ?? 20
+              delta_f_calc[dim] = +(((h.v_obs?.[dim] ?? b) - b) / b * 2).toFixed(2)
+            }
+            allReports.push({
+              _sort_date: h.observed_at || '',
+              _kind: 'ppg',
+              id: `ppg-${h.id || idx}`,
+              version: `PPG-${date.slice(5,10).replace('-','') || idx+1}`,
+              type: '脉诊',
+              type_class: 'ppg',
+              date,
+              delta_summary: h.syndrome_hint || '',
+              delta_f: delta_f_calc,
+              v_obs: h.v_obs || {},
+              ppg: { source: h.source || 'cheezPPG', sqi: h.sqi, date, diagnosis: h.syndrome_hint || '' },
+              strategy: null,
+              formula: null,
+              rationale: null,
+              feedback: null,
+              symptoms: null,
+              result: null,
+              next_check: null,
+              chief_complaint: null,
+              is_latest: false,
+            })
+          })
+        }
+
+        // 2. TreatmentPlan（iteration / followup / initial）
+        for (const p of (this.plans || [])) {
+          const eff = p.effectiveness || {}
+          const date = p.created_at?.slice(0, 10) || ''
+          const pt = p.plan_type || 'initial'
+          let typeLabel = '方案'
+          let typeClass = 'initial'
+          if (pt === 'followup') { typeLabel = '复诊'; typeClass = 'followup' }
+          else if (pt === 'iteration') { typeLabel = '迭代'; typeClass = 'iteration' }
+          else if (pt === 'validation') { typeLabel = '验证'; typeClass = 'validation' }
+
+          allReports.push({
+            _sort_date: p.created_at || '',
+            _kind: pt,
+            id: `plan-${p.id}`,
+            version: p.version,
+            type: typeLabel,
+            type_class: typeClass,
+            date,
+            delta_summary: eff.delta_summary || null,
+            delta_f: null,
+            v_obs: null,
+            ppg: null,
+            strategy: p.strategy || null,
+            formula: p.prescription || null,
+            rationale: p.reasoning || null,
+            feedback: eff.feedback || null,
+            symptoms: eff.symptoms || null,
+            result: eff.outcome || null,
+            next_check: eff.next_step || null,
+            chief_complaint: pt === 'initial' ? (c.chief_complaint || null) : null,
+            is_latest: false,
+          })
+        }
+
+        // 3. 合并 + 降序 + 标记最新
+        allReports.sort((a, b) => (b._sort_date || '').localeCompare(a._sort_date || ''))
+        if (allReports.length > 0) allReports[0].is_latest = true
+        this.caseReportsFull = allReports
 
         // v0.2 三曲线轨迹
         try {

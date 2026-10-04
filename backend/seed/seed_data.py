@@ -374,6 +374,56 @@ GAO_SUJUAN = {
          ],
          "avoidances": ["辛散走表（生姜）", "升提单线", "多线叠加", "苦寒直折"],
          "reasoning": "雍虚共轭·停全部多线·改单一统方·君主频生地玄参ΔS_水↑慢脉冲·佐使川楝杏仁开路·术陈护传导·五味浮麦敛护。9/8服3日良响应（汗减·痰减）·9/10服5日过渡态（夜尿1→4·咽干·便粘=水至而火未化·守方待水尖峰锁稳）。"},
+    ],
+
+    # ═══ 5 份复诊（TreatmentPlan plan_type=followup，复用方案版本链做时间线）═══
+    # 2026-06-22 → 2026-09-08 → 2026-09-10 → 2026-10-02 时间线完整
+    "followups": [
+        {"version": "FU-07", "date": "2026-09-10", "type": "followup",
+         "title": "服药5日反馈 · 水尖峰建立途中（过渡态）",
+         "feedback": "夜尿 1→4 次（新）· 夜咽干仍存 · 晨便不顺畅·量少·粘",
+         "symptoms": "夜尿频多 · 咽干 · 便粘不畅",
+         "delta_summary": "S_水↑已投送 · S_火↓↓气化未同步驱动 → 阴液骤入而肾阳气化无力蒸腾",
+         "decision": "守方不动（秋分 9/22 复诊前不加不减）",
+         "reasoning": "阴虚主频（水尖峰）已起效投送（津总量上升）；同时暴露核心缺口：S_火↓↓ 肾阳气化不足（火衰48%·9/5脉诊兼证印证）——火不化水，津既不上承（咽干）、也不下润（便粘），反停蓄膀胱（夜尿频）。方向对，仅缺'气化'一环把水津拉回正常分配链路。",
+         "next_step": "秋分（9/22）前后复诊调佐使；夜尿持续>3晚且口渴不缓解→微助肾气化/固泉（佐使层调度，君主频不动）",
+         "outcome": "中性过渡信号（非负面）· 水至而气未化过渡态"},
+        {"version": "FU-06", "date": "2026-09-08", "type": "followup",
+         "title": "服药3日反馈 · 良响应首帧",
+         "feedback": "出汗明显改善 · 痰有所减少 · 夜咽干仍存",
+         "symptoms": "夜咽干（预期相位滞后）",
+         "delta_summary": "Q_浮麦/五味敛护峰到位 ✅ · Q_术陈护传导生效 ✅",
+         "decision": "守方不加减，待水尖峰主频建立",
+         "reasoning": "汗减✅ = 佐4·五味浮麦「汗减·浮越收」验中；痰减✅ = 佐2·术陈「痰减」验中；咽干仍存系君·生地玄参厚味慢脉冲·水尖峰主频未建，属于预期相位滞后，非越界。",
+         "next_step": "秋分（9/22）复诊调佐使。期间按观察调整判据自查。",
+         "outcome": "✅ 良响应首帧"},
+        {"version": "FU-05", "date": "2026-08-09", "type": "followup",
+         "title": "经净 · 量质预警",
+         "feedback": "经量极少·色淡 · 痰核仍增大",
+         "symptoms": "经量极少 · 痰核增大",
+         "delta_summary": "周期达标 ≠ 量质达标 · 血海深层空虚",
+         "decision": "补土补肾已完成周期功能，但补而不化 → 需显式化痰 + 滋阴养血补海",
+         "reasoning": "8/4 月经 38 天来潮，周期重启成功（S_土↑+S_水↑方向验证）。但经量极少·痰核增大 = 血海深层空虚仍在，补而不化，需下一步显式化痰并加大滋阴养血填血海力度。",
+         "next_step": "下一周期复诊时调整方案方向",
+         "outcome": "⚠️ 量质预警 · 待滋阴补海"},
+        {"version": "FU-04", "date": "2026-08-04", "type": "followup",
+         "title": "月经来潮 · 周期重启",
+         "feedback": "月经 38 天周期 · 距上次显著缩短",
+         "symptoms": "无新症状",
+         "delta_summary": "S_土↑+S_水↑方向验证 · 周期功能已恢复",
+         "decision": "补土补肾方向有效，继续观察量质",
+         "reasoning": "月经 38 天来潮，较之前 3-4 月一行显著缩短。补土补肾（主要靠中成药，汤剂尚未正式服用）已完成周期重启。这是雍虚共轭治疗的第一个里程碑——周期恢复是后续量质提升的前提。",
+         "next_step": "经净后（约 8/9）复诊评估量质",
+         "outcome": "✅ 周期重启成功"},
+        {"version": "FU-03", "date": "2026-06-22", "type": "followup",
+         "title": "首诊建立基线",
+         "feedback": "误服大黄蛰虫丸 2日剧烈反应（已停）· 后遗 S_金↑↑ 舌下青筋",
+         "symptoms": "月经稀发（3-4月一行）· 白带过多 · 精神不振",
+         "delta_summary": "壅虚共轭确认：S_土↓↓血海空虚 + S_木郁闭",
+         "decision": "停所有多线杂治 · 改单一统方 · 滋阴润燥 · 降气敛肺",
+         "reasoning": "雍虚共轭核心确认：乙木弱不能疏土 → 下垂性壅滞；血海深层空虚。误服大黄蛰虫丸（虫药走络过猛，雍虚共轭虚不受攻）后遗 S_金↑↑ 舌下青筋。立原则：停全部多线杂治，单一统方，君主频生地玄参ΔS_水↑慢脉冲。",
+         "next_step": "2个月后月经周期复诊评估",
+         "outcome": "📌 基线确立 · 雍虚共轭锁定"},
     ]
 }
 
@@ -465,6 +515,33 @@ def seed_gao_sujuan(db: Session) -> bool:
 
     case.current_plan_id = plan_ids[-1] if plan_ids else None
     print(f"  [seed] TreatmentPlans created: {len(plan_ids)}, current=v2.0(id={case.current_plan_id})")
+
+    # 5. 创建 FollowUp 复诊记录（plan_type=followup，复用 TreatmentPlan 时间线）
+    fu_count = 0
+    for fu in reversed(GAO_SUJUAN.get("followups", [])):
+        tp = TreatmentPlan(
+            case_id=case.id,
+            version=fu["version"],
+            plan_type=fu["type"],   # "followup"
+            strategy=fu["title"],   # 复诊标题
+            prescription=fu["decision"],  # 处置/决策
+            reasoning=fu["reasoning"],
+            effectiveness={          # JSON 存完整复诊结构数据
+                "feedback": fu["feedback"],
+                "symptoms": fu.get("symptoms", ""),
+                "delta_summary": fu.get("delta_summary", ""),
+                "next_step": fu.get("next_step", ""),
+                "outcome": fu.get("outcome", ""),
+            },
+            doctor_signed=True,
+            pushed_at=datetime.strptime(fu["date"], "%Y-%m-%d") + timedelta(hours=14),
+            user_confirmed=True,
+            created_at=datetime.strptime(fu["date"], "%Y-%m-%d"),
+        )
+        db.add(tp)
+        db.flush()
+        fu_count += 1
+    print(f"  [seed] FollowUp created: {fu_count}")
 
     db.commit()
     print("  [seed] ✅ 高素娟完整案例注入完成")
