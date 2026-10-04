@@ -293,8 +293,187 @@ def seed_shop_items(db: Session) -> int:
     return created
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 高素娟（CASE-001 · 雍虚共轭 · 一贯煎合增液汤加味）
+# center=20 概率分布口径（v_innate/v_baseline/v_obs 统一）
+# ══════════════════════════════════════════════════════════════════════════════
+
+GAO_SUJUAN = {
+    # 用户基本（center=20 概率分布口径）
+    "qingnang_id": "SPUM-TCM-CASE-001",
+    "phone": "139******01",
+    "password": "qinxuan2026",
+    "nickname": "高素娟",
+    "gender": "female",
+    "birth_date": "1989-08-02",      # 己巳年七月初二（阳历）
+    "birth_hour": "戌时",            # 时柱临界 19:29，两盘壅虚共轭均成立
+    "height": 162,
+    "weight": 52,
+    "city": "开封",                   # 114.3°E → 真太阳时 ≈ −29 min
+    "is_doctor": False,
+    "is_onboarded": True,
+
+    # 八字（三柱确定性 · 时柱临界）
+    "bazi": "己巳 辛未 乙未",          # 时柱待确认：丙戌 vs 乙酉
+    "ganzhi_year": "己巳",
+    "ganzhi_month": "辛未",
+    "ganzhi_day": "乙未",
+
+    # ═══ v_innate · 藏干概率分布（center=20，总和≈100）═══
+    # bazi.py make_bazi 三柱版精确计算：
+    #   己巳: 己(土1.0)+巳藏丙0.7庚0.2戊0.1 → 土1.1 火0.7 金0.2
+    #   辛未: 辛(金1.0)+未藏己0.7丁0.2乙0.1 → 金1.0 土0.8 火0.2 木0.1
+    #   乙未: 乙(木1.0)+未藏己0.7丁0.2乙0.1 → 木1.1 土0.7 火0.2
+    # 合计: 木1.2 火1.1 土2.6 金1.2 水0 → 归一化≈木20 火18 土43 金20 水0
+    #   🟢 印证病历：格局无水 · 乙木弱 · 土壅埋木
+    "v_innate": {"wood": 20, "fire": 18, "earth": 43, "metal": 20, "water": 0},
+    "v_baseline": {"wood": 20, "fire": 18, "earth": 43, "metal": 20, "water": 0},
+    # v_current = 最新观测 (2026-10-02 · 新方升提过度)
+    # v_obs = baseline + delta_f * 20（center=20 口径统一）
+    "v_current":  {"wood": 21.6, "fire": 17.2, "earth": 45.2, "metal": 22.8, "water": 0},
+
+    "syndrome": "壅虚共轭 · 乙木弱不能疏土 · 血海深层空虚",
+    "chief_complaint": "长期月经稀发（3-4月一行）+ 白带过多 + 精神不振",
+
+    # ═══ 2 次真实 PPG 观测（病历 数据/脉象/ 2026-09-05 · 2026-10-02）═══
+    # delta_f: PPG 引擎原始输出（center=0）
+    # v_obs = v_baseline + delta_f * 20（center=20 口径统一，clamp ≥0）
+    "observations": [
+        # day=1  2026-09-05 · rec_20260905_124303 · SQI 0.747 · 重采为准
+        {"date": "2026-09-05", "sqi": 75,
+         "delta_f": {"wood": +0.15, "fire": -0.21, "earth": -0.12, "metal": +0.12, "water": -0.50},
+         "v_obs": {"wood": 23.0, "fire": 13.8, "earth": 40.6, "metal": 22.4, "water": 0},
+         "syndrome_hint": "肝气郁结93% + 火衰48% + 气血两虚35%（水↓跨采最稳健·肾虚核心）"},
+        # day=2  2026-10-02 · SQI 0.808 · 换方后瘙痒·新方升提过度
+        {"date": "2026-10-02", "sqi": 81,
+         "delta_f": {"wood": +0.08, "fire": -0.04, "earth": +0.11, "metal": +0.14, "water": -0.03},
+         "v_obs": {"wood": 21.6, "fire": 17.2, "earth": 45.2, "metal": 22.8, "water": 0},
+         "syndrome_hint": "心阳虚80% + 气阴两虚46% · 土从虚→壅·滑品质0.20新湿浊·升提过度印证"},
+    ],
+
+    # 方案版本链（简化：herbs 留空，避免 Stage<4 用户看到具体药材名）
+    "plans": [
+        {"version": "v2.0", "date": "2026-10-02", "type": "iteration",
+         "strategy": "恢复一贯煎方向·佐使微调·干姜3补火化",
+         "prescription": "一贯煎合增液汤加味·秋令方v2（君主频不动·佐使层强化护传导）",
+         "herbs": [],
+         "life_advice": [
+             {"time": "每日", "action": "每日1剂·水煎服·早晚分服"},
+             {"time": "经期", "action": "去五味子·浮小麦·当归改15加川芎6活血调经"},
+             {"time": "经后", "action": "加熟地15·阿胶9填血海"},
+         ],
+         "avoidances": ["升提单线铁律", "浮越不泻", "辛散走表（生姜慎·干姜宜）", "多线叠加"],
+         "reasoning": "原方一贯煎服5天因滋腻碍脾未微调即停→换方升提过度（黄芪30+柴胡9+生姜3+党参15同相过冲）→浑身瘙痒。v2撤新方升提驱动·君主频不动·佐使层加茯苓10减生地麦冬3g·干姜3守中助气化。"},
+        {"version": "v1.0", "date": "2026-09-05", "type": "initial",
+         "strategy": "滋阴润燥·降气敛肺·秋令方",
+         "prescription": "一贯煎合增液汤加味·秋令方（每日1剂·单一统方）",
+         "herbs": [],
+         "life_advice": [
+             {"time": "每日", "action": "每日1剂·水煎服·早晚分服"},
+             {"time": "秋分前后", "action": "复诊调佐使·按燥气转凉微调"},
+         ],
+         "avoidances": ["辛散走表（生姜）", "升提单线", "多线叠加", "苦寒直折"],
+         "reasoning": "雍虚共轭·停全部多线·改单一统方·君主频生地玄参ΔS_水↑慢脉冲·佐使川楝杏仁开路·术陈护传导·五味浮麦敛护。9/8服3日良响应（汗减·痰减）·9/10服5日过渡态（夜尿1→4·咽干·便粘=水至而火未化·守方待水尖峰锁稳）。"},
+    ]
+}
+
+
+def seed_gao_sujuan(db: Session) -> bool:
+    """返回 True=首次注入  False=已存在跳过"""
+    from app.models import User, Case
+
+    existing = db.query(User).filter(User.qingnang_id == GAO_SUJUAN["qingnang_id"]).first()
+    if existing:
+        print(f"  [seed] 高素娟已存在 (id={existing.id})，跳过")
+        return False
+
+    # 1. 创建 User
+    user = User(
+        qingnang_id=GAO_SUJUAN["qingnang_id"],
+        phone=GAO_SUJUAN["phone"],
+        password_hash=hash_pwd(GAO_SUJUAN["password"]),
+        nickname=GAO_SUJUAN["nickname"],
+        gender=GAO_SUJUAN["gender"],
+        birth_date=GAO_SUJUAN["birth_date"],
+        birth_hour=GAO_SUJUAN["birth_hour"],
+        height=GAO_SUJUAN["height"],
+        weight=GAO_SUJUAN["weight"],
+        is_doctor=GAO_SUJUAN["is_doctor"],
+        is_onboarded=GAO_SUJUAN["is_onboarded"],
+        v_base=GAO_SUJUAN["v_baseline"],
+    )
+    db.add(user)
+    db.flush()
+    print(f"  [seed] User created: id={user.id}")
+
+    # 2. 创建 Case
+    case = Case(
+        user_id=user.id,
+        bazi=GAO_SUJUAN["bazi"],
+        ganzhi_year=GAO_SUJUAN["ganzhi_year"],
+        ganzhi_month=GAO_SUJUAN["ganzhi_month"],
+        ganzhi_day=GAO_SUJUAN["ganzhi_day"],
+        v_innate=GAO_SUJUAN["v_innate"],
+        v_baseline=GAO_SUJUAN["v_baseline"],
+        v_current=GAO_SUJUAN["v_current"],
+        syndrome=GAO_SUJUAN["syndrome"],
+        chief_complaint=GAO_SUJUAN["chief_complaint"],
+    )
+    db.add(case)
+    db.flush()
+    print(f"  [seed] Case created: id={case.id}")
+
+    # 3. 创建 Observations（按日期降序）
+    obs_ids = []
+    for i, ob in enumerate(reversed(GAO_SUJUAN["observations"])):
+        obs = Observation(
+            case_id=case.id,
+            source="cheezPPG",
+            sqi=ob["sqi"],
+            delta_f=ob["delta_f"],
+            v_obs=ob["v_obs"],
+            syndrome_hint=ob["syndrome_hint"],
+            observed_at=datetime.strptime(ob["date"], "%Y-%m-%d") + timedelta(hours=10 + i),
+        )
+        db.add(obs)
+        db.flush()
+        obs_ids.append(obs.id)
+    print(f"  [seed] Observations created: {len(obs_ids)}")
+
+    # 4. 创建 TreatmentPlans（按日期降序）
+    plan_ids = []
+    for i, pl in enumerate(reversed(GAO_SUJUAN["plans"])):
+        tp = TreatmentPlan(
+            case_id=case.id,
+            version=pl["version"],
+            plan_type=pl["type"],
+            strategy=pl["strategy"],
+            prescription=pl["prescription"],
+            herbs=pl["herbs"],
+            life_advice=pl["life_advice"],
+            avoidances=pl["avoidances"],
+            reasoning=pl["reasoning"],
+            doctor_signed=True,
+            pushed_at=datetime.strptime(pl["date"], "%Y-%m-%d") + timedelta(hours=9),
+            user_confirmed=True,
+            from_obs_id=obs_ids[min(i, len(obs_ids)-1)] if obs_ids else None,
+            created_at=datetime.strptime(pl["date"], "%Y-%m-%d"),
+        )
+        db.add(tp)
+        db.flush()
+        plan_ids.append(tp.id)
+
+    case.current_plan_id = plan_ids[-1] if plan_ids else None
+    print(f"  [seed] TreatmentPlans created: {len(plan_ids)}, current=v2.0(id={case.current_plan_id})")
+
+    db.commit()
+    print("  [seed] ✅ 高素娟完整案例注入完成")
+    return True
+
+
 def run_seed(db: Session):
     print("🌱 开始种子数据注入...")
+    g = seed_gao_sujuan(db)
     u = seed_hu_yuntao(db)
     s = seed_shop_items(db)
-    print(f"  [seed] 完成：胡运涛={'✅' if u else '⏭️ 已存在'}，商城={s} 条新建")
+    print(f"  [seed] 完成：高素娟={'✅' if g else '⏭️ 已存在'}，胡运涛={'✅' if u else '⏭️ 已存在'}，商城={s} 条新建")

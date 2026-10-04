@@ -7,39 +7,54 @@ import { useUserStore } from './user'
 // 共享纯函数：五形向量 → 箭头/摘要（所有组件统一复用）
 // ═══════════════════════════════════════════════════════════
 
-/** 五形值 → 箭头字符串。
- *  center=20 为理想中心 — v_innate 是归一化概率分布（总和=100，5维均匀分布=每维20）
- *  偏离度决定箭头层数：±2 内为 ↔（±10% 近中心），±8 内为 ↑/↓（±40%），±18 内为 ↑↑/↓↓（±90%）
- *  纯概率分布不可能全部皆强或皆弱（总和固定100），修 center=50 导致五行皆弱 bug。
+/** 自动检测五形向量的 center（概率分布 center=20 vs 标量 center=50）。
+ *  v_innate 藏干概率分布：总和≈100，每维平均≈20 → center=20
+ *  v_obs 中心50标量：50+ΔF*k 映射 → center=50
+ *  通过 5 维均值是否 < 30 来判断。
  */
-export function toArrow(v, center = 20) {
+function _detectCenter(v) {
+  if (!v) return 20
+  const arr = ['wood','fire','earth','metal','water']
+    .map(k => v[k]).filter(x => typeof x === 'number' && x != null)
+  if (!arr.length) return 20
+  const avg = arr.reduce((a,b) => a+b, 0) / arr.length
+  return avg < 30 ? 20 : 50
+}
+
+/** 五形值 → 箭头字符串。自动检测 center，用相对比例阈值（对两种口径都语义一致）：
+ *  |v-center|/center ≤ 10% → ↔，≤ 40% → ↑/↓，≤ 90% → ↑↑/↓↓，else → ↑↑↑/↓↓↓
+ */
+export function toArrow(v, center) {
   if (v == null || v === '') return '↔'
-  const d = +v - center
-  const abs = Math.abs(d)
-  if (abs <= 2) return '↔'
-  if (abs <= 8) return d > 0 ? '↑' : '↓'
-  if (abs <= 18) return d > 0 ? '↑↑' : '↓↓'
+  const c = center ?? _detectCenter(v)
+  const d = +v - c
+  const ratio = Math.abs(d) / c   // 相对 center 的偏离度
+  if (ratio <= 0.10) return '↔'
+  if (ratio <= 0.40) return d > 0 ? '↑' : '↓'
+  if (ratio <= 0.90) return d > 0 ? '↑↑' : '↓↓'
   return d > 0 ? '↑↑↑' : '↓↓↓'
 }
 
-/** 五形字典 → "木↑↑↑ 火↓↓ 土↔ 金↑ 水↓" 格式字符串 */
-export function toModelSummary(v, center = 20) {
+/** 五形字典 → "木↑↑↑ 火↓↓ 土↔ 金↑ 水↓" 格式字符串。center 自动检测 */
+export function toModelSummary(v, center) {
   if (!v) return '五形数据待建档'
   const labels = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
+  const c = center ?? _detectCenter(v)
   return ['wood', 'fire', 'earth', 'metal', 'water']
-    .map(k => `${labels[k]}${toArrow(v[k], center)}`)
+    .map(k => `${labels[k]}${toArrow(v[k], c)}`)
     .join(' ')
 }
 
-/** 五形字典 → 核心偏失摘要，如 "木↓↓↓ · 土↓↓ · 水↑" */
-export function toCoreDeviation(v, center = 20, topN = 3) {
+/** 五形字典 → 核心偏失摘要，如 "木↓↓↓ · 土↓↓ · 水↑"。center 自动检测 */
+export function toCoreDeviation(v, center, topN = 3) {
   if (!v) return ''
   const labels = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
+  const c = center ?? _detectCenter(v)
   const arr = ['wood', 'fire', 'earth', 'metal', 'water']
-    .map(k => ({ k, v: v[k], d: (v[k] ?? center) - center }))
+    .map(k => ({ k, v: v[k], d: (v[k] ?? c) - c }))
     .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
     .slice(0, topN)
-  return arr.map(x => `${labels[x.k]}${toArrow(x.v, center)}`).join(' · ')
+  return arr.map(x => `${labels[x.k]}${toArrow(x.v, c)}`).join(' · ')
 }
 
 export const useVectorStore = defineStore('vector', {
