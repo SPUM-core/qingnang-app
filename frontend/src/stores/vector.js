@@ -7,8 +7,12 @@ import { useUserStore } from './user'
 // 共享纯函数：五形向量 → 箭头/摘要（所有组件统一复用）
 // ═══════════════════════════════════════════════════════════
 
-/** 五形值 → 箭头字符串。center=50 为理想中心，偏离度决定箭头层数 */
-export function toArrow(v, center = 50) {
+/** 五形值 → 箭头字符串。
+ *  center=20 为理想中心 — v_innate 是归一化概率分布（总和=100，5维均匀分布=每维20）
+ *  偏离度决定箭头层数：±2 内为 ↔（±10% 近中心），±8 内为 ↑/↓（±40%），±18 内为 ↑↑/↓↓（±90%）
+ *  纯概率分布不可能全部皆强或皆弱（总和固定100），修 center=50 导致五行皆弱 bug。
+ */
+export function toArrow(v, center = 20) {
   if (v == null || v === '') return '↔'
   const d = +v - center
   const abs = Math.abs(d)
@@ -19,7 +23,7 @@ export function toArrow(v, center = 50) {
 }
 
 /** 五形字典 → "木↑↑↑ 火↓↓ 土↔ 金↑ 水↓" 格式字符串 */
-export function toModelSummary(v, center = 50) {
+export function toModelSummary(v, center = 20) {
   if (!v) return '五形数据待建档'
   const labels = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
   return ['wood', 'fire', 'earth', 'metal', 'water']
@@ -28,7 +32,7 @@ export function toModelSummary(v, center = 50) {
 }
 
 /** 五形字典 → 核心偏失摘要，如 "木↓↓↓ · 土↓↓ · 水↑" */
-export function toCoreDeviation(v, center = 50, topN = 3) {
+export function toCoreDeviation(v, center = 20, topN = 3) {
   if (!v) return ''
   const labels = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
   const arr = ['wood', 'fire', 'earth', 'metal', 'water']
@@ -182,7 +186,7 @@ export const useVectorStore = defineStore('vector', {
             const v = h.v_obs || {}
             const delta = {}
             for (const dim of ['wood','fire','earth','metal','water']) {
-              const b = baseline[dim] ?? 50
+              const b = baseline[dim] ?? 20
               delta[dim] = Math.round(((v[dim] ?? b) - b) * 10) / 10
             }
             return { t: h.observed_at, delta }
@@ -197,7 +201,7 @@ export const useVectorStore = defineStore('vector', {
             .map((h, idx) => {
               const delta_f_calc = {}
               for (const dim of dims) {
-                const b = baseline[dim] ?? 50
+                const b = baseline[dim] ?? 20
                 delta_f_calc[dim] = +(((h.v_obs?.[dim] ?? b) - b) / b * 2).toFixed(2)
               }
               const date = h.observed_at?.slice(0, 10) || ''
@@ -277,11 +281,11 @@ export const useVectorStore = defineStore('vector', {
           elements = d.actual.map((p, i) => ({
             day: p.day ?? i + 1,
             t: p.t,
-            wood: p.v_obs?.wood ?? 50,
-            fire: p.v_obs?.fire ?? 50,
-            earth: p.v_obs?.earth ?? 50,
-            metal: p.v_obs?.metal ?? 50,
-            water: p.v_obs?.water ?? 50,
+            wood: p.v_obs?.wood ?? 20,
+            fire: p.v_obs?.fire ?? 20,
+            earth: p.v_obs?.earth ?? 20,
+            metal: p.v_obs?.metal ?? 20,
+            water: p.v_obs?.water ?? 20,
           }))
         }
         if (d && (d.actual?.length > 0 || elements.length > 0)) {
@@ -326,8 +330,8 @@ export const useVectorStore = defineStore('vector', {
         age: '',
       }
       this.casePatient = mockPatient
-      this.vBase = this.vBase || { wood: 50, fire: 50, earth: 50, metal: 50, water: 50 }
-      this.caseSEffectiveBaseline = { wood: 50, fire: 50, earth: 50, metal: 50, water: 50 }
+      this.vBase = this.vBase || { wood: 20, fire: 20, earth: 20, metal: 20, water: 20 }
+      this.caseSEffectiveBaseline = { wood: 20, fire: 20, earth: 20, metal: 20, water: 20 }
       this.casePathogenesis = [
         { level: 1, title: '等待初始化', desc: '请先完成体质建档问卷', s_vector: '—', s_shift: '—' },
       ]
