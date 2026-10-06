@@ -842,7 +842,7 @@ const send = async (text, voiceData = null) => {
     }
 
     const settings = storage.get('qingnang_settings', {}) || {}
-    let provider = settings.llm_provider || 'spum'
+    let provider = settings.llm_provider || undefined  // 不传 → 后端默认
 
     const chatPayload = { message: text || '', history, provider }
     if (voiceData) {

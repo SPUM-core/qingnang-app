@@ -255,7 +255,7 @@ function toggleNote(qid) {
 async function startSession() {
   loading.value = true
   try {
-    const provider = (storage.get('qingnang_settings', {}) || {}).llm_provider || 'spum'
+    const provider = (storage.get('qingnang_settings', {}) || {}).llm_provider || undefined  // 不传 → 后端默认
     const r = await api.post('/api/v1/assistant/inquiry/start', { provider })
     loadStage(r.data)
   } catch (e) {

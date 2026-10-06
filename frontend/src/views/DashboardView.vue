@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="page home">
     <!-- 问候头部 -->
     <div class="home-header">
@@ -1039,7 +1039,7 @@ async function _onBoard() {
   const _settings = storage.get('qingnang_settings', {}) || {}
   const _lsPayload = {
     city: _settings.city || null,
-    provider: _settings.llm_provider || 'spum',
+    provider: _settings.llm_provider || undefined,  // 不传 → 后端默认 auto(=deepseek)
   }
   lifestyleLoading.value = true
   lifestylePreview.value = ''
