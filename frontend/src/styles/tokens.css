@@ -59,6 +59,65 @@
   --qn-water-rgb: 2, 136, 209;
 
   /* ═══════════════════════════════════
+     Spec 对齐 Brand 色（UI-SPEC.md §3.1，WCAG 2.1 实测）
+     品牌绿梯度，替代 --qn-emerald 的单一值
+     ═══════════════════════════════════ */
+  --qn-brand-900: #0E3A34;   /* 深压绿，极少用 */
+  --qn-brand-800: #144842;   /* 主品牌，对白字 10.75:1，顶栏/强调填充 */
+  --qn-brand-700: #1D5A50;
+  --qn-brand-600: #2E6B60;   /* 5.93:1，正文内强调文字 */
+  --qn-brand-500: #3A7A6D;   /* 4.80:1，次级强调 */
+  --qn-brand-300: #9FB5AE;
+  --qn-brand-200: #C4D4CE;
+  --qn-brand-100: #DFE8E4;
+  --qn-brand-050: #F1F5F2;   /* 卡片底 hover */
+  --qn-brand:     var(--qn-brand-800);  /* 兼容别名 */
+  --qn-brand-rgb: 20, 72, 66;
+
+  /* ═══════════════════════════════════
+     Spec 对齐 Surface / Border / Text
+     ═══════════════════════════════════ */
+  --qn-surface-page:    #FAFAF7;   /* 页面暖白底，不变 */
+  --qn-surface-card:    #F1F5F2;   /* 卡片底（第二重边界） */
+  --qn-surface-inset:   #F5F5EE;   /* 总结区底 */
+  --qn-surface-footer:  #EFEDE6;   /* 页脚，提亮拉开分层 */
+  --qn-surface-bubble:  #E8E5DD;   /* 用户气泡底，不变 */
+
+  --qn-border-strong: #7E9A92;     /* ≥3:1 强描边 */
+  --qn-border-base:   #A8BDB6;     /* ≥3:1 卡片描边（原 #B5C9C4 仅 1.66:1） */
+  --qn-border-subtle: #D8E2DE;     /* 仅装饰，不承载信息 */
+
+  --qn-text-primary:   #33403B;    /* 10.37:1，正文不变 */
+  --qn-text-secondary: #5F6E68;    /* 5.13:1，元信息标准值（原 #8A9A94 仅 2.82:1） */
+  --qn-text-tertiary:  #8A9A94;    /* 2.82:1，仅装饰，禁止承载文本 */
+  --qn-text-on-brand:  #FFFFFF;
+
+  /* ═══════════════════════════════════
+     Spec 对齐 State 色（语义收窄）
+     ═══════════════════════════════════ */
+  --qn-danger:     #C0392B;         /* 仅错误/危险 */
+  --qn-danger-bg:  #FCEDEA;
+  --qn-warning:    #A8681C;
+  --qn-warning-bg: #F7F0E4;
+  --qn-success:    #2E6B60;
+  --qn-success-bg: #E8F1EE;
+
+  /* ═══════════════════════════════════
+     Spec 对齐 阴影 / 焦点环 / 触控
+     ═══════════════════════════════════ */
+  --qn-shadow-card: 0 1px 2px rgba(14,58,52,0.04), 0 1px 1px rgba(14,58,52,0.03);
+  --qn-divider: 1px solid var(--qn-border-subtle);
+  --qn-focus-ring: 0 0 0 2px var(--qn-surface-page), 0 0 0 4px var(--qn-brand-600);
+  --qn-touch-min: 44px;
+
+  /* ═══════════════════════════════════
+     Spec 对齐 圆角（3 档）
+     ═══════════════════════════════════ */
+  --qn-radius-sm:  6px;
+  --qn-radius-md:  10px;
+  --qn-radius-lg:  14px;
+
+  /* ═══════════════════════════════════
      趋势色（中式习惯：涨=朱砂，跌=靛蓝）
      ═══════════════════════════════════ */
   --qn-trend-up:   #D84315;

@@ -1285,18 +1285,18 @@ function showToast(text) {
   padding: 3px 8px 3px 0;
   background: none; border: none; cursor: pointer;
   font-size: calc(13px * var(--qn-fs-scale)); font-weight: 600;
-  color: var(--qn-ink); font-variant-numeric: tabular-nums;
+  color: var(--qn-text-primary); font-variant-numeric: tabular-nums;
   transition: color 0.15s;
 }
-.archive-switcher:hover { color: var(--qn-emerald); }
+.archive-switcher:hover { color: var(--qn-brand-600); }
 .archive-switcher:hover .as-chevron { transform: translateY(1px); }
 .as-name { font-weight: 600; }
-.as-age { font-weight: 400; color: var(--qn-ink-2); }
+.as-age { font-weight: 400; color: var(--qn-text-secondary); }
 .as-chevron { opacity: 0.5; transition: transform 0.15s; }
 .ctx-bar {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   padding: 8px 16px;
-  background: #FAFAF7; border-bottom: 1px solid #EDEAE2;
+  background: var(--qn-surface-footer); border-bottom: var(--qn-divider);
   font-size: calc(11px * var(--qn-fs-scale)); flex-shrink: 0;
 }
 .ctx-item { color: var(--qn-ink-2); font-weight: 500; }
@@ -1306,11 +1306,12 @@ function showToast(text) {
 /* 消息区 — DeepSeek 亮白风 */
 .msg-area {
   flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px;
-  background: #FAFAF7;  /* 亮白偏米，不刺眼 */
+  background: var(--qn-surface-page);
   scroll-behavior: smooth;
+  padding-bottom: var(--qn-s6);
 }
 .msg-area::-webkit-scrollbar { width: 4px; }
-.msg-area::-webkit-scrollbar-thumb { background: var(--qn-line); border-radius: 2px; }
+.msg-area::-webkit-scrollbar-thumb { background: var(--qn-border-subtle); border-radius: 2px; }
 
 /* 消息行 —— DeepSeek 平铺风格 */
 .msg-row { display: flex; gap: 14px; margin-bottom: 16px; align-items: flex-start; }
@@ -1322,51 +1323,51 @@ function showToast(text) {
   flex-shrink: 0;
   font-size: calc(13px * var(--qn-fs-scale));
 }
-.msg-row.ai .msg-avatar { background: linear-gradient(135deg, var(--qn-emerald), var(--qn-emerald-dark)); color: #fff; }
-.msg-row.user .msg-avatar { background: #E8E5DD; color: var(--qn-ink-3); }
+.msg-row.ai .msg-avatar { background: var(--qn-brand-800); color: var(--qn-text-on-brand); }
+.msg-row.user .msg-avatar { background: var(--qn-surface-bubble); color: var(--qn-text-tertiary); }
 
 /* DeepSeek 风格：扁平无边框无气泡 */
 .msg-bubble {
-  max-width: 100%; padding: 0; border-radius: 0;
-  font-size: calc(14.5px * var(--qn-fs-scale)); line-height: 1.75;
+  max-width: 34em; padding: 0; border-radius: 0;
+  font-size: calc(15px * var(--qn-fs-scale)); line-height: 1.85;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
 }
-.msg-row.ai .msg-bubble { color: var(--qn-ink); }
-.msg-row.user .msg-bubble { color: var(--qn-ink); text-align: right; }
+.msg-row.ai .msg-bubble { color: var(--qn-text-primary); }
+.msg-row.user .msg-bubble { color: var(--qn-text-primary); text-align: right; }
 
 /* 用户消息 — DeepSeek 右对齐灰色气泡 */
 .msg-row.user .msg-text {
   display: inline-block; text-align: left;  /* 文本内容保持左对齐，整体右对齐由父 flex 做 */
-  padding: 10px 14px; border-radius: 14px 14px 4px 14px;
-  background: #E8E5DD;  /* 浅烟灰 */
+  padding: 10px 14px; border-radius: var(--qn-radius-lg) var(--qn-radius-lg) var(--qn-radius-sm) var(--qn-radius-lg);
+  background: var(--qn-surface-bubble);
   margin-right: 2px;
 }
 .msg-row.user .msg-bubble { text-align: right; }
 .msg-row.user .msg-bubble > * { display: inline-block; }
 
 /* 语义分段样式 */
-.msg-text strong { color: var(--qn-emerald); font-weight: 600; }
-.msg-row.user .msg-text strong { color: var(--qn-ink); }
+.msg-text strong { color: var(--qn-brand-600); font-weight: 600; }
+.msg-row.user .msg-text strong { color: var(--qn-text-primary); }
 
 /* 小标题：【当前基线】等 — 只留左侧绿竖条 + 粗体（三重强调→单一强调） */
 .seg-heading {
-  margin: 16px 0 6px; padding: 4px 0 4px 10px;
-  border-left: 3px solid var(--qn-emerald);
-  font-size: calc(13px * var(--qn-fs-scale));
+  margin: 24px 0 8px; padding: 4px 0 4px 12px;
+  border-left: 2px solid var(--qn-brand-800);
+  font-size: calc(15px * var(--qn-fs-scale));
   font-weight: 600;
-  color: var(--qn-emerald);
-  letter-spacing: 0.3px;
+  line-height: 1.4;
+  color: var(--qn-brand-800);
 }
-/* 数据行：木:26 火:0 等 — 等宽字体 + 灰调 + 独立块 */
+.seg-heading:first-of-type { margin-top: 16px; }
 .seg-data {
   margin: 4px 0 8px; padding: 8px 12px;
-  background: rgba(var(--qn-emerald-rgb), 0.04);
-  border-radius: 6px;
+  background: var(--qn-brand-050);
+  border-radius: var(--qn-radius-sm);
   font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
   font-size: calc(12.5px * var(--qn-fs-scale));
-  color: var(--qn-ink-2);
+  color: var(--qn-text-secondary);
   letter-spacing: 0.5px;
 }
 .msg-row.user .seg-heading, .msg-row.user .seg-data { display: inline-block; }
@@ -1495,9 +1496,9 @@ function showToast(text) {
 }
 .msg-row.user .msg-footnote { display: none; }
 
-/* 时间戳：统一在 msg-row 右下侧（不再在 msg-bubble 内部） */
+/* 时间戳 — Spec 对齐 */
 .msg-time {
-  font-size: calc(10px * var(--qn-fs-scale)); color: #B0ACA0;
+  font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-text-secondary);
   align-self: flex-end; margin-left: 4px; flex-shrink: 0;
 }
 .msg-row.user .msg-time { margin-left: 0; margin-right: 4px; }
@@ -1509,51 +1510,66 @@ function showToast(text) {
 .msg-row.ai:hover .msg-actions { display: flex; }
 .msg-act-btn {
   display: inline-flex; align-items: center; gap: 3px;
-  font-size: calc(10.5px * var(--qn-fs-scale)); padding: 2px 6px;
-  background: none; border: 1px solid #EDEAE2; border-radius: 10px;
-  color: var(--qn-ink-3); cursor: pointer;
-  transition: all 0.15s;
+  font-size: calc(13px * var(--qn-fs-scale)); padding: 0;
+  background: none; border: none;
+  color: var(--qn-text-secondary); cursor: pointer;
+  transition: color 0.15s;
+  min-height: 32px;
 }
-.msg-act-btn:hover {
-  border-color: var(--qn-emerald); color: var(--qn-emerald); background: rgba(var(--qn-emerald-rgb),0.06);
-}
+.msg-act-btn:hover { color: var(--qn-brand-600); }
 
-/* 输入区 — 跟亮白消息区协调 */
+/* 输入区 — Spec 对齐 */
 .input-area {
   display: flex; align-items: flex-end; gap: 8px;
-  padding: 12px 14px; background: #FFFFFF;
-  border-top: 1px solid #EDEAE2;
+  padding: 12px 14px; background: var(--qn-surface-card);
+  border-top: var(--qn-divider);
   flex-shrink: 0;
 }
 .input-area textarea {
-  flex: 1; resize: none; border: 1px solid #EDEAE2; border-radius: 20px;
-  padding: 9px 16px; font-size: calc(13px * var(--qn-fs-scale)); font-family: inherit;
-  background: #FAFAF7; color: var(--qn-ink);
+  flex: 1; resize: none; border: 1px solid var(--qn-border-input); border-radius: var(--qn-radius-md);
+  padding: 9px 16px; font-size: calc(14px * var(--qn-fs-scale)); font-family: inherit;
+  background: var(--qn-surface-page); color: var(--qn-text-primary);
   max-height: 120px; line-height: 1.5; outline: none;
   transition: border-color 0.15s, background 0.15s;
 }
-.input-area textarea:focus { border-color: var(--qn-emerald); background: #FFFFFF; }
+.input-area textarea:focus { border-color: var(--qn-brand-600); background: var(--qn-surface-page); }
+/* 发送按钮 — Spec 对齐
+   禁用态：描边式（transparent + border），不用 opacity 叠加
+   可用态：品牌深绿 + 白图标 10.75:1 */
 .send-btn {
-  width: 36px; height: 36px; border-radius: 50%;
-  background: var(--qn-emerald); border: none; color: #fff;
+  width: var(--qn-touch-min); height: var(--qn-touch-min); border-radius: 50%;
+  background: var(--qn-brand-800); border: 1px solid var(--qn-brand-800); color: var(--qn-text-on-brand);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; flex-shrink: 0; transition: all 0.15s;
+  opacity: 1;
 }
-.send-btn:hover:not(:disabled) { background: var(--qn-emerald-light); transform: scale(1.05); }
-.send-btn:disabled { background: #CBD5E0; cursor: not-allowed; opacity: 1; }
+.send-btn:hover:not(:disabled) { background: var(--qn-brand-700); transform: scale(1.05); }
+.send-btn:disabled {
+  background: transparent;
+  border: 1px solid var(--qn-border-base);
+  color: var(--qn-text-tertiary);
+  opacity: 1;
+  cursor: not-allowed;
+}
 
-/* 🎤 语音按钮 — 降权（更小、无边框、淡灰） */
+/* 麦克风 — Spec C-05 降权 */
 .voice-btn {
-  width: 30px; height: 30px; flex-shrink: 0;
-  background: transparent; border: none;
-  border-radius: 50%; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  color: #B0ACA0; transition: all 0.15s;
+  width: var(--qn-touch-min); height: var(--qn-touch-min); flex-shrink: 0;
+  background: none; border: none;
+  border-radius: 50%; cursor: pointer; position: relative;
+  display: grid; place-items: center;
+  color: var(--qn-text-tertiary); transition: all 0.15s;
 }
-.voice-btn:hover:not(:disabled) { color: var(--qn-emerald); background: rgba(var(--qn-emerald-rgb),0.06); }
-.voice-btn.recording { background: #d33; color: #fff; animation: pulse-rec 1.2s ease-in-out infinite; }
+.voice-btn:hover:not(:disabled) { color: var(--qn-brand-600); background: var(--qn-brand-050); }
+.voice-btn.recording { background: var(--qn-danger); color: #fff; animation: pulse-rec 1.2s ease-in-out infinite; }
 @keyframes pulse-rec { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 .voice-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* 焦点环 — Spec A-01 */
+:where(.archive-switcher, .msg-act-btn, .chip-btn, .sugg-btn, .action-btn, .send-btn, .voice-btn):focus-visible {
+  outline: none;
+  box-shadow: var(--qn-focus-ring);
+}
 
 /* 录音状态条 */
 .recording-bar {
@@ -1569,16 +1585,16 @@ function showToast(text) {
 
 .input-hint {
   margin: 0; padding: 4px 16px 0;
-  font-size: calc(10px * var(--qn-fs-scale)); color: #B0ACA0; text-align: center;
+  font-size: var(--qn-font-xs); color: var(--qn-text-secondary); text-align: right;
   line-height: 1.3;
 }
 .disclaimer {
-  margin: 0; padding: 6px 16px;
-  background: #FAFAF7;  /* 跟 msg-area 一致的亮白 */
-  border-top: 1px solid #EDEAE2;
-  font-size: calc(10.5px * var(--qn-fs-scale)); color: #8A9A94; text-align: center;
+  margin: 0; padding: 8px 16px;
+  background: var(--qn-surface-footer);   /* #EFEDE6 提亮，拉开与页面分层 */
+  border-top: var(--qn-divider);
+  font-size: var(--qn-font-xs); color: var(--qn-text-secondary); text-align: center;
   flex-shrink: 0; line-height: 1.4;
-  position: relative; z-index: 1;
+  position: static; z-index: 1;
 }
 
 /* 注：旧的 520px media query 已合并入上面 720px 规则 —— 手机端抽屉始终全屏铺满 */
