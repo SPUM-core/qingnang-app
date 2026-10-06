@@ -140,13 +140,16 @@ if settings.APP_ENV == "development":
         expose_headers=["Authorization"],
     )
 else:
-    # 生产：严格白名单
+    # 生产：前端从 file://（App）或独立域名发起请求 → 通配符放行
+    # 注意：allow_credentials=True 时 Starlette 禁止 allow_origins=["*"]，
+    # 青囊用 Authorization header 带 JWT，不靠 cookie，credentials=False 安全
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
-        allow_credentials=True,
+        allow_origins=["*"],
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["Authorization"],
     )
 
 

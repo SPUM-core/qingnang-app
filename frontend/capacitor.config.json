@@ -1,0 +1,13 @@
+{
+  "appId": "com.qingnang.app",
+  "appName": "青囊",
+  "webDir": "dist",
+  "server": {
+    "allowNavigation": [
+      "*"
+    ]
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}
