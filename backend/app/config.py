@@ -51,5 +51,3 @@ def resolve_default_provider() -> str:
     if settings.DEEPSEEK_API_KEY:
         return "deepseek"
     return "spum"
-
-settings.DEFAULT_PROVIDER_RESOLVED = resolve_default_provider()
