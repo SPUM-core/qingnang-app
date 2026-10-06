@@ -1,0 +1,237 @@
+/* ═══════════════════════════════════════════════════════════════
+   src/styles/base.css —— 全局基础样式 + 原子类
+   
+   内容来源：从 App.vue <style> 中迁移而来，统一引用 --qn-* 变量
+   职责：
+     1. Reset + 全局排版（body / .page / .page h1 / .page__desc）
+     2. 防弹规则（flex 子项允许 shrink / 文本强制换行）
+     3. 原子类：.btn / .btn--primary / .btn--ghost / .btn--danger /
+                .card / .card--outline / .card--hover /
+                .tag--ok / .tag--warn / .tag--bad / .tag
+     4. 焦点环 :focus-visible
+     5. 返回链接 .back-link
+   
+   引入位置：main.js 第二行（tokens.css 之后）
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────
+   1. Reset + 全局基础
+   ───────────────────────────── */
+*,
+*::before,
+*::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { height: 100%; }
+
+body, #app { min-height: 100%; }
+
+/* ⚠️ overflow-x 只加在 body 上，且必须用 clip 而非 hidden
+   ────────────────────────────────────────────────────────
+   背景（2026-10-06 修复「页脚跑到导航栏上方」）：
+   原规则是 `body, .app-shell { overflow-x: hidden }`。
+   错误原因：`.app-shell` 上的 `overflow-x: hidden` 会让它成为
+   **滚动容器**，于是 `.layout__header` 的 `position: sticky; top: 0`
+   改为相对 `.app-shell` 定位，而后者并不滚动 → sticky 静默失效 →
+   页面滚动时导航栏随内容一起上移，最终被挤到页脚之后。
+
+   为什么用 clip 而不是 hidden：
+   - `overflow: hidden` 会创建滚动容器（sticky 的包含块随之改变）
+   - `overflow: clip` 同样能裁剪溢出，但**不创建滚动容器**
+     → sticky 继续相对视口定位，导航栏吸顶行为恢复正常
+   - 兼容性：Chrome 90+ / Edge 90+ / Firefox 81+ / Safari 16+
+     （Safari 16 以下回退到 visible，行为= 不裁剪，可接受）
+
+   保留 body 上的 overflow-x: clip：用于抑制横向溢出条，
+   且因html 未设 height，不会把 body 变成滚动容器。 */
+body { overflow-x: clip; }
+.app-shell { max-width: 100vw; }
+
+img, svg { max-width: 100%; height: auto; }
+
+/* 全局长文本强制换行（防弹） */
+.page, .card, .rem-card, .kb-card, .notice, .timeline, .today-card {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* flex 容器内的子项允许收缩（经典 flex 撑爆 bug 修复） */
+.page > *,
+.card > *,
+.card-grid > *,
+.kb-grid > *,
+.timeline > * { min-width: 0; }
+
+.card-grid, .kb-grid, .timeline { width: 100%; max-width: 100%; }
+
+body {
+  font-family: var(--qn-font-body);
+  background: var(--qn-bg-light);
+  color: var(--qn-ink);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  /* 拓扑网格纹理 — 调淡（去油腻） */
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(26, 77, 69, .025) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+/* 暗色模式纹理反转 */
+html[data-theme="dark"] body {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(255,255,255, .04) 1px, transparent 0);
+}
+
+/* ─────────────────────────────
+   2. 全局排版
+   ───────────────────────────── */
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px var(--qn-page-x) 96px;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.page h1 {
+  font-family: var(--qn-font-title);
+  color: var(--qn-emerald);
+  font-size: calc(22px * var(--qn-fs-scale));
+  margin-bottom: 4px;
+  letter-spacing: 1px;
+  font-weight: 600;
+}
+
+.page__desc {
+  color: var(--qn-ink-3);
+  font-size: calc(13px * var(--qn-fs-scale));
+  margin-bottom: var(--qn-s4);
+}
+
+/* ─────────────────────────────
+   3. 原子类：按钮（UI Kit：高 56 圆角 28 全胶囊）
+   ───────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;              /* WCAG 最小可点区域 */
+  padding: 0 var(--qn-s5);
+  border: none;
+  border-radius: var(--qn-r-pill);
+  font-family: var(--qn-font-body);
+  font-size: calc(15px * var(--qn-fs-scale));
+  font-weight: 500;
+  letter-spacing: .5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--qn-dur) var(--qn-ease),
+              transform var(--qn-dur) var(--qn-ease);
+}
+
+.btn:active { transform: scale(.97); }  /* 触摸反馈 */
+
+.btn--primary {
+  background: var(--qn-emerald);
+  color: var(--qn-bg-light);
+}
+.btn--primary:hover { background: var(--qn-emerald-light); }
+
+.btn--ghost {
+  background: none;
+  color: var(--qn-emerald);
+  box-shadow: inset 0 0 0 1px var(--qn-emerald-light);
+}
+
+.btn--danger {
+  background: var(--qn-bad-bg);
+  color: var(--qn-fire);
+  box-shadow: inset 0 0 0 1px var(--qn-bad-bd);
+}
+
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ─────────────────────────────
+   4. 原子类：卡片（UI Kit：圆角 16 + 45% 松烟绿描边）
+   ───────────────────────────── */
+.card {
+  background: var(--qn-surface);
+  border-radius: var(--qn-r-lg);
+  padding: var(--qn-s4);
+  box-shadow: var(--qn-shadow-1);
+  transition: box-shadow var(--qn-dur) var(--qn-ease);
+}
+
+.card--outline {
+  box-shadow: inset 0 0 0 1px rgba(46, 125, 106, .45);
+}
+
+.card--hover:hover { box-shadow: var(--qn-shadow-2); }
+
+/* ─────────────────────────────
+   5. 原子类：状态标签
+   ───────────────────────────── */
+.tag {
+  display: inline-block;
+  padding: 2px var(--qn-s2);
+  border-radius: var(--qn-r-sm);
+  font-size: calc(12px * var(--qn-fs-scale));
+  font-weight: 500;
+}
+
+.tag--ok {
+  background: var(--qn-ok-bg);
+  box-shadow: inset 0 0 0 1px var(--qn-ok-bd);
+  color: var(--qn-wood);
+}
+
+.tag--warn {
+  background: var(--qn-warn-bg);
+  box-shadow: inset 0 0 0 1px var(--qn-warn-bd);
+  color: var(--qn-earth);
+}
+
+.tag--bad {
+  background: var(--qn-bad-bg);
+  box-shadow: inset 0 0 0 1px var(--qn-bad-bd);
+  color: var(--qn-fire);
+}
+
+/* ─────────────────────────────
+   6. 返回链接
+   ───────────────────────────── */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;              /* a11y 触控目标 44px */
+  font-size: calc(14px * var(--qn-fs-scale));
+  color: var(--qn-cinnabar);
+  text-decoration: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 4px 8px 4px 0;
+  border-radius: 6px;
+  transition: all .15s;
+  font-weight: 500;
+}
+
+/* ─────────────────────────────
+   7. 焦点可见（键盘用户必须能看到焦点环）
+   ───────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--qn-emerald-light);
+  outline-offset: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   🚧 断点约定（新增媒体查询必须用这四个之一）
+   
+   @media (min-width: var(--qn-bp-sm)) { }   → 480px
+   @media (min-width: var(--qn-bp-md)) { }   → 720px  （LayoutShell 已在用的切换点）
+   @media (min-width: var(--qn-bp-lg)) { }   → 1024px
+   @media (min-width: var(--qn-bp-xl)) { }   → 1280px
+   
+   ⚠️ CSS 变量不能直接写在 @media 的 min-width 里（浏览器不支持）。
+   实际写值，但语义必须对齐 --qn-bp-* 定义。
+   ═══════════════════════════════════════════════════════════════ */

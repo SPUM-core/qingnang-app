@@ -14,6 +14,8 @@ backend/env/
 backend/.env
 backend/.env.local
 backend/alembic/versions/*.pyc
+backend/*.db
+backend/data/
 
 # ── IDE ──
 .vscode/

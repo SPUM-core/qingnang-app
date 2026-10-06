@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="page discover">
     <!-- 顶部双 Tab -->
     <div class="discover-tabs">
@@ -56,21 +56,21 @@ watch(() => route.query.tab, (t) => {
 <style scoped>
 .discover-tabs {
   display: flex; gap: 0; margin: 0 16px 8px;
-  background: #fff; border: 1px solid var(--ink-line); border-radius: 12px;
+  background: var(--qn-surface); border: 1px solid var(--qn-line); border-radius: 12px;
   overflow: hidden;
 }
 .dtab {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
   padding: 10px 16px; border: none; background: transparent;
-  color: var(--ink-tertiary); font-size: 13px; font-weight: 500;
+  color: var(--qn-ink-3); font-size: calc(13px * var(--qn-fs-scale)); font-weight: 500;
   cursor: pointer; transition: all 0.2s;
   letter-spacing: 1px;
   -webkit-tap-highlight-color: transparent;
 }
-.dtab:hover { color: var(--qingnang-emerald); background: rgba(26,77,69,0.04); }
+.dtab:hover { color: var(--qn-emerald); background: rgba(var(--qn-emerald-rgb),0.04); }
 .dtab.active {
   color: #fff;
-  background: linear-gradient(135deg, var(--qingnang-emerald) 0%, var(--qingnang-emerald-dark) 100%);
+  background: linear-gradient(135deg, var(--qn-emerald) 0%, var(--qn-emerald-dark) 100%);
   font-weight: 600;
 }
 

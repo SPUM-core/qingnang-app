@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="layout">
     <!-- ═══ 顶部 Header（仅桌面端） ═══ -->
     <header class="layout__header">
@@ -6,7 +6,7 @@
 
       <!-- 桌面端品牌 Logo -->
       <RouterLink to="/" class="layout__brand">
-        <img src="/assets/logo/icon-light.png" alt="" class="brand-icon" />
+        <img src="/assets/logo/icon-light.png" alt="" role="presentation" class="brand-icon" />
         <img src="/assets/logo/wordmark-light-70.png" alt="青囊" class="brand-wordmark" />
       </RouterLink>
 
@@ -19,10 +19,10 @@
 
       <!-- 右侧操作区 -->
       <div class="layout__actions">
-        <RouterLink to="/notifications" class="action-bell" title="提醒通知">
+        <RouterLink to="/notifications" class="action-bell" title="提醒通知" aria-label="提醒通知">
           <QIcon name="bell" :size="19" />
         </RouterLink>
-        <RouterLink to="/settings" class="action-me" title="我的">
+        <RouterLink to="/settings" class="action-me" title="我的" aria-label="个人设置">
           <span class="me-avatar"><QIcon name="user" :size="15" /></span>
           <span class="me-text">我的</span>
         </RouterLink>
@@ -81,9 +81,9 @@ const mobileNavs = [
 /* Header */
 .layout__header {
   display: flex; align-items: center; gap: 24px; padding: 0 24px; height: 60px;
-  background: linear-gradient(135deg, var(--qingnang-emerald) 0%, var(--qingnang-emerald-dark) 100%);
+  background: linear-gradient(135deg, var(--qn-emerald) 0%, var(--qn-emerald-dark) 100%);
   color: #fff; position: sticky; top: 0; z-index: 100;
-  box-shadow: 0 2px 8px rgba(26, 77, 69, 0.2); overflow: hidden;
+  box-shadow: 0 2px 8px rgba(var(--qn-emerald-rgb), 0.2); overflow: hidden;
 }
 .meridian-glow { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
 
@@ -101,7 +101,7 @@ const mobileNavs = [
   display: flex; gap: 2px; z-index: 2;
 }
 .layout__nav a {
-  color: rgba(255,255,255,0.72); text-decoration: none; font-size: 15px;
+  color: rgba(255,255,255,0.72); text-decoration: none; font-size: calc(15px * var(--qn-fs-scale));
   padding: 7px 18px; border-radius: 20px; transition: all 0.2s;
   letter-spacing: 2px; display: inline-flex; align-items: center; font-weight: 400;
 }
@@ -113,18 +113,19 @@ const mobileNavs = [
 
 /* 右侧操作区 */
 .layout__actions { display: flex; align-items: center; gap: 16px; z-index: 2; margin-left: auto; padding-left: 8px; }
-.action-bell { color: rgba(255,255,255,0.8); display: inline-flex; transition: color 0.2s; }
+.action-bell { color: rgba(255,255,255,0.8); display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; transition: color 0.2s; }
 .action-bell:hover { color: #fff; }
 .action-me {
   display: inline-flex; align-items: center; gap: 7px;
-  color: rgba(255,255,255,0.85); text-decoration: none; font-size: 14px; transition: color 0.2s;
+  min-height: 44px;  /* a11y 触控目标 */
+  color: rgba(255,255,255,0.85); text-decoration: none; font-size: calc(14px * var(--qn-fs-scale)); transition: color 0.2s;
 }
 .action-me:hover { color: #fff; }
 .me-avatar {
   width: 28px; height: 28px; border-radius: 50%;
-  background: var(--qingnang-emerald-light);
+  background: var(--qn-emerald-light);
   display: inline-flex; align-items: center; justify-content: center;
-  color: var(--qingnang-paper);
+  color: var(--qn-paper);
 }
 
 .layout__main { flex: 1; padding: 0; max-width: 100%; }
@@ -132,18 +133,18 @@ const mobileNavs = [
 /* Footer */
 .layout__footer {
   position: relative; padding: 24px 20px 16px; text-align: center;
-  background: linear-gradient(180deg, var(--qingnang-paper) 0%, var(--qingnang-paper-deep) 100%);
-  border-top: 1px solid var(--ink-line); overflow: hidden;
+  background: linear-gradient(180deg, var(--qn-paper) 0%, var(--qingnang-paper-deep) 100%);
+  border-top: 1px solid var(--qn-line); overflow: hidden;
 }
 .footer-topology {
   position: absolute; top: 0; left: 50%; transform: translateX(-50%);
   width: 400px; height: 2px;
   background:
-    repeating-linear-gradient(90deg, var(--qingnang-emerald) 0, var(--qingnang-emerald) 2px, transparent 2px, transparent 24px),
-    linear-gradient(90deg, transparent, var(--qingnang-emerald) 50%, transparent);
+    repeating-linear-gradient(90deg, var(--qn-emerald) 0, var(--qn-emerald) 2px, transparent 2px, transparent 24px),
+    linear-gradient(90deg, transparent, var(--qn-emerald) 50%, transparent);
   opacity: 0.2;
 }
-.footer-sub { font-size: 12px; color: var(--ink-tertiary); letter-spacing: 2px; }
+.footer-sub { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); letter-spacing: 2px; }
 
 /* 移动端 Tab Bar — 桌面端默认隐藏 */
 .mobile-tabbar { display: none; }
@@ -159,12 +160,12 @@ const mobileNavs = [
     overflow-x: auto; scrollbar-width: none; flex-shrink: 1;
   }
   .layout__nav::-webkit-scrollbar { display: none; }
-  .layout__nav a { padding: 6px 10px; font-size: 13px; white-space: nowrap; letter-spacing: 1px; }
+  .layout__nav a { padding: 6px 10px; font-size: calc(13px * var(--qn-fs-scale)); white-space: nowrap; letter-spacing: 1px; }
   .layout__actions { gap: 10px; padding-left: 0; }
-  .action-me { font-size: 13px; }
+  .action-me { font-size: calc(13px * var(--qn-fs-scale)); }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1024px) {
   .me-text { display: none; }
   .action-me { font-size: 0; gap: 0; }
   .me-avatar { width: 30px; height: 30px; }
@@ -195,7 +196,7 @@ const mobileNavs = [
     display: flex; position: fixed; bottom: 0; left: 0; right: 0;
     height: calc(64px + env(safe-area-inset-bottom));
     padding-bottom: env(safe-area-inset-bottom);
-    background: #fff;
+    background: var(--qn-surface);
     border-top: 1px solid var(--ink-line, #E8E4DA);
     box-shadow: 0 -2px 10px rgba(0,0,0,0.06);
     z-index: 200;
@@ -211,21 +212,21 @@ const mobileNavs = [
   }
   .tab-item:active:not(.tab-icon-only) { transform: scale(0.96); }
   .tab-item :deep(.q-icon) { transition: transform 0.2s; }
-  .tab-label { font-size: 10px; letter-spacing: 0.5px; font-weight: 400; }
+  .tab-label { font-size: calc(10px * var(--qn-fs-scale)); letter-spacing: 0.5px; font-weight: 400; }
 
   /* Active 态 */
   .tab-item.tab-active {
-    color: var(--qingnang-emerald, #1A4D45);
+    color: var(--qingnang-emerald, var(--qn-emerald));
   }
   .tab-item.tab-active :deep(.q-icon) {
     transform: translateY(-2px);
   }
 }
 
-/* 极窄屏再压一下 */
-@media (max-width: 420px) {
-  .tab-label { font-size: 9px; letter-spacing: 0; }
+/* 极窄屏再压一下 — 归并到 480px 档位（原 420px） */
+@media (max-width: 480px) {
+  .tab-label { font-size: calc(9px * var(--qn-fs-scale)); letter-spacing: 0; }
   .mobile-tabbar { height: calc(60px + env(safe-area-inset-bottom)); }
-  .tab-item :deep(.q-icon) { font-size: 20px !important; }
+  .tab-item :deep(.q-icon) { font-size: calc(20px * var(--qn-fs-scale)) !important; }
 }
 </style>

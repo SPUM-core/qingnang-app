@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
+import datetime
 
 from ...database import get_db
 from ...models import User
@@ -110,7 +111,24 @@ def me(current: User = Depends(get_current_user)):
         "is_doctor": current.is_doctor,
         "is_onboarded": current.is_onboarded,
         "v_base": current.v_base,
+        "guides_seen": current.guides_seen or {},   # ⭐ 引导完成标记（后端持久化）
     }
+
+
+class GuidesSeenPatch(BaseModel):
+    """前端引导完成时调用 —— 把 storageKey 写入后端"""
+    key: str              # storageKey 如 "guide_home_completed"
+    value: int | None = None  # 时间戳，不传则用现在
+
+
+@router.patch("/me/guides-seen")
+def patch_guides_seen(body: GuidesSeenPatch, db: Session = Depends(get_db), current: User = Depends(get_current_user)):
+    """前端引导完成时上报 —— 后端持久化，换浏览器也不重弹"""
+    seen = dict(current.guides_seen or {})
+    seen[body.key] = body.value or int(datetime.datetime.utcnow().timestamp() * 1000)
+    current.guides_seen = seen
+    db.commit()
+    return {"ok": True, "guides_seen": seen}
 
 
 class MePatch(BaseModel):

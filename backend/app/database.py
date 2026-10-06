@@ -12,7 +12,7 @@ engine = create_engine(
     settings.DATABASE_URL,
     connect_args=connect_args,
     future=True,
-    pool_pre_ping=True,  # PG 连接池自动探活
+    pool_pre_ping=not settings.DATABASE_URL.startswith("sqlite"),  # SQLite 无连接池
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="page reminders">
     <!-- 顶部：今日时空摘要 -->
     <div class="today-card">
@@ -55,7 +55,7 @@
     <div v-else-if="activeCat === 'food'" class="card-grid">
       <article class="rem-card rem-good" v-for="r in foodGood" :key="'g-' + r.id">
         <div class="rem-head">
-          <span class="rem-icon" :style="{ background: '#1A4D45' }">✅</span>
+          <span class="rem-icon" :style="{ background: 'var(--qn-emerald)' }">✅</span>
           <div class="rem-level pri-ok">宜</div>
         </div>
         <h3>{{ r.title }}</h3>
@@ -64,7 +64,7 @@
       </article>
       <article class="rem-card rem-bad" v-for="r in foodBad" :key="'b-' + r.id">
         <div class="rem-head">
-          <span class="rem-icon" :style="{ background: '#D84315' }">⚠️</span>
+          <span class="rem-icon" :style="{ background: 'var(--qn-fire)' }">⚠️</span>
           <div class="rem-level pri-warn">忌</div>
         </div>
         <h3>{{ r.title }}</h3>
@@ -116,7 +116,7 @@
     <div v-else-if="activeCat === 'avoid'" class="card-grid">
       <article class="rem-card rem-absolute" v-for="r in absoluteAvoid" :key="r.id">
         <div class="rem-head">
-          <span class="rem-icon" style="background: #D84315">❌</span>
+          <span class="rem-icon" style="background: var(--qn-fire)">❌</span>
           <div class="rem-level pri-danger">绝对禁忌</div>
         </div>
         <h3>{{ r.title }}</h3>
@@ -125,7 +125,7 @@
       </article>
       <article class="rem-card" v-for="r in relativeAvoid" :key="r.id">
         <div class="rem-head">
-          <span class="rem-icon" style="background: #D4A017">⚠️</span>
+          <span class="rem-icon" style="background: var(--qn-earth)">⚠️</span>
           <div class="rem-level pri-warn">慎用</div>
         </div>
         <h3>{{ r.title }}</h3>
@@ -134,7 +134,7 @@
       </article>
       <article class="rem-card rem-stones" v-for="r in stoneReminders" :key="r.id">
         <div class="rem-head">
-          <span class="rem-icon" style="background: #90A4AE">💎</span>
+          <span class="rem-icon" style="background: var(--qn-metal)">💎</span>
           <div class="rem-level pri-warn">矿物避忌</div>
         </div>
         <h3>{{ r.title }}</h3>
@@ -209,17 +209,17 @@ onMounted(async () => {
     const d = r.data || {}
     // 顶部时空锚点
     if (d.anchor) Object.assign(today.value, d.anchor)
-    if (d.cloth_good)  clothReminders.value = d.cloth_good.map((r, i) => ({ id: 'cg'+i, icon: '👕', iconBg: '#43A047', level: 'ok', levelLabel: '宜', ...r }))
-    if (d.cloth_bad)   clothReminders.value.push(...d.cloth_bad.map((r, i) => ({ id: 'cb'+i, icon: '🧥', iconBg: '#1A4D45', level: 'bad', levelLabel: '忌', ...r })))
+    if (d.cloth_good)  clothReminders.value = d.cloth_good.map((r, i) => ({ id: 'cg'+i, icon: '👕', iconBg: 'var(--qn-wood)', level: 'ok', levelLabel: '宜', ...r }))
+    if (d.cloth_bad)   clothReminders.value.push(...d.cloth_bad.map((r, i) => ({ id: 'cb'+i, icon: '🧥', iconBg: 'var(--qn-emerald)', level: 'bad', levelLabel: '忌', ...r })))
     if (d.food_good)   foodGood.value = d.food_good.map((r, i) => ({ id: 'fg'+i, ...r }))
     if (d.food_bad)    foodBad.value = d.food_bad.map((r, i) => ({ id: 'fb'+i, ...r }))
-    if (d.home)        homeReminders.value = d.home.map((r, i) => ({ id: 'h'+i, icon: '🏠', iconBg: '#1A4D45', steps: [], ...r }))
+    if (d.home)        homeReminders.value = d.home.map((r, i) => ({ id: 'h'+i, icon: '🏠', iconBg: 'var(--qn-emerald)', steps: [], ...r }))
     if (d.absolute_avoid)  absoluteAvoid.value = d.absolute_avoid.map((r, i) => ({ id: 'aa'+i, ...r }))
     if (d.relative_avoid)  relativeAvoid.value = d.relative_avoid.map((r, i) => ({ id: 'ra'+i, ...r }))
     if (d.stone)       stoneReminders.value = d.stone.map((r, i) => ({ id: 's'+i, ...r }))
     if (d.timeline)    todayTimeline.value = d.timeline
     if (d.travel)      travelReminders.value = d.travel.map((r, i) => ({ id: 't'+i, ...r }))
-    if (d.solutions)   solutions.value = d.solutions.map((r, i) => ({ id: 'sol'+i, icon: '💡', iconBg: '#D4A017', steps: [], ...r }))
+    if (d.solutions)   solutions.value = d.solutions.map((r, i) => ({ id: 'sol'+i, icon: '💡', iconBg: 'var(--qn-earth)', steps: [], ...r }))
   } catch (e) {
     console.warn('[Notifications] 拉取失败，使用空态:', e.message)
   } finally {
@@ -244,103 +244,103 @@ const categories = computed(() => [
 
 /* 今日时空卡片 */
 .today-card {
-  background: linear-gradient(135deg, rgba(26,77,69,0.06), rgba(212,160,23,0.05));
-  border: 1px solid rgba(26,77,69,0.15); border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(var(--qn-emerald-rgb),0.06), rgba(212,160,23,0.05));
+  border: 1px solid rgba(var(--qn-emerald-rgb),0.15); border-radius: var(--qn-r-lg);
   padding: 16px 20px; margin-bottom: 18px;
 }
 .today-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 10px; }
 .tg-cell { text-align: center; }
-.tg-label { display: block; font-size: 11px; color: var(--ink-tertiary); font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 4px; }
-.tg-val { font-size: 14px; font-weight: 600; color: var(--qingnang-emerald); font-family: var(--font-mono); }
+.tg-label { display: block; font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 4px; }
+.tg-val { font-size: calc(14px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-emerald); font-family: var(--font-mono); }
 .tg-warn { color: var(--wuxing-fire); }
-.today-note { font-size: 12px; color: var(--ink-secondary); margin: 0; padding-top: 10px; border-top: 1px dashed rgba(26,77,69,0.15); }
+.today-note { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); margin: 0; padding-top: 10px; border-top: 1px dashed rgba(var(--qn-emerald-rgb),0.15); }
 .today-note .good { color: var(--wuxing-wood); font-weight: 600; }
 .today-note .bad { color: var(--wuxing-fire); font-weight: 600; }
 
 /* Tab */
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
 .tab-btn {
-  font-size: 13px; padding: 7px 16px; border-radius: 20px;
-  border: 1px solid var(--ink-line); background: #fff; color: var(--ink-secondary);
+  font-size: calc(13px * var(--qn-fs-scale)); padding: 7px 16px; border-radius: 20px;
+  border: 1px solid var(--qn-line); background: var(--qn-surface); color: var(--qn-ink-2);
   cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 6px;
 }
-.tab-btn:hover { border-color: var(--qingnang-emerald); color: var(--qingnang-emerald); }
-.tab-btn.active { background: var(--qingnang-emerald); border-color: var(--qingnang-emerald); color: #fff; }
-.tab-count { background: var(--qingnang-paper); color: var(--ink-tertiary); padding: 0 6px; border-radius: 10px; font-size: 11px; }
+.tab-btn:hover { border-color: var(--qn-emerald); color: var(--qn-emerald); }
+.tab-btn.active { background: var(--qn-emerald); border-color: var(--qn-emerald); color: #fff; }
+.tab-count { background: var(--qn-paper); color: var(--qn-ink-3); padding: 0 6px; border-radius: 10px; font-size: calc(11px * var(--qn-fs-scale)); }
 .tab-btn.active .tab-count { background: rgba(255,255,255,0.2); color: #fff; }
 
 /* 卡片网格 */
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
 
 .rem-card {
-  background: #fff; border: 1px solid var(--ink-line); border-radius: var(--radius-md);
+  background: var(--qn-surface); border: 1px solid var(--qn-line); border-radius: var(--qn-r-lg);
   padding: 16px 18px; transition: all 0.15s; display: flex; flex-direction: column;
 }
-.rem-card:hover { box-shadow: var(--shadow-card-hover); border-color: rgba(26,77,69,0.2); }
+.rem-card:hover { box-shadow: var(--qn-shadow-2); border-color: rgba(var(--qn-emerald-rgb),0.2); }
 .rem-card.rem-urgent { border-left: 3px solid var(--wuxing-fire); }
 .rem-card.rem-good { border-left: 3px solid var(--wuxing-wood); }
 .rem-card.rem-bad { border-left: 3px solid var(--wuxing-fire); }
-.rem-card.rem-absolute { border-left: 4px solid var(--wuxing-fire); background: linear-gradient(135deg, #fff, rgba(216,67,21,0.02)); }
+.rem-card.rem-absolute { border-left: 4px solid var(--wuxing-fire); background: linear-gradient(135deg, var(--qn-surface), rgba(216,67,21,0.02)); }
 .rem-card.rem-stones { border-left: 3px solid var(--wuxing-metal); }
 
 .rem-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .rem-icon {
   width: 32px; height: 32px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  color: #fff; font-size: 16px;
+  color: #fff; font-size: calc(16px * var(--qn-fs-scale));
 }
 .rem-level, .rem-solution-tag, .rem-urgent-badge {
-  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.5px;
+  font-size: calc(11px * var(--qn-fs-scale)); font-weight: 600; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.5px;
 }
 .rem-level.pri-ok, .rem-level.ok { background: rgba(67,160,71,0.1); color: var(--wuxing-wood); }
 .rem-level.pri-warn, .rem-level.warn { background: rgba(212,160,23,0.1); color: var(--wuxing-earth); }
 .rem-level.pri-danger, .rem-level.bad { background: rgba(216,67,21,0.1); color: var(--wuxing-fire); }
 .rem-urgent-badge { background: var(--wuxing-fire); color: #fff; }
-.rem-solution-tag { background: var(--qingnang-emerald); color: #fff; }
+.rem-solution-tag { background: var(--qn-emerald); color: #fff; }
 
-.rem-card h3 { font-size: 14px; font-weight: 600; color: var(--ink-primary); margin: 0 0 4px; line-height: 1.4; }
-.rem-desc { font-size: 12px; color: var(--ink-secondary); margin: 0 0 8px; line-height: 1.6; }
+.rem-card h3 { font-size: calc(14px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-ink); margin: 0 0 4px; line-height: 1.4; }
+.rem-desc { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); margin: 0 0 8px; line-height: 1.6; }
 .rem-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
 .rem-tag {
-  font-size: 10px; color: var(--qingnang-emerald);
-  background: rgba(26,77,69,0.06); padding: 1px 6px; border-radius: 3px; font-weight: 500;
+  font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-emerald);
+  background: rgba(var(--qn-emerald-rgb),0.06); padding: 1px 6px; border-radius: 3px; font-weight: 500;
 }
-.rem-reason { font-size: 11px; color: var(--ink-tertiary); margin: 8px 0 0; line-height: 1.5; font-style: italic; }
+.rem-reason { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin: 8px 0 0; line-height: 1.5; font-style: italic; }
 .rem-steps { margin: 6px 0; padding-left: 14px; }
-.rem-steps p { font-size: 12px; color: var(--ink-secondary); margin: 2px 0; line-height: 1.5; }
+.rem-steps p { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); margin: 2px 0; line-height: 1.5; }
 
 /* 时辰时间线 */
 .rem-timeline { grid-column: 1 / -1; }
 .timeline { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
 .tl-item {
   display: flex; align-items: center; gap: 8px; padding: 10px 12px;
-  border-radius: var(--radius-sm); border: 1px solid var(--ink-line);
-  font-size: 12px;
+  border-radius: var(--qn-r-sm); border: 1px solid var(--qn-line);
+  font-size: calc(12px * var(--qn-fs-scale));
 }
-.tl-time { font-family: var(--font-mono); font-weight: 600; color: var(--ink-primary); font-size: 11px; }
-.tl-elem { font-size: 10px; color: var(--ink-tertiary); padding: 1px 6px; background: var(--qingnang-paper); border-radius: 3px; }
-.tl-desc { flex: 1; margin-left: 4px; color: var(--ink-secondary); line-height: 1.4; }
+.tl-time { font-family: var(--font-mono); font-weight: 600; color: var(--qn-ink); font-size: calc(11px * var(--qn-fs-scale)); }
+.tl-elem { font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-3); padding: 1px 6px; background: var(--qn-paper); border-radius: 3px; }
+.tl-desc { flex: 1; margin-left: 4px; color: var(--qn-ink-2); line-height: 1.4; }
 .tl-item.critical { border-color: var(--wuxing-fire); background: rgba(216,67,21,0.03); }
 .tl-item.good { border-color: var(--wuxing-wood); background: rgba(67,160,71,0.03); }
-.tl-item.personal { border-color: var(--qingnang-emerald); background: rgba(26,77,69,0.03); }
+.tl-item.personal { border-color: var(--qn-emerald); background: rgba(var(--qn-emerald-rgb),0.03); }
 .tl-item.warn { border-color: var(--wuxing-earth); background: rgba(212,160,23,0.04); }
 
 /* 破煞方案 */
-.rem-solution { background: linear-gradient(135deg, rgba(26,77,69,0.03), rgba(46,125,106,0.03)); border-color: rgba(26,77,69,0.2); }
-.solution-body { margin: 8px 0; background: var(--qingnang-paper); border-radius: var(--radius-sm); padding: 10px 12px; }
-.sol-target { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed var(--ink-line); }
-.sol-label { font-size: 11px; color: var(--ink-tertiary); font-weight: 600; letter-spacing: 0.5px; }
-.sol-val { font-size: 12px; color: var(--qingnang-emerald); font-weight: 500; }
+.rem-solution { background: linear-gradient(135deg, rgba(var(--qn-emerald-rgb),0.03), rgba(var(--qn-emerald-light-rgb),0.03)); border-color: rgba(var(--qn-emerald-rgb),0.2); }
+.solution-body { margin: 8px 0; background: var(--qn-paper); border-radius: var(--qn-r-sm); padding: 10px 12px; }
+.sol-target { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed var(--qn-line); }
+.sol-label { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); font-weight: 600; letter-spacing: 0.5px; }
+.sol-val { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-emerald); font-weight: 500; }
 .sol-steps { display: flex; flex-direction: column; gap: 5px; }
-.sol-step { font-size: 12px; color: var(--ink-primary); display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
+.sol-step { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink); display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
 .sol-step-num {
   width: 18px; height: 18px; border-radius: 50%;
-  background: var(--qingnang-emerald); color: #fff;
+  background: var(--qn-emerald); color: #fff;
   display: flex; align-items: center; justify-content: center;
-  font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+  font-size: calc(10px * var(--qn-fs-scale)); font-weight: 700; flex-shrink: 0; margin-top: 1px;
 }
 
-.footer-notice { font-size: 11px; color: var(--ink-tertiary); margin-top: 20px; text-align: center; line-height: 1.6; padding: 0 10px; }
+.footer-notice { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin-top: 20px; text-align: center; line-height: 1.6; padding: 0 10px; }
 
 @media (max-width: 720px), (orientation: portrait) {
   .today-grid { grid-template-columns: repeat(2, 1fr); }

@@ -6,7 +6,10 @@
 启动：python main.py  （或 uvicorn app.main:app --reload --port 8767）
 """
 import sys
+import logging
 from pathlib import Path
+
+import httpx
 
 # 确保 backend/ 在 sys.path（无论从哪里启动都能 import）
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -35,6 +38,8 @@ from app.config import settings
 from app.database import engine, Base, SessionLocal
 from app.api.v1.router import api_router
 
+logger = logging.getLogger(__name__)
+
 
 def func_now_sql():
     """启动自检用：执行一条无副作用的 SQL"""
@@ -50,8 +55,16 @@ async def lifespan(app: FastAPI):
     print(f"🌿 {settings.APP_NAME}  v{settings.VERSION}")
     print(f"{'='*60}")
 
-    # 阶段0：表结构由 Alembic 迁移管理（python -m alembic upgrade head）
-    print("🗄️  数据库: PostgreSQL (由 Alembic 迁移管理)")
+    # 建表策略：SQLite → create_all（跳过 Alembic，迁移可能用了 PG 特有语法）
+    #          PostgreSQL → Alembic upgrade head（推荐，但启动不自动跑）
+    is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+    if is_sqlite:
+        print("🗄️  数据库: SQLite → 自动 create_all（跳过 Alembic 迁移）")
+        Base.metadata.create_all(bind=engine)
+        print("  ✅ 表结构已创建")
+    else:
+        print("🗄️  数据库: PostgreSQL (由 Alembic 迁移管理)")
+        print("     如需建表请手动执行: python -m alembic upgrade head")
     try:
         with engine.connect() as conn:
             conn.execute(func_now_sql())
@@ -92,14 +105,49 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS（域名白名单，来源 settings.CORS_ORIGINS；禁止通配符 + 凭据组合）
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS（生产严格白名单 · 开发期动态放行穿透域名）
+if settings.APP_ENV == "development":
+    # 穿透/内网演示场景：从 .env CORS_ORIGINS 取白名单 + 自动放行当前 Origin
+    import re as _re
+    _origins = settings.CORS_ORIGINS
+
+    class _DynamicCORS:
+        def __init__(self, app): self.app = app
+        async def __call__(self, scope, receive, send):
+            if scope["type"] == "http":
+                headers = dict(scope.get("headers", []))
+                origin = headers.get(b"origin", b"").decode()
+                # 放行 localhost / 内网 IP / 配置白名单 / cpolar/ngrok 穿透域名
+                if origin and (
+                    origin in _origins
+                    or _re.match(r"https?://localhost", origin)
+                    or _re.match(r"https?://127\.0\.0\.1", origin)
+                    or _re.match(r"https?://192\.168\.\d+\.\d+", origin)
+                    or _re.match(r"https?://\w+\.cpolar\.\w+", origin)
+                    or _re.match(r"https?://\w+\.ngrok\.io", origin)
+                    or _re.match(r"https?://\w+\.trycloudflare\.com", origin)
+                ):
+                    scope["_cors_origin"] = origin
+            await self.app(scope, receive, send)
+
+    app.add_middleware(_DynamicCORS)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["Authorization"],
+    )
+else:
+    # 生产：严格白名单
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 # ═══════════════════════════════════════════════════════
@@ -159,19 +207,31 @@ def root():
 
 @app.get("/health")
 def health():
-    """整体健康检查"""
-    db_ok = True
+    """2026-10-06 重写：真实探测 DB + qingmeng-engine，异常带日志"""
+    checks = {}
+
+    # ── DB（简单 SELECT 1，不依赖表是否存在）──
     try:
         with engine.connect() as conn:
-            conn.execute(Base.metadata.tables.get("users", None).select().limit(1)
-                         if "users" in Base.metadata.tables else None)
-    except Exception:
-        db_ok = False
+            conn.execute(text("SELECT 1"))
+        checks["db"] = "ok"
+    except Exception as exc:
+        logger.exception("health: DB 探测失败")
+        checks["db"] = f"error: {exc}"
 
+    # ── qingmeng-engine（真正的单点依赖）──
+    try:
+        r = httpx.get(f"{settings.QINGMENG_URL}/health", timeout=2.0)
+        checks["qingmeng"] = "ok" if r.status_code == 200 else f"degraded({r.status_code})"
+    except Exception as exc:
+        logger.warning("health: qingmeng-engine 不可达: %s", exc)
+        checks["qingmeng"] = f"unreachable"
+
+    healthy = all(v == "ok" for v in checks.values())
     return {
-        "status": "ok" if db_ok else "degraded",
-        "db": db_ok,
-        "version": settings.VERSION,
+        "status": "ok" if healthy else "degraded",
+        "checks": checks,
+        "version": getattr(settings, "VERSION", "dev"),
     }
 
 

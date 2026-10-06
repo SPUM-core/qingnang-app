@@ -4,6 +4,7 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   server: {
+    host: '0.0.0.0',   // ← 允许同局域网手机访问
     port: 5173,
     proxy: {
       '/api': { target: 'http://localhost:8767', changeOrigin: true },

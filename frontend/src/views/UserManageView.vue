@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="page friends">
     <!-- 头部：自己的数字模型 + 邀请入口 -->
     <div class="friends-head">
@@ -132,35 +132,124 @@
       <p v-else-if="!partner" class="placeholder">选择好友，青囊会为你们生成联合建议</p>
     </div>
 
-    <!-- ════ Tab 3: 家庭综合指导 ════ -->
-    <div v-else-if="activeTab === 'family'" class="content">
-      <div class="section-head">
-        <h2>🏠 家庭综合指导</h2>
-        <span class="hint">多位家庭成员的数字模型联合分析</span>
-      </div>
-
-      <div v-if="familyMembers.length >= 2" class="family-grid">
-        <div v-for="(m, i) in familyMembers" :key="m.id"
-             class="family-cell" :class="{ 'is-me': i === 0 }">
-          <div class="fc-avatar" :style="{ background: m.gradient }">{{ m.avatar }}</div>
-          <p class="fc-name">{{ m.name }}{{ i === 0 ? '（我）' : '' }}</p>
-          <p class="fc-model">{{ m.model_summary }}</p>
+    <!-- ════ Tab 3: 家庭健康看板（后端 family-aggregate 合并推算） ════ -->
+    <div v-else-if="activeTab === 'family'" class="content family-dashboard">
+      <!-- 空状态 -->
+      <div v-if="!familyData.members || familyData.members.length < 2" class="empty-state">
+        <div class="empty-emoji">🏠</div>
+        <h3>添加家人，开启家庭健康看板</h3>
+        <p class="muted">青囊会合并全家的五形向量，自动发现共同短板、相克关系和联合调理方案</p>
+        <button class="btn" @click="showAdd = true">+ 添加家人</button>
+        <div class="empty-hint">
+          <h4>📋 看板会展示：</h4>
+          <ul>
+            <li>👨‍👩‍👧‍👦 全家成员网格 + 代际标识</li>
+            <li>📊 全家向量并集 / 交集弱项雷达</li>
+            <li>⚠️ 相克告警（长辈木极旺 × 晚辈土枯竭）</li>
+            <li>🎯 联合调理建议（饮食 / 作息 / 运动）</li>
+          </ul>
         </div>
       </div>
 
-      <div v-if="familyGuidance.length" class="family-guidance">
-        <h3>📋 家庭综合建议</h3>
-        <div class="fg-list">
-          <div v-for="(g, i) in familyGuidance" :key="i" class="fg-item">
-            <span class="fg-icon">{{ g.icon }}</span>
-            <div class="fg-body">
-              <p class="fg-title">{{ g.title }}</p>
-              <p class="fg-desc">{{ g.desc }}</p>
+      <!-- 有家人数据 -->
+      <template v-else>
+        <!-- ① 全家成员网格 -->
+        <div class="fd-section">
+          <div class="section-head">
+            <h2>👨‍👩‍👧‍👦 全家 · {{ familyData.members.length }} 人</h2>
+            <span v-if="familyData.generation_span" class="hint">
+              代际跨度：{{ familyGenLabel(familyData.generation_span[0]) }} ~ {{ familyGenLabel(familyData.generation_span[1]) }}
+            </span>
+          </div>
+          <div class="family-grid-v2">
+            <div v-for="m in familyData.members" :key="m.qingnang_id"
+                 class="family-member-card" :class="{ 'is-me': m.is_me, [`gen-${m.generation_level}`]: true }">
+              <div class="fc-avatar" :style="{ background: memberGradient(m) }">{{ memberEmoji(m) }}</div>
+              <p class="fc-name">{{ m.nickname }}{{ m.is_me ? '（我）' : '' }}</p>
+              <p class="fc-kinship">{{ kinshipLabel(m.kinship_type, m.generation_level) }}</p>
+              <!-- 迷你五形条 -->
+              <div class="fc-wuxing-bars">
+                <div v-for="(label, k) in wuxingLabels" :key="k" class="fwb-bar">
+                  <span class="fwb-label">{{ label }}</span>
+                  <div class="fwb-track">
+                    <div class="fwb-fill" :style="{ width: `${m.v_base?.[k] ?? 50}%`, background: wuxingColors[k] }"></div>
+                  </div>
+                  <span class="fwb-val">{{ Math.round(m.v_base?.[k] ?? 50) }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-      <p v-else class="placeholder">添加至少 2 位家人以生成综合指导</p>
+
+        <!-- ② 全家向量合并 -->
+        <div class="fd-section">
+          <div class="section-head">
+            <h2>📊 全家合并体质</h2>
+            <span class="hint">并集（max）+ 交集弱项（全家共同短板）</span>
+          </div>
+          <div class="union-vs-intersection">
+            <!-- 全家并集 -->
+            <div class="uvi-card union">
+              <h4>全家并集（谁最高算谁）</h4>
+              <div class="uvi-bars">
+                <div v-for="(label, k) in wuxingLabels" :key="k" class="uvi-bar">
+                  <span class="uvi-label">{{ label }}</span>
+                  <div class="uvi-track">
+                    <div class="uvi-fill" :style="{ width: `${familyData.union?.[k] ?? 50}%`, background: wuxingColors[k] }"></div>
+                  </div>
+                  <span class="uvi-val">{{ Math.round(familyData.union?.[k] ?? 50) }}</span>
+                </div>
+              </div>
+            </div>
+            <!-- 全家交集弱项 -->
+            <div class="uvi-card intersection" :class="{ has_weak: Object.keys(familyData.intersection_weak || {}).length }">
+              <h4>全家共同短板</h4>
+              <template v-if="Object.keys(familyData.intersection_weak || {}).length">
+                <div class="weak-chips">
+                  <span v-for="(v, k) in familyData.intersection_weak" :key="k" class="weak-chip">
+                    {{ k }}形 · 全家最低 {{ Math.round(v) }}
+                  </span>
+                </div>
+                <p class="weak-hint">这是全家人共同需要调理的方向 — 一起做效果翻倍</p>
+              </template>
+              <p v-else class="muted">暂无全家共同短板 ✓</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ③ 相克告警 -->
+        <div v-if="familyData.tensions?.length" class="fd-section tensions">
+          <div class="section-head">
+            <h2>⚠️ 家庭相克检测</h2>
+            <span class="hint">根据五行生克：木克土 · 土克水 · 水克火 · 火克金 · 金克木</span>
+          </div>
+          <div class="tension-list">
+            <div v-for="(t, i) in familyData.tensions" :key="i" class="tension-card">
+              <div class="tension-label">{{ t.label }}</div>
+              <div class="tension-detail">
+                <p><b>攻方</b>：{{ t.attacker.map(x => `${x[0]}(${Math.round(x[1])})`).join('、') }}</p>
+                <p><b>受方</b>：{{ t.victim.map(x => `${x[0]}(${Math.round(x[1])})`).join('、') }}</p>
+              </div>
+              <p class="tension-suggest">💡 建议：攻方成员避免在金/木旺的时辰与受方高强度对话，可各自选时辰调理</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ④ 联合调理建议 -->
+        <div v-if="familyData.guidance?.length" class="fd-section">
+          <div class="section-head">
+            <h2>🎯 联合调理建议</h2>
+            <span class="hint">后端 SPUM 引擎根据全家合并数据生成</span>
+          </div>
+          <div class="guidance-list-v2">
+            <div v-for="(g, i) in familyData.guidance" :key="i"
+                 class="guidance-card" :class="`cat-${g.cat}`">
+              <div class="gc-icon">{{ guidanceIcon(g.cat) }}</div>
+              <p class="gc-text">{{ g.text }}</p>
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- ════ Tab 4: 邀请推荐 ════ -->
@@ -257,7 +346,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { friends as friendsApi } from '../api/client'
 import { useUserStore } from '../stores/user'
 import { toModelSummary } from '../stores/vector'
@@ -272,7 +361,7 @@ const me = computed(() => ({
   name: userStore.displayName || '我',
   age: '',
   model_summary: toModelSummary(caseData.value?.v_baseline || caseData.value?.v_current),
-  gradient: 'linear-gradient(135deg, #1A4D45, #2A6B62)',
+  gradient: 'linear-gradient(135deg, var(--qn-emerald), var(--qn-emerald-light))',
   vBase: caseData.value?.v_baseline || { wood: 50, fire: 50, earth: 50, metal: 50, water: 50 }
 }))
 const meVector = computed(() => me.value.vBase)
@@ -291,7 +380,7 @@ const dims = [
 const DEFAULT_FRIENDS = [
   // ═══ 医生（青囊中医 B 端绑定）
   { id: 'QD-ZYY-ZC', name: '张 医生', relation: 'doctor', avatar: '🩺',
-    avatarGradient: 'linear-gradient(135deg, #1A4D45, #0D2F2A)',
+    avatarGradient: 'linear-gradient(135deg, var(--qn-emerald), #0D2F2A)',
     model_summary: '木↔ 火↑ 土↓ 金↔ 水↓',
     weakPoints: ['脾胃偏弱', '水形精'],
     vBase: { wood: 52, fire: 62, earth: 40, metal: 55, water: 38 },
@@ -307,7 +396,7 @@ const DEFAULT_FRIENDS = [
       notes: '你的主治医生 · 已绑定青囊中医'
     } },
   { id: 'QD-ZYY-LN', name: '李 医生', relation: 'doctor', avatar: '⚕️',
-    avatarGradient: 'linear-gradient(135deg, #0288D1, #01579B)',
+    avatarGradient: 'linear-gradient(135deg, var(--qn-water), #01579B)',
     model_summary: '木↑ 火↑↑ 土↓ 金↓ 水↑',
     weakPoints: ['火形极旺', '土形储备不足'],
     vBase: { wood: 65, fire: 82, earth: 35, metal: 38, water: 60 },
@@ -325,41 +414,41 @@ const DEFAULT_FRIENDS = [
 
   // 家人
   { id: 'QN-WIFE-001', name: '林慕青', relation: 'family', avatar: '🌸',
-    avatarGradient: 'linear-gradient(135deg, #D84315, #8B2500)',
+    avatarGradient: 'linear-gradient(135deg, var(--qn-fire), #8B2500)',
     model_summary: '木↑ 火↓ 土↔ 金↑ 水↑↑',
     weakPoints: ['火形弱', '木形活跃'],
     vBase: { wood: 60, fire: 35, earth: 50, metal: 65, water: 75 } },
   { id: 'QN-MOM-001', name: '胡妈妈', relation: 'family', avatar: '🧓',
-    avatarGradient: 'linear-gradient(135deg, #D4A017, #8A6A10)',
+    avatarGradient: 'linear-gradient(135deg, var(--qn-earth), #8A6A10)',
     model_summary: '木↓ 火↓ 土↑↑ 金↑↑ 水↓',
     weakPoints: ['木形弱', '水形枯'],
     vBase: { wood: 35, fire: 30, earth: 70, metal: 72, water: 35 } },
   { id: 'QN-SON-001', name: '胡小明', relation: 'family', avatar: '🧒',
-    avatarGradient: 'linear-gradient(135deg, #43A047, #1B5E20)',
+    avatarGradient: 'linear-gradient(135deg, var(--qn-wood), #1B5E20)',
     model_summary: '木↑↑ 火↑↑↑ 土↓↓ 金↓ 水↔',
     weakPoints: ['火形过旺', '土形储备不足'],
     vBase: { wood: 72, fire: 85, earth: 28, metal: 40, water: 52 } },
 
   // 好友
   { id: 'QN-FRIEND-ZC', name: '张晨', relation: 'friend', avatar: '🏃',
-    avatarGradient: 'linear-gradient(135deg, #0288D1, #01579B)',
+    avatarGradient: 'linear-gradient(135deg, var(--qn-water), #01579B)',
     model_summary: '木↓↓ 火↔ 土↑ 金↑↑ 水↑↑',
     weakPoints: ['木形空转', '肝胆弱'],
     vBase: { wood: 30, fire: 50, earth: 58, metal: 68, water: 72 } },
   { id: 'QN-FRIEND-LN', name: '李娜', relation: 'friend', avatar: '☕',
-    avatarGradient: 'linear-gradient(135deg, #D84315, #8B2500)',
+    avatarGradient: 'linear-gradient(135deg, var(--qn-fire), #8B2500)',
     model_summary: '木↑↑ 火↑↑ 土↓↓ 金↓↓ 水↔',
     weakPoints: ['土形三重枯竭', '脾虚'],
     vBase: { wood: 75, fire: 70, earth: 32, metal: 38, water: 52 } },
   { id: 'QN-FRIEND-WW', name: '王武', relation: 'friend', avatar: '🎸',
-    avatarGradient: 'linear-gradient(135deg, #90A4AE, #546E7A)',
+    avatarGradient: 'linear-gradient(135deg, var(--qn-metal), #546E7A)',
     model_summary: '木↓ 火↓ 土↑ 金↑↑↑ 水↑↑',
     weakPoints: ['金形极旺', '水形流失'],
     vBase: { wood: 40, fire: 32, earth: 55, metal: 82, water: 68 } },
 
   // 同事
   { id: 'QN-COLLEAGUE-CX', name: '陈曦', relation: 'other', avatar: '💻',
-    avatarGradient: 'linear-gradient(135deg, #1A4D45, #2A6B62)',
+    avatarGradient: 'linear-gradient(135deg, var(--qn-emerald), var(--qn-emerald-light))',
     model_summary: '木↑↑ 火↑ 土↓ 金↑ 水↓↓',
     weakPoints: ['水形枯竭', '熬夜'],
     vBase: { wood: 72, fire: 62, earth: 38, metal: 58, water: 32 } }
@@ -387,34 +476,155 @@ const weakPointChips = {
   '熬夜': { color: 'rgba(2,136,209,0.1)', text: '早卧' }
 }
 
-// 好友数据源：后端真实数据，空则显示"暂无好友"
-const friends = ref([])
-onMounted(async () => {
+// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// 家庭看板数据源：后端 family-aggregate API
+// ═══════════════════════════════════════════════════════════
+const familyData = ref({ members: [], union: {}, intersection_weak: {}, tensions: [], guidance: [], generation_span: null })
+const wuxingLabels = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
+const wuxingColors = {
+  wood: 'var(--qn-wood)', fire: 'var(--qn-fire)', earth: 'var(--qn-earth)', metal: 'var(--qn-metal)', water: 'var(--qn-water)',
+}
+
+async function loadFamilyAggregate() {
   try {
+    const r = await friendsApi.familyAggregate()
+    if (r.data) familyData.value = r.data
+  } catch (e) {
+    console.warn('[Family] load failed:', e.message)
+  }
+}
+
+// 切到 family tab 才加载（不浪费请求）
+watch(activeTab, (tab) => {
+  if (tab === 'family' && (!familyData.value.members?.length || familyData.value.members.length <= 1)) {
+    loadFamilyAggregate()
+  }
+})
+
+function memberGradient(m) {
+  if (m.is_me) return me.value.gradient
+  return pickGradient(m.nickname || m.qingnang_id || 'fam')
+}
+function memberEmoji(m) {
+  if (m.is_me) return '🌿'
+  if (m.kinship_type === 'spouse') return '💚'
+  if (m.kinship_type === 'parent' || m.generation_level > 0) return '🧓'
+  if (m.kinship_type === 'child' || m.generation_level < 0) return '🧒'
+  if (m.kinship_type === 'sibling') return '👫'
+  return '👤'
+}
+function kinshipLabel(kt, gl) {
+  if (!kt && !gl) return ''
+  if (kt === 'self') return '我'
+  const map = { spouse: '夫妻', parent: '父/母', child: '子/女', sibling: '兄/弟/姐/妹', grandparent: '祖辈', grandchild: '孙辈', other: '亲属' }
+  return map[kt] || ''
+}
+function familyGenLabel(gl) {
+  if (gl === 2) return '祖辈'
+  if (gl === 1) return '上一代'
+  if (gl === 0) return '同代'
+  if (gl === -1) return '下一代'
+  if (gl === -2) return '孙辈'
+  return '—'
+}
+function guidanceIcon(cat) {
+  return { family: '🍜', tension: '⚠️', lifestyle: '⏰', food: '🥗', exercise: '🏃', sleep: '🌙' }[cat] || '💡'
+}
+
+// 好友数据源：后端真实数据（后端返回数组，不是 { friends: [...] } 包一层）
+// 空就空，不做 mock fallback —— 避免用户看到假数据
+// ═══════════════════════════════════════════════════════════
+const friends = ref([])
+const pendingRequests = ref([])
+const loadingFriends = ref(true)
+
+// 头像 emoji 映射（后端只返回昵称/关系，前端按 relation 决定 emoji）
+const RELATION_AVATAR = {
+  doctor: '🩺', family: '🏠', friend: '🤝', other: '👤',
+}
+const AVATAR_GRADIENTS = [
+  'linear-gradient(135deg, var(--qn-emerald), var(--qn-emerald-light))',
+  'linear-gradient(135deg, var(--qn-wood), #1B5E20)',
+  'linear-gradient(135deg, var(--qn-water), #01579B)',
+  'linear-gradient(135deg, var(--qn-fire), #8B2500)',
+  'linear-gradient(135deg, var(--qn-earth), #8A6A10)',
+  'linear-gradient(135deg, var(--qn-metal), #546E7A)',
+]
+
+function pickGradient(str) {
+  let h = 0
+  for (const c of str) h = (h * 31 + c.charCodeAt(0)) | 0
+  return AVATAR_GRADIENTS[Math.abs(h) % AVATAR_GRADIENTS.length]
+}
+
+onMounted(async () => {
+  loadingFriends.value = true
+  try {
+    // ✅ 后端直接返回数组（r.data 就是 [friend, friend, ...]）
     const r = await friendsApi.list()
-    friends.value = (r.data?.friends || []).map((f, i) => ({
-      id: f.friend_qingnang_id || `bk-${i}`,
+    const arr = Array.isArray(r.data) ? r.data : []
+    friends.value = arr.map((f, i) => ({
+      id: f.friend_id || f.qingnang_id || `bk-${i}`,
+      friend_id: f.friend_id,
+      qingnang_id: f.qingnang_id,
       name: f.nickname || f.name || '好友',
       relation: f.relation || 'friend',
-      avatar: f.avatar || '👤',
-      vBase: f.v_base || { wood: 50, fire: 50, earth: 50, metal: 50, water: 50 },
-      model_summary: f.model_summary || '',
-      weakPoints: f.weak_points || [],
-      isDoctor: f.is_doctor || f.relation === 'doctor',
+      kinship_type: f.kinship_type,
+      kinship_label: f.kinship_label || '',
+      is_doctor: f.is_doctor || f.is_doctor_bind,
+      is_doctor_bind: f.is_doctor_bind,
+      permissions: f.permissions,
+      vBase: f.v_base || {},
+      model_summary: f.v_base_summary || '',
+      avatar: RELATION_AVATAR[f.relation] || '👤',
+      avatarGradient: pickGradient(f.nickname || f.qingnang_id || `f${i}`),
+      doctor: f.doctor_info ? {
+        hospital: f.doctor_info.hospital,
+        title: f.doctor_info.title,
+        bindDate: f.bind_date,
+        verified: f.doctor_info.verified,
+        lastPlan: '医生方案',
+        lastPlanDate: f.bind_date,
+        nextVisit: null,
+      } : null,
     }))
+
+    // 同时加载待处理请求
+    try {
+      const pr = await friendsApi.pendingRequests()
+      pendingRequests.value = Array.isArray(pr.data) ? pr.data : []
+    } catch {}
   } catch (e) {
     console.warn('[Friends] load failed:', e.message)
     friends.value = []
+  } finally {
+    loadingFriends.value = false
   }
 })
+
+// ═══════════════════════════════════════════════════════════
+// 从五形向量自动推导弱项标签（后端不返回 weak_points，纯前端推）
+// ═══════════════════════════════════════════════════════════
+const WUXING_LABELS = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
+
+function deriveWeakPoints(vBase = {}) {
+  const out = []
+  for (const [k, name] of Object.entries(WUXING_LABELS)) {
+    const v = vBase[k] ?? 50
+    if (v < 45) out.push(`${name}形偏弱`)
+    if (v > 70) out.push(`${name}形过旺`)
+  }
+  return out
+}
 
 const weakPoints = computed(() => {
   return friends.value.map(f => ({
     ...f,
-    weakPoints: f.weakPoints.map(wp => {
+    weakPoints: deriveWeakPoints(f.vBase).map(wp => {
       const chip = weakPointChips[wp] || { color: 'rgba(107,114,119,0.1)', text: wp }
       return chip.text
-    })
+    }),
   }))
 })
 
@@ -574,201 +784,280 @@ function showDoctor(f) { activeDoctor.value = f; showDoctorModal.value = true }
 .friends-head { margin-bottom: 18px; }
 .me-card {
   display: flex; align-items: center; gap: 14px;
-  background: linear-gradient(135deg, rgba(26,77,69,0.06), rgba(46,125,106,0.06));
-  border: 1px solid rgba(26,77,69,0.15);
-  border-radius: var(--radius-md); padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(var(--qn-emerald-rgb),0.06), rgba(var(--qn-emerald-light-rgb),0.06));
+  border: 1px solid rgba(var(--qn-emerald-rgb),0.15);
+  border-radius: var(--qn-r-lg); padding: 16px 20px;
 }
 .avatar, .mini-avatar, .fc-avatar, .friend-avatar {
   display: flex; align-items: center; justify-content: center;
   border-radius: 50%; color: #fff; font-weight: 600;
 }
-.avatar { width: 52px; height: 52px; font-size: 24px; background: linear-gradient(135deg, #1A4D45, #2A6B62); }
-.friend-avatar { width: 44px; height: 44px; font-size: 20px; flex-shrink: 0; }
-.fc-avatar { width: 56px; height: 56px; font-size: 24px; }
-.mini-avatar { width: 28px; height: 28px; font-size: 14px; }
+.avatar { width: 52px; height: 52px; font-size: calc(24px * var(--qn-fs-scale)); background: linear-gradient(135deg, var(--qn-emerald), var(--qn-emerald-light)); }
+.friend-avatar { width: 44px; height: 44px; font-size: calc(20px * var(--qn-fs-scale)); flex-shrink: 0; }
+.fc-avatar { width: 56px; height: 56px; font-size: calc(24px * var(--qn-fs-scale)); }
+.mini-avatar { width: 28px; height: 28px; font-size: calc(14px * var(--qn-fs-scale)); }
 
 .me-info { flex: 1; min-width: 0; }
-.me-name { font-size: 16px; font-weight: 600; color: var(--qingnang-emerald); margin: 0; }
-.me-model { font-size: 12px; color: var(--ink-secondary); margin: 2px 0; }
-.me-id { font-size: 11px; color: var(--ink-tertiary); margin: 0; }
-.me-id code { background: var(--qingnang-paper); padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+.me-name { font-size: calc(16px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-emerald); margin: 0; }
+.me-model { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); margin: 2px 0; }
+.me-id { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin: 0; }
+.me-id code { background: var(--qn-paper); padding: 1px 6px; border-radius: 3px; font-size: calc(11px * var(--qn-fs-scale)); }
 
 /* Tab */
 .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
 .tab-btn {
-  font-size: 13px; padding: 7px 16px; border-radius: 20px;
-  border: 1px solid var(--ink-line); background: #fff; color: var(--ink-secondary);
+  font-size: calc(13px * var(--qn-fs-scale)); padding: 7px 16px; border-radius: 20px;
+  border: 1px solid var(--qn-line); background: var(--qn-surface); color: var(--qn-ink-2);
   cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 6px;
 }
-.tab-btn:hover { border-color: var(--qingnang-emerald); color: var(--qingnang-emerald); }
-.tab-btn.active { background: var(--qingnang-emerald); border-color: var(--qingnang-emerald); color: #fff; }
-.tab-count { background: var(--qingnang-paper); color: var(--ink-tertiary); padding: 0 6px; border-radius: 10px; font-size: 11px; }
+.tab-btn:hover { border-color: var(--qn-emerald); color: var(--qn-emerald); }
+.tab-btn.active { background: var(--qn-emerald); border-color: var(--qn-emerald); color: #fff; }
+.tab-count { background: var(--qn-paper); color: var(--qn-ink-3); padding: 0 6px; border-radius: 10px; font-size: calc(11px * var(--qn-fs-scale)); }
 .tab-btn.active .tab-count { background: rgba(255,255,255,0.2); color: #fff; }
 
 .section-head { display: flex; justify-content: space-between; align-items: center; margin: 8px 0 12px; }
-.section-head h2 { font-size: 16px; color: var(--qingnang-emerald); margin: 0; }
-.hint { font-size: 12px; color: var(--ink-tertiary); }
+.section-head h2 { font-size: calc(16px * var(--qn-fs-scale)); color: var(--qn-emerald); margin: 0; }
+.hint { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
 
 /* 好友分组 */
 .friend-group { margin-bottom: 20px; }
-.group-title { font-size: 13px; color: var(--ink-tertiary); margin: 0 0 10px; font-weight: 500; }
+.group-title { font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin: 0 0 10px; font-weight: 500; }
 .friend-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
 .friend-card {
   display: flex; align-items: center; gap: 12px;
-  background: #fff; border: 1px solid var(--ink-line); border-radius: var(--radius-md);
+  /* ⚠️ border 已删，让全局 .card 纯 shadow 接管 */
+  background: var(--qn-surface); border-radius: var(--qn-r-lg);
   padding: 12px 14px; cursor: pointer; transition: all 0.15s;
 }
-.friend-card:hover { box-shadow: var(--shadow-card-hover); border-color: rgba(26,77,69,0.25); transform: translateY(-1px); }
+.friend-card:hover { box-shadow: var(--qn-shadow-2); border-color: rgba(var(--qn-emerald-rgb),0.25); transform: translateY(-1px); }
 .friend-info { flex: 1; min-width: 0; }
-.friend-name { font-size: 14px; font-weight: 600; color: var(--ink-primary); margin: 0; }
-.friend-model { font-size: 12px; color: var(--ink-secondary); margin: 2px 0; }
+.friend-name { font-size: calc(14px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-ink); margin: 0; }
+.friend-model { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); margin: 2px 0; }
 .friend-labels { display: flex; gap: 4px; flex-wrap: wrap; }
 .friend-label {
-  font-size: 10px; color: var(--qingnang-emerald);
-  background: rgba(26,77,69,0.06); padding: 1px 6px; border-radius: 3px; font-weight: 500;
+  font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-emerald);
+  background: rgba(var(--qn-emerald-rgb),0.06); padding: 1px 6px; border-radius: 3px; font-weight: 500;
 }
 .chat-btn {
-  font-size: 18px; background: transparent; border: none;
+  font-size: calc(18px * var(--qn-fs-scale)); background: transparent; border: none;
   cursor: pointer; padding: 4px 6px; border-radius: 6px; transition: all 0.15s;
 }
-.chat-btn:hover { background: var(--qingnang-paper); }
-.chat-btn.doctor-btn { font-size: 16px; }
+.chat-btn:hover { background: var(--qn-paper); }
+.chat-btn.doctor-btn { font-size: calc(16px * var(--qn-fs-scale)); }
 
 .doctor-badge {
-  font-size: 10px; background: linear-gradient(135deg, #1A4D45, #2A6B62);
+  font-size: calc(10px * var(--qn-fs-scale)); background: linear-gradient(135deg, var(--qn-emerald), var(--qn-emerald-light));
   color: #fff; padding: 1px 7px; border-radius: 10px; font-weight: 500;
   margin-left: 6px; vertical-align: middle;
 }
 .friend-doctor-hint {
-  font-size: 11px; color: var(--qingnang-spirit); margin: 2px 0 0;
+  font-size: calc(11px * var(--qn-fs-scale)); color: var(--qingnang-spirit); margin: 2px 0 0;
 }
 
-.empty-group { font-size: 12px; color: var(--ink-tertiary); padding: 14px; text-align: center; }
+.empty-group { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); padding: 14px; text-align: center; }
 
 /* 联合建议 */
 .together-picker {
   display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
-  background: #fff; border: 1px solid var(--ink-line); border-radius: var(--radius-md); padding: 16px 20px;
+  /* ⚠️ border 已删 */
+  background: var(--qn-surface); border-radius: var(--qn-r-lg); padding: 16px 20px;
 }
-.picker-me { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--ink-primary); }
+.picker-me { display: flex; align-items: center; gap: 8px; font-size: calc(13px * var(--qn-fs-scale)); font-weight: 500; color: var(--qn-ink); }
 .picker-select {
   flex: 1; max-width: 360px; padding: 8px 12px;
-  border: 1px solid var(--ink-line); border-radius: var(--radius-sm); font-size: 13px;
+  border: 1px solid var(--qn-line); border-radius: var(--qn-r-sm); font-size: calc(13px * var(--qn-fs-scale));
 }
-.plus { font-size: 18px; color: var(--ink-tertiary); }
+.plus { font-size: calc(18px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
 
 .joint-compare {
   display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px;
 }
-.compare-card { background: #fff; border: 1px solid var(--ink-line); border-radius: var(--radius-md); padding: 14px 16px; }
-.compare-card h4 { font-size: 12px; color: var(--ink-tertiary); margin: 0 0 10px; font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; }
-.compare-partner h4 { color: var(--qingnang-emerald); }
+/* ⚠️ border 已删 */
+.compare-card { background: var(--qn-surface); border-radius: var(--qn-r-lg); padding: 14px 16px; }
+.compare-card h4 { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin: 0 0 10px; font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; }
+.compare-partner h4 { color: var(--qn-emerald); }
 
 .vector-bars { display: flex; flex-direction: column; gap: 6px; }
-.vector-bar { display: grid; grid-template-columns: 20px 1fr 32px; align-items: center; gap: 8px; font-size: 12px; }
-.vb-label { color: var(--ink-tertiary); font-weight: 600; }
-.vb-track { height: 8px; background: var(--qingnang-paper); border-radius: 4px; overflow: hidden; }
+.vector-bar { display: grid; grid-template-columns: 20px 1fr 32px; align-items: center; gap: 8px; font-size: calc(12px * var(--qn-fs-scale)); }
+.vb-label { color: var(--qn-ink-3); font-weight: 600; }
+.vb-track { height: 8px; background: var(--qn-paper); border-radius: 4px; overflow: hidden; }
 .vb-fill { height: 100%; border-radius: 4px; transition: width 0.4s; }
-.vb-me { background: linear-gradient(90deg, #1A4D45, #2A6B62); }
-.vb-partner { background: linear-gradient(90deg, #45C4A8, #2A6B62); }
-.vb-val { color: var(--ink-secondary); font-family: var(--font-mono); font-size: 11px; text-align: right; }
+.vb-me { background: linear-gradient(90deg, var(--qn-emerald), var(--qn-emerald-light)); }
+.vb-partner { background: linear-gradient(90deg, var(--qn-emerald-accent), var(--qn-emerald-light)); }
+.vb-val { color: var(--qn-ink-2); font-family: var(--font-mono); font-size: calc(11px * var(--qn-fs-scale)); text-align: right; }
 
 .advice-section { display: flex; flex-direction: column; gap: 14px; }
-.advice-section h3 { font-size: 14px; color: var(--qingnang-emerald); margin: 4px 0; font-weight: 600; }
+.advice-section h3 { font-size: calc(14px * var(--qn-fs-scale)); color: var(--qn-emerald); margin: 4px 0; font-weight: 600; }
 .advice-block {
-  background: #fff; border: 1px solid var(--ink-line); border-radius: var(--radius-md); padding: 14px 18px;
+  /* ⚠️ border 已删 */
+  background: var(--qn-surface); border-radius: var(--qn-r-lg); padding: 14px 18px;
 }
-.advice-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 13px; font-weight: 500; color: var(--ink-primary); }
-.advice-emoji { font-size: 18px; }
+.advice-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: calc(13px * var(--qn-fs-scale)); font-weight: 500; color: var(--qn-ink); }
+.advice-emoji { font-size: calc(18px * var(--qn-fs-scale)); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
-  background: rgba(26,77,69,0.06); border: 1px solid rgba(26,77,69,0.2); color: var(--qingnang-emerald);
-  padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;
+  background: rgba(var(--qn-emerald-rgb),0.06); border: 1px solid rgba(var(--qn-emerald-rgb),0.2); color: var(--qn-emerald);
+  padding: 4px 12px; border-radius: 20px; font-size: calc(12px * var(--qn-fs-scale)); font-weight: 500;
 }
-.advice-reasons p, .activity-list li { font-size: 13px; color: var(--ink-secondary); line-height: 1.7; }
+.advice-reasons p, .activity-list li { font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink-2); line-height: 1.7; }
 .activity-list { padding-left: 20px; margin: 0; }
 
-/* 家庭综合指导 */
-.family-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 18px; }
-.family-cell {
-  background: #fff; border: 1px solid var(--ink-line); border-radius: var(--radius-md); padding: 16px;
-  text-align: center;
+/* ═══════════════════════════════════════════════════════
+   家庭健康看板（后端 family-aggregate）
+═══ */
+.fd-section { margin-bottom: 28px; }
+
+/* 空状态 */
+.empty-state { text-align: center; padding: 48px 24px; }
+.empty-emoji { font-size: 56px; margin-bottom: 12px; }
+.empty-state h3 { font-size: calc(17px * var(--qn-fs-scale)); color: var(--qn-emerald); margin: 0 0 8px; }
+.empty-state .muted { margin: 0 0 24px; max-width: 420px; margin-left: auto; margin-right: auto; }
+.empty-hint { margin-top: 28px; padding: 16px 20px; background: var(--qn-paper); border-radius: var(--qn-r-sm); text-align: left; max-width: 480px; margin-left: auto; margin-right: auto; }
+.empty-hint h4 { font-size: calc(13px * var(--qn-fs-scale)); margin: 0 0 8px; color: var(--qn-ink-2); }
+.empty-hint ul { margin: 0; padding-left: 18px; }
+.empty-hint li { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); line-height: 1.9; }
+
+/* 成员网格 */
+.family-grid-v2 {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px;
 }
-.family-cell.is-me { border-color: var(--qingnang-emerald); box-shadow: var(--shadow-card); }
-.fc-name { font-size: 13px; font-weight: 600; color: var(--ink-primary); margin: 8px 0 4px; }
-.fc-model { font-size: 11px; color: var(--ink-tertiary); margin: 0; }
-.family-guidance h3 { font-size: 14px; color: var(--qingnang-emerald); margin: 10px 0; font-weight: 600; }
-.fg-list { display: flex; flex-direction: column; gap: 8px; }
-.fg-item {
-  display: flex; gap: 12px; align-items: flex-start;
-  background: #fff; border: 1px solid var(--ink-line); border-radius: var(--radius-sm); padding: 12px 14px;
+.family-member-card {
+  /* ⚠️ border 已删 */
+  background: var(--qn-surface); border-radius: var(--qn-r-lg);
+  padding: 18px 16px; text-align: center; transition: all 0.2s;
 }
-.fg-icon { font-size: 20px; flex-shrink: 0; }
-.fg-title { font-size: 13px; font-weight: 600; color: var(--ink-primary); margin: 0 0 3px; }
-.fg-desc { font-size: 12px; color: var(--ink-secondary); margin: 0; line-height: 1.5; }
+.family-member-card:hover { box-shadow: var(--qn-shadow-2); transform: translateY(-2px); }
+.family-member-card.is-me { border-color: var(--qn-emerald); box-shadow: 0 0 0 2px rgba(var(--qn-emerald-rgb),0.12); }
+.family-member-card.gen-1, .family-member-card.gen-2 { border-left: 3px solid var(--qn-earth); }     /* 长辈 */
+.family-member-card.gen--1, .family-member-card.gen--2 { border-left: 3px solid var(--qn-wood); }   /* 晚辈 */
+
+.fc-kinship { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin: 2px 0 10px; }
+.fc-wuxing-bars { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; text-align: left; }
+.fwb-bar { display: grid; grid-template-columns: 18px 1fr 28px; align-items: center; gap: 6px; }
+.fwb-label { font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-3); font-weight: 500; }
+.fwb-track { height: 5px; background: var(--qn-line); border-radius: 3px; overflow: hidden; }
+.fwb-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+.fwb-val { font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-2); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* 全家合并 */
+.union-vs-intersection {
+  display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px;
+}
+.uvi-card {
+  /* ⚠️ border 已删 */
+  background: var(--qn-surface); border-radius: var(--qn-r-lg); padding: 18px;
+}
+.uvi-card h4 { font-size: calc(13px * var(--qn-fs-scale)); margin: 0 0 14px; color: var(--qn-ink-2); font-weight: 600; }
+.uvi-card.intersection { background: linear-gradient(180deg, var(--qn-surface) 0%, #FBF8F0 100%); }
+.uvi-card.intersection.has_weak { border-color: rgba(212,160,23,0.4); }
+
+.uvi-bars { display: flex; flex-direction: column; gap: 6px; }
+.uvi-bar { display: grid; grid-template-columns: 24px 1fr 36px; align-items: center; gap: 10px; }
+.uvi-label { font-size: calc(13px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-ink); text-align: center; }
+.uvi-track { height: 10px; background: var(--qn-line); border-radius: 5px; overflow: hidden; }
+.uvi-fill { height: 100%; border-radius: 5px; transition: width 0.4s ease; }
+.uvi-val { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); font-variant-numeric: tabular-nums; }
+
+.weak-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.weak-chip {
+  background: rgba(212,160,23,0.1); border: 1px solid rgba(212,160,23,0.35);
+  color: #8A6A10; padding: 4px 10px; border-radius: 14px; font-size: calc(12px * var(--qn-fs-scale)); font-weight: 500;
+}
+.weak-hint { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); margin: 0; line-height: 1.6; }
+
+/* 相克告警 */
+.tension-list { display: flex; flex-direction: column; gap: 10px; }
+.tension-card {
+  background: var(--qn-banner-bad-bg); border: 1px solid var(--qn-bad-bd); border-radius: var(--qn-r-sm); padding: 14px 16px;
+}
+.tension-label { font-size: calc(14px * var(--qn-fs-scale)); font-weight: 700; color: var(--qn-fire); margin-bottom: 8px; }
+.tension-detail p { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); margin: 2px 0; line-height: 1.7; }
+.tension-suggest { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-emerald); margin: 8px 0 0; font-weight: 500; }
+
+/* 联合调理建议 */
+.guidance-list-v2 { display: flex; flex-direction: column; gap: 10px; }
+.guidance-card {
+  display: flex; align-items: flex-start; gap: 12px;
+  /* ⚠️ border 已删 */
+  background: var(--qn-surface); border-radius: var(--qn-r-sm); padding: 14px 16px;
+}
+.guidance-card.cat-family { border-left: 3px solid var(--qn-earth); }
+.guidance-card.cat-tension { border-left: 3px solid var(--qn-fire); }
+.guidance-card.cat-lifestyle { border-left: 3px solid var(--qn-water); }
+.gc-icon { font-size: calc(20px * var(--qn-fs-scale)); flex-shrink: 0; margin-top: 1px; }
+.gc-text { font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink); margin: 0; line-height: 1.7; flex: 1; }
+
+/* 旧 family-grid / family-guidance 样式保留不冲突 —— 已不再使用 */
+
+/* 响应式 */
+@media (max-width: 720px) {
+  .union-vs-intersection { grid-template-columns: 1fr; }
+  .family-grid-v2 { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+}
 
 /* 邀请 */
 .invite-card {
   max-width: 520px; margin: 0 auto;
-  background: #fff; border: 1px solid var(--ink-line); border-radius: var(--radius-md); padding: 24px 28px;
+  /* ⚠️ border 已删 */
+  background: var(--qn-surface); border-radius: var(--qn-r-lg); padding: 24px 28px;
 }
-.invite-card h2 { font-size: 18px; color: var(--qingnang-emerald); margin: 0 0 6px; }
-.invite-desc { font-size: 13px; color: var(--ink-secondary); margin: 0 0 20px; line-height: 1.6; }
+.invite-card h2 { font-size: calc(18px * var(--qn-fs-scale)); color: var(--qn-emerald); margin: 0 0 6px; }
+.invite-desc { font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink-2); margin: 0 0 20px; line-height: 1.6; }
 .invite-code, .invite-link {
   display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px;
-  background: var(--qingnang-paper); border: 1px solid var(--ink-line); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 10px;
+  background: var(--qn-paper); border: 1px solid var(--qn-line); border-radius: var(--qn-r-sm); padding: 10px 14px; margin-bottom: 10px;
 }
-.ic-label { grid-column: 1 / -1; font-size: 11px; color: var(--ink-tertiary); font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 4px; }
-.ic-value { font-family: var(--font-mono); font-size: 16px; font-weight: 600; color: var(--qingnang-emerald); }
-.ic-link-input { border: none; background: transparent; font-family: var(--font-mono); font-size: 12px; color: var(--ink-secondary); width: 100%; outline: none; }
+.ic-label { grid-column: 1 / -1; font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 4px; }
+.ic-value { font-family: var(--font-mono); font-size: calc(16px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-emerald); }
+.ic-link-input { border: none; background: transparent; font-family: var(--font-mono); font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); width: 100%; outline: none; }
 .invite-share { display: flex; gap: 8px; margin: 16px 0 12px; }
 .share-btn {
-  flex: 1; font-size: 13px; padding: 10px; border-radius: var(--radius-sm);
-  border: 1px solid var(--ink-line); background: #fff; cursor: pointer; transition: all 0.15s;
+  flex: 1; font-size: calc(13px * var(--qn-fs-scale)); padding: 10px; border-radius: var(--qn-r-sm);
+  border: 1px solid var(--qn-line); background: var(--qn-surface); cursor: pointer; transition: all 0.15s;
 }
-.share-btn:hover { border-color: var(--qingnang-emerald); color: var(--qingnang-emerald); }
-.invite-terms { font-size: 11px; color: var(--ink-tertiary); text-align: center; line-height: 1.6; }
+.share-btn:hover { border-color: var(--qn-emerald); color: var(--qn-emerald); }
+.invite-terms { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); text-align: center; line-height: 1.6; }
 
 /* 弹窗 */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 200; }
-.modal-card { background: #fff; border-radius: var(--radius-md); padding: 20px; width: 380px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
-.modal-card h3 { margin: 0 0 14px; color: var(--qingnang-emerald); font-size: 16px; }
-.modal-input { width: 100%; padding: 9px 12px; border: 1px solid var(--ink-line); border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 12px; }
-.modal-input:focus { outline: none; border-color: var(--qingnang-emerald); }
+.modal-card { background: var(--qn-surface); border-radius: var(--qn-r-lg); padding: 20px; width: 380px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+.modal-card h3 { margin: 0 0 14px; color: var(--qn-emerald); font-size: calc(16px * var(--qn-fs-scale)); }
+.modal-input { width: 100%; padding: 9px 12px; border: 1px solid var(--qn-line); border-radius: var(--qn-r-sm); font-size: calc(14px * var(--qn-fs-scale)); margin-bottom: 12px; }
+.modal-input:focus { outline: none; border-color: var(--qn-emerald); }
 .add-results { display: flex; flex-direction: column; gap: 6px; }
 .result-row {
-  display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--qingnang-paper); border-radius: var(--radius-sm);
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--qn-paper); border-radius: var(--qn-r-sm);
 }
 .result-info { flex: 1; min-width: 0; }
-.result-info p { margin: 0; font-size: 13px; color: var(--ink-primary); }
-.result-id { font-size: 11px; color: var(--ink-tertiary); }
+.result-info p { margin: 0; font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink); }
+.result-id { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
 
 /* 按钮 */
-.btn { padding: 8px 16px; border: none; border-radius: var(--radius-sm); background: var(--qingnang-emerald); color: #fff; cursor: pointer; font-size: 13px; transition: all 0.15s; font-family: var(--font-body); font-weight: 500; }
-.btn:hover { background: var(--qingnang-emerald-light); }
-.btn-ghost { background: transparent; color: var(--qingnang-emerald); border: 1px solid var(--qingnang-emerald); }
-.btn-ghost:hover { background: var(--qingnang-paper); }
-.btn-small { padding: 5px 12px; font-size: 12px; }
+.btn { padding: 8px 16px; border: none; border-radius: var(--qn-r-sm); background: var(--qn-emerald); color: #fff; cursor: pointer; font-size: calc(13px * var(--qn-fs-scale)); transition: all 0.15s; font-family: var(--qn-font-body); font-weight: 500; }
+.btn:hover { background: var(--qn-emerald-light); }
+.btn-ghost { background: transparent; color: var(--qn-emerald); border: 1px solid var(--qn-emerald); }
+.btn-ghost:hover { background: var(--qn-paper); }
+.btn-small { padding: 5px 12px; font-size: calc(12px * var(--qn-fs-scale)); }
 
 /* 医生弹窗 */
 .doctor-modal { width: 480px; max-height: 85vh; overflow-y: auto; }
-.doctor-modal-head { display: flex; gap: 14px; align-items: center; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--ink-line); }
-.doctor-modal-head .friend-avatar.big { width: 56px; height: 56px; font-size: 26px; }
-.doctor-modal-head h3 { margin: 0 0 4px; font-size: 18px; color: var(--qingnang-emerald); }
-.doctor-tagline { font-size: 12px; color: var(--ink-tertiary); margin: 0; }
+.doctor-modal-head { display: flex; gap: 14px; align-items: center; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--qn-line); }
+.doctor-modal-head .friend-avatar.big { width: 56px; height: 56px; font-size: calc(26px * var(--qn-fs-scale)); }
+.doctor-modal-head h3 { margin: 0 0 4px; font-size: calc(18px * var(--qn-fs-scale)); color: var(--qn-emerald); }
+.doctor-tagline { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin: 0; }
 
 .doctor-section { margin-bottom: 14px; }
-.doctor-section h4 { font-size: 12px; color: var(--ink-tertiary); font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; margin: 0 0 6px; }
-.doctor-section p { font-size: 13px; color: var(--ink-primary); margin: 3px 0; line-height: 1.5; }
-.doctor-section .muted { font-size: 12px; color: var(--ink-tertiary); }
+.doctor-section h4 { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; margin: 0 0 6px; }
+.doctor-section p { font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink); margin: 3px 0; line-height: 1.5; }
+.doctor-section .muted { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
 
 .plan-card {
-  background: var(--qingnang-paper); border: 1px solid var(--ink-line);
-  border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 6px;
+  background: var(--qn-paper); border: 1px solid var(--qn-line);
+  border-radius: var(--qn-r-sm); padding: 12px 14px; margin-bottom: 6px;
 }
-.plan-title { font-size: 14px; color: var(--qingnang-emerald); margin: 0 0 3px; }
-.plan-date { font-size: 11px; color: var(--ink-tertiary); margin: 0; }
-.next-plan { font-size: 12px; margin-top: 6px; }
+.plan-title { font-size: calc(14px * var(--qn-fs-scale)); color: var(--qn-emerald); margin: 0 0 3px; }
+.plan-date { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin: 0; }
+.next-plan { font-size: calc(12px * var(--qn-fs-scale)); margin-top: 6px; }
 
 .doctor-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
 .doctor-actions .btn { flex: 1; min-width: 160px; text-align: center; }
@@ -777,8 +1066,8 @@ function showDoctor(f) { activeDoctor.value = f; showDoctorModal.value = true }
 .btn-primary:hover { background: #36A88F; }
 
 .doctor-disclaimer {
-  font-size: 11px; color: var(--ink-tertiary); line-height: 1.6; text-align: center;
-  padding: 10px; background: var(--qingnang-paper); border-radius: var(--radius-sm); margin-top: 14px;
+  font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); line-height: 1.6; text-align: center;
+  padding: 10px; background: var(--qn-paper); border-radius: var(--qn-r-sm); margin-top: 14px;
 }
 
 /* 响应式 */

@@ -1,10 +1,28 @@
 import { defineStore } from 'pinia'
 import { api } from '../api/client'
 import { useVectorStore } from './vector'
+import * as storage from '../utils/storage'
 
-const LS_TOKEN = 'qn_token'
-const LS_USER  = 'qn_user'
-const LS_ONBOARD = 'qingnang_onboarded'
+/** 清掉浏览器里所有用户 scope 下的业务数据（qn:*:*）
+ *  用途：register 新账号前 + login 切换账号前 — 防止旧账号残留数据泄漏到新账号
+ */
+function _clearAllBusinessScopes() {
+  const prefix = 'qn:'
+  const toRemove = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)
+    // 清 qn:xxx:yyy 格式的（业务 key），但保留 qn_token（全局 auth key）
+    if (k && k.startsWith(prefix) && !k.startsWith('qn_token') && !k.startsWith('qingnang_')) {
+      // 只清 qn:{userId}:{bizKey} 格式，保留 qingnang_onboarded / qingnang_settings 等全局
+      const parts = k.split(':')
+      if (parts.length >= 3 && parts[0] === 'qn') {
+        toRemove.push(k)
+      }
+    }
+  }
+  toRemove.forEach(k => localStorage.removeItem(k))
+  if (toRemove.length) console.log(`[storage] 清 ${toRemove.length} 个旧 scope key:`, toRemove.map(k => k.split(':')[1]))
+}
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -19,6 +37,8 @@ export const useUserStore = defineStore('user', {
     error: null,
     // ── 用户数字模型成熟度（4 阶段）──
     maturity: null,   // { stage, name, label, icon, score, max_score, next_target, is_member, missing_signals, allowed_content, forbidden_content, progress }
+    // ⭐ 引导完成标记（以 storageKey 为 key，后端持久化，换浏览器也不重弹）
+    guidesSeen: {},   // { guide_home_completed: 1728100000000, ... }
   }),
   getters: {
     loggedIn:   (s) => !!s.token,
@@ -40,15 +60,31 @@ export const useUserStore = defineStore('user', {
   actions: {
     // 启动时从 localStorage 恢复登录态
     initFromLocalStorage() {
-      const token = localStorage.getItem(LS_TOKEN)
-      const user  = localStorage.getItem(LS_USER)
-      if (token && user) {
+      const token = storage.getToken()
+      if (!token) return
+      // 🔐 关键修复：从 JWT payload 解码 qingnang_id，避免 bootstrap paradox
+      // （不依赖任何 scope key — scope key 需要 userId 才能生成，但 userId 又存在 scope key 里）
+      const qingnangId = storage.parseJwtSub(token)
+      if (!qingnangId) {
+        // token 无法解码 → 可能被篡改，清掉
+        storage.clearUserScope()
+        return
+      }
+      // 激活命名空间 — 之后所有 storage.get 都会正确拼接前缀
+      storage.setUserScope(qingnangId)
+      // 迁移老用户的全局 key 到 scope 下（首次部署后自动跑一次）
+      storage.migrateLegacyKeys(qingnangId)
+      // 从 scope 下读用户信息
+      const user = storage.get('qn_user', null)
+      if (user) {
         this.token = token
         try {
-          Object.assign(this, JSON.parse(user))
-          // 同步恢复守卫依赖的 qingnang_onboarded key（防止旧数据缺失）
-          if (this.isOnboarded && !localStorage.getItem(LS_ONBOARD)) {
-            localStorage.setItem(LS_ONBOARD, 'true')
+          Object.assign(this, user)
+          // 确保 qingnangId 也同步到 state（可能 scope key 里没存）
+          if (!this.qingnangId) this.qingnangId = qingnangId
+          // 同步守卫依赖的 onboarded
+          if (this.isOnboarded && !storage.getOnboard()) {
+            storage.setOnboarded(true)
           }
         } catch {}
       }
@@ -58,6 +94,9 @@ export const useUserStore = defineStore('user', {
     async login(phone, password) {
       this.loading = true; this.error = null
       try {
+        // ⚠️ 切换账号时先清所有旧 scope（登出不一定被调过）
+        _clearAllBusinessScopes()
+        
         const r = await api.post('/api/v1/auth/login', { phone, password })
         const d = r.data
         this.token = d.token
@@ -65,14 +104,16 @@ export const useUserStore = defineStore('user', {
         this.nickname = d.nickname
         this.isDoctor = d.is_doctor
         this.isOnboarded = d.is_onboarded
-        localStorage.setItem(LS_TOKEN, this.token)
-        localStorage.setItem(LS_USER, JSON.stringify({
+        // 🔐 写鉴权全局 key
+        storage.setToken(this.token)
+        storage.setOnboarded(this.isOnboarded)
+        // 🔐 激活用户命名空间 — 业务 key 全部走 scope
+        storage.setUserScope(this.qingnangId)
+        storage.migrateLegacyKeys(this.qingnangId)
+        storage.set('qn_user', {
           qingnang_id: this.qingnangId, nickname: this.nickname,
           is_doctor: this.isDoctor, is_onboarded: this.isOnboarded,
-        }))
-        // 同步守卫依赖的 qingnang_onboarded key
-        if (this.isOnboarded) localStorage.setItem(LS_ONBOARD, 'true')
-        else localStorage.removeItem(LS_ONBOARD)
+        })
         // 🎖️ 登录后立即拉成熟度（全局可用，不依赖 QingnangAssistant 挂载）
         this.fetchMaturity().catch(() => {})
         return d
@@ -86,6 +127,9 @@ export const useUserStore = defineStore('user', {
     async register(payload) {
       this.loading = true; this.error = null
       try {
+        // ⚠️ 先清浏览器里所有旧 scope 数据（可能来自之前未完全登出的账号）
+        _clearAllBusinessScopes()
+        
         const r = await api.post('/api/v1/auth/register', payload)
         const d = r.data
         this.token = d.token
@@ -93,13 +137,14 @@ export const useUserStore = defineStore('user', {
         this.nickname = d.nickname
         this.isDoctor = d.is_doctor
         this.isOnboarded = d.is_onboarded
-        localStorage.setItem(LS_TOKEN, this.token)
-        localStorage.setItem(LS_USER, JSON.stringify({
+        storage.setToken(this.token)
+        storage.setOnboarded(this.isOnboarded)
+        storage.setUserScope(this.qingnangId)
+        storage.migrateLegacyKeys(this.qingnangId)
+        storage.set('qn_user', {
           qingnang_id: this.qingnangId, nickname: this.nickname,
           is_doctor: this.isDoctor, is_onboarded: this.isOnboarded,
-        }))
-        if (this.isOnboarded) localStorage.setItem(LS_ONBOARD, 'true')
-        else localStorage.removeItem(LS_ONBOARD)
+        })
         // 🎖️ 注册成功后也拉成熟度
         this.fetchMaturity().catch(() => {})
         return d
@@ -118,17 +163,33 @@ export const useUserStore = defineStore('user', {
           qingnangId: d.qingnang_id, nickname: d.nickname,
           isDoctor: d.is_doctor, isOnboarded: d.is_onboarded,
           vBase: d.v_base, phone: d.phone,
+          guidesSeen: d.guides_seen || {},   // ⭐ 引导完成标记从后端拉
         })
-        localStorage.setItem(LS_USER, JSON.stringify({
+        storage.set('qn_user', {
           qingnang_id: this.qingnangId, nickname: this.nickname,
           is_doctor: this.isDoctor, is_onboarded: this.isOnboarded,
-        }))
-        if (this.isOnboarded) localStorage.setItem(LS_ONBOARD, 'true')
-        else localStorage.removeItem(LS_ONBOARD)
+          guides_seen: this.guidesSeen,
+        })
+        storage.setOnboarded(this.isOnboarded)
         return d
       } catch (e) {
         if (e.response?.status === 401) this.logout()
         throw e
+      }
+    },
+
+    /** ⭐ 引导完成标记 —— 同时写 store + localStorage + 后端（后端是 source of truth） */
+    async markGuideSeen(storageKey) {
+      const now = Date.now()
+      // 1. store
+      this.guidesSeen = { ...this.guidesSeen, [storageKey]: now }
+      // 2. localStorage（快速缓存）
+      storage.setGlobal(storageKey, now)
+      // 3. 后端持久化（换浏览器也不重弹）
+      try {
+        await api.patch('/api/v1/auth/me/guides-seen', { key: storageKey, value: now })
+      } catch (e) {
+        console.warn('[user] markGuideSeen 后端写失败（不影响前端体验）:', e.message)
       }
     },
 
@@ -137,11 +198,9 @@ export const useUserStore = defineStore('user', {
       try {
         const r = await api.post('/api/v1/cases/onboarding', data)
         this.isOnboarded = true
-        localStorage.setItem(LS_ONBOARD, 'true')  // ← 导航守卫依赖此 key
-        localStorage.setItem(LS_USER, JSON.stringify({
-          ...JSON.parse(localStorage.getItem(LS_USER) || '{}'),
-          is_onboarded: true,
-        }))
+        storage.setOnboarded(true)
+        const prev = storage.get('qn_user', {}) || {}
+        storage.set('qn_user', { ...prev, is_onboarded: true })
         return r.data
       } catch (e) {
         this.error = e.response?.data?.detail || e.message
@@ -171,6 +230,9 @@ export const useUserStore = defineStore('user', {
 
     // ── 登出（彻底清干净，避免串号残留） ──
     logout() {
+      const uid = this.qingnangId
+      // 🔐 storage.clearUserScope 一键清：全局 auth key + 该用户 scope 下所有业务 key
+      storage.clearUserScope(uid)
       this.token = null
       this.qingnangId = null
       this.nickname = null
@@ -181,9 +243,6 @@ export const useUserStore = defineStore('user', {
       this.maturity = null
       this.loading = false
       this.error = null
-      localStorage.removeItem(LS_TOKEN)
-      localStorage.removeItem(LS_USER)
-      localStorage.removeItem(LS_ONBOARD)
       // 清 vectorStore 全部缓存 — 否则换账号时会串旧账号的体质数据
       try {
         const v = useVectorStore()

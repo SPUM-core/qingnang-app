@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="splash-root">
     <!-- ═══════════════════════════════════════════════════
          舞台一：启动动画（正放 8s，结尾定格青囊 Logo 落版）
@@ -31,7 +31,7 @@
           <!-- 卡片上方：青囊横标 Logo -->
           <div class="brand-lockup" :class="{ 'lockup-in': showCard }">
             <img src="/assets/logo/icon-green.png" alt="青囊" class="lockup-icon" />
-            <img src="/assets/logo/wordmark-green-70.png" alt="" class="lockup-wordmark" />
+            <img src="/assets/logo/wordmark-green-70.png" alt="" role="presentation" class="lockup-wordmark" />
           </div>
 
           <!-- 玻璃态登录卡片 -->
@@ -215,7 +215,7 @@ async function doRegister() {
 .skip-hint {
   position: absolute; right: 20px; bottom: 16px;
   z-index: 2;
-  font-size: 12px; letter-spacing: 2px;
+  font-size: calc(12px * var(--qn-fs-scale)); letter-spacing: 2px;
   color: rgba(11,15,14,0.45);
   border: 1px solid rgba(11,15,14,0.2);
   border-radius: 999px;
@@ -269,7 +269,7 @@ async function doRegister() {
 .brand-lockup.lockup-in { opacity: 1; transform: translateY(0); }
 .lockup-icon {
   width: 48px; height: auto;   /* 48x64 */
-  filter: drop-shadow(0 2px 10px rgba(23,83,76,0.25));
+  filter: drop-shadow(0 2px 10px rgba(var(--qn-emerald-rgb),0.25));
   user-select: none; -webkit-user-drag: none;
 }
 .lockup-wordmark {
@@ -301,10 +301,10 @@ async function doRegister() {
 .card-title {
   margin: 0 0 20px;
   padding-bottom: 14px;
-  border-bottom: 1px solid rgba(26,77,69,0.15);
-  font-size: 16px;
+  border-bottom: 1px solid rgba(var(--qn-emerald-rgb),0.15);
+  font-size: calc(16px * var(--qn-fs-scale));
   font-weight: 600;
-  color: #17534C;
+  color: var(--qn-emerald);
   letter-spacing: 1px;
 }
 
@@ -312,63 +312,63 @@ async function doRegister() {
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-row { display: flex; gap: 10px; }
 .field-half { flex: 1; min-width: 0; }
-.field span { font-size: 13px; color: #2C3E3C; font-weight: 500; }
+.field span { font-size: calc(13px * var(--qn-fs-scale)); color: #2C3E3C; font-weight: 500; }
 .field input, .field select {
   padding: 11px 14px;
-  border: 1px solid rgba(26,77,69,0.20);
+  border: 1px solid rgba(var(--qn-emerald-rgb),0.20);
   border-radius: 10px;
-  font-size: 14px;
+  font-size: calc(14px * var(--qn-fs-scale));
   font-family: inherit;
   background: rgba(255,255,255,0.92);
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 .field input:focus, .field select:focus {
   outline: none;
-  border-color: #17534C;
-  box-shadow: 0 0 0 3px rgba(23,83,76,0.12);
-  background: #fff;
+  border-color: var(--qn-emerald);
+  box-shadow: 0 0 0 3px rgba(var(--qn-emerald-rgb),0.12);
+  background: var(--qn-surface);
 }
 
 .btn-primary {
   margin-top: 4px;
   padding: 12px;
-  font-size: 15px;
+  font-size: calc(15px * var(--qn-fs-scale));
   letter-spacing: 3px;
-  background: linear-gradient(135deg, #17534C 0%, #2E7D6A 100%);
+  background: linear-gradient(135deg, var(--qn-emerald) 0%, var(--qn-emerald-light) 100%);
   color: #fff;
   border: none;
   border-radius: 10px;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.2s, filter 0.2s;
   font-weight: 500;
-  box-shadow: 0 4px 18px rgba(23,83,76,0.35);
+  box-shadow: 0 4px 18px rgba(var(--qn-emerald-rgb),0.35);
 }
-.btn-primary:hover:not(:disabled) { filter: brightness(1.05); transform: translateY(-1px); box-shadow: 0 6px 22px rgba(23,83,76,0.45); }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.05); transform: translateY(-1px); box-shadow: 0 6px 22px rgba(var(--qn-emerald-rgb),0.45); }
 .btn-primary:active:not(:disabled) { transform: translateY(0); }
 .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; filter: grayscale(0.3); }
 
 .error-hint {
   background: rgba(168,68,47,0.08);
   border: 1px solid rgba(168,68,47,0.35);
-  color: #A8442F;
+  color: var(--qn-cinnabar);
   padding: 8px 12px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: calc(13px * var(--qn-fs-scale));
 }
 
 .switch-mode {
   text-align: center;
-  font-size: 13px;
+  font-size: calc(13px * var(--qn-fs-scale));
   color: #6B7277;
   margin: 6px 0 0;
 }
 .link-btn {
   background: none; border: none; padding: 0;
-  color: #17534C;
-  cursor: pointer; font-size: 13px; font-weight: 600;
+  color: var(--qn-emerald);
+  cursor: pointer; font-size: calc(13px * var(--qn-fs-scale)); font-weight: 600;
   transition: color 0.15s;
 }
-.link-btn:hover { color: #2E7D6A; text-decoration: underline; }
+.link-btn:hover { color: var(--qn-emerald-light); text-decoration: underline; }
 
 /* 舞台切换淡入 */
 .stage-enter-active { transition: opacity 0.8s ease-out; }
@@ -378,7 +378,7 @@ async function doRegister() {
   position: relative; z-index: 1;
   text-align: center;
   padding: 0 20px 18px;
-  font-size: 11px;
+  font-size: calc(11px * var(--qn-fs-scale));
   color: rgba(11,15,14,0.4);
   letter-spacing: 2px;
   user-select: none;

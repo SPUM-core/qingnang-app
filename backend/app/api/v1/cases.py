@@ -9,7 +9,19 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from ...database import get_db
-from ...models import User, Case, Observation, TreatmentPlan, TrajectoryEvent
+from ...models import (
+    User, Case, Observation, TreatmentPlan, TrajectoryEvent,
+    ChatMessage, LifeSignal,
+    Challenge, Checkin,
+    ShopReview, ShopOrder,
+    Feedback, Friend,
+    InquirySession,
+)
+# chat.py 里其他模型未在 __init__.py 导出，直接子模块导入
+from ...models.chat import (
+    ChatMemoryNode, VoiceSample, VoiceAnalysis,
+    TonguePhoto, MedicalReport,
+)
 from ..deps import get_current_user
 from ...config import settings
 from ...utils import WUXING_LIST
@@ -496,49 +508,65 @@ def get_radar(db: Session = Depends(get_db), current: User = Depends(get_current
         return {"message": "未初始化建档"}
 
     dims = ['wood', 'fire', 'earth', 'metal', 'water']
-    innate = case.v_innate or {k: 50 for k in dims}
+    innate_raw = case.v_innate or {k: 20 for k in dims}
 
     # v_current: 优先 case.v_current（上次 PPG 写入），否则取最新 Observation
-    v_current = case.v_current
-    if not v_current:
+    v_current_raw = case.v_current
+    if not v_current_raw:
         latest = db.query(Observation).filter(
             Observation.case_id == case.id
         ).order_by(Observation.observed_at.desc()).first()
-        v_current = (latest.v_obs if latest else None) or innate
+        v_current_raw = (latest.v_obs if latest else None) or innate_raw
 
-    # 健康区带中心 H = [50,50,50,50,50]
-    v_health_center = {k: 50 for k in dims}
+    # ═══ 量纲归一化：全部映射到 Σ=100 概率分布空间（center=20）═══
+    # DB 可能混存 center=20 概率分布（Σ≈100）和 center=50 标量（Σ≈250）
+    # 这里统一归一化，确保 delta_norm / layers / YX 都在同一坐标系
+    def _normalize(d: dict) -> dict:
+        if not isinstance(d, dict):
+            return {k: 20.0 for k in dims}
+        vals = [float(d.get(k, 0)) for k in dims]
+        total = sum(vals)
+        if total < 1:  # 防止除零
+            return {k: 20.0 for k in dims}
+        return {k: round(d.get(k, 0) / total * 100, 1) for k in dims}
 
-    # 归一化偏离度: (v_current - v_innate) / H_RANGE
+    innate = _normalize(innate_raw)
+    v_current = _normalize(v_current_raw)
+
+    # 健康区带中心 H = [20,20,20,20,20]（center=20 概率分布口径）
+    v_health_center = {k: 20 for k in dims}
+
+    # 归一化偏离度: (v_current_norm - v_innate_norm) / H_RANGE
+    # 注：H_RANGE 是 center=20 概率分布空间的各维健康半宽
     delta_norm = {}
     for k in dims:
-        v_cur = v_current.get(k, 50) if isinstance(v_current, dict) else 50
-        v_in  = innate.get(k, 50) if isinstance(innate, dict) else 50
+        v_cur = v_current.get(k, 20)
+        v_in  = innate.get(k, 20)
         hr    = H_RANGE.get(k, 30)
         delta_norm[k] = round((v_cur - v_in) / hr, 2)
 
-    # SPUM Y/X 实时（用 v_current 算）
-    yx = compute_yx(v_current) if isinstance(v_current, dict) else {'Y': 50, 'X': 50}
+    # SPUM Y/X 实时（用归一化后 v_current 算）
+    yx = compute_yx(v_current) if isinstance(v_current, dict) else {'Y': 20, 'X': 20}
 
-    # 三层
+    # 三层（全部 center=20 概率分布空间）
     layers = []
+    if layer == 'all':
+        layers.append({
+            'name': '健康区带 H', 'type': 'center',
+            'value': [20, 20, 20, 20, 20],
+            'color': '#7BC4A9', 'style': 'dashed',
+        })
     if layer in ('all', 'innate'):
         layers.append({
             'name': '先天基底 S₀⁰', 'type': 'innate',
-            'value': [innate.get(k, 50) for k in dims],
+            'value': [innate.get(k, 20) for k in dims],
             'color': '#1A4D45', 'style': 'solid',
         })
     if layer in ('all', 'current'):
         layers.append({
             'name': '当前观测 V_obs', 'type': 'current',
-            'value': [v_current.get(k, 50) for k in dims] if isinstance(v_current, dict) else [50]*5,
+            'value': [v_current.get(k, 20) for k in dims],
             'color': '#A8442F', 'style': 'solid',
-        })
-    if layer == 'all':
-        layers.insert(0, {
-            'name': '健康区带 H', 'type': 'center',
-            'value': [50, 50, 50, 50, 50],
-            'color': '#7BC4A9', 'style': 'dashed',
         })
 
     return {
@@ -726,35 +754,102 @@ async def do_onboarding(body: dict, db: Session = Depends(get_db),
 async def reset_my_case(db: Session = Depends(get_db),
                         current: User = Depends(get_current_user)):
     """重置当前用户的全部数据（"重新开始"按钮）。
-    清：Observations → TreatmentPlans → TrajectoryEvents → Case → User.is_onboarded=False
+    清：所有 user_id 关联数据 + Case 关联数据 + qingmeng 引擎拓扑文件。
     用户账号本身保留。"""
-    deleted = {"observations": 0, "plans": 0, "events": 0, "case": False}
+    import os, glob as _glob
+
+    deleted = {
+        # ── Case 关联（case_id）──
+        "observations": 0, "plans": 0, "events": 0, "case": False,
+        # ── User 关联（user_id / creator_id）──
+        "chat_messages": 0, "chat_memory": 0, "life_signals": 0,
+        "voice_samples": 0, "voice_analyses": 0,
+        "tongue_photos": 0, "medical_reports": 0,
+        "challenges": 0, "checkins": 0,
+        "shop_reviews": 0, "shop_orders": 0,
+        "feedbacks": 0, "friends": 0,
+        "inquiry_sessions": 0,
+        # ── 文件系统 ──
+        "qingmeng_topology_files": 0,
+    }
 
     case = db.query(Case).filter(Case.user_id == current.id).first()
-    if case:
-        cid = case.id
+    cid = case.id if case else None
+
+    # ── 1. Case 级清理（case_id 关联）──
+    if cid:
         deleted["observations"] = db.query(Observation).filter(Observation.case_id == cid).delete()
         deleted["plans"]       = db.query(TreatmentPlan).filter(TreatmentPlan.case_id == cid).delete()
         deleted["events"]      = db.query(TrajectoryEvent).filter(TrajectoryEvent.case_id == cid).delete()
         db.delete(case)
         deleted["case"] = True
 
-    # 重置用户建档标记 + 清体质向量基底（让重新建档从白纸开始）
+    # ── 2. User 级清理（全部按 user_id / creator_id / participant 清理）──
+    uid = current.id
+
+    # Chat & 对话信号（today-todos 的数据源 2 和 3！不清除的话今日建议会残留）
+    deleted["chat_messages"] = db.query(ChatMessage).filter(ChatMessage.user_id == uid).delete()
+    deleted["chat_memory"]   = db.query(ChatMemoryNode).filter(ChatMemoryNode.user_id == uid).delete()
+    deleted["life_signals"]  = db.query(LifeSignal).filter(LifeSignal.user_id == uid).delete()
+
+    # 五诊采集数据
+    deleted["voice_samples"]  = db.query(VoiceSample).filter(VoiceSample.user_id == uid).delete()
+    deleted["voice_analyses"] = db.query(VoiceAnalysis).filter(VoiceAnalysis.user_id == uid).delete()
+    deleted["tongue_photos"]  = db.query(TonguePhoto).filter(TonguePhoto.user_id == uid).delete()
+    deleted["medical_reports"] = db.query(MedicalReport).filter(MedicalReport.user_id == uid).delete()
+
+    # 挑战打卡（只清用户创建的 + 用户参与的 checkin）
+    deleted["challenges"] = db.query(Challenge).filter(
+        Challenge.creator_id == uid
+    ).delete(synchronize_session=False)
+    deleted["checkins"] = db.query(Checkin).filter(Checkin.user_id == uid).delete()
+
+    # 商城
+    deleted["shop_reviews"] = db.query(ShopReview).filter(ShopReview.user_id == uid).delete()
+    deleted["shop_orders"]  = db.query(ShopOrder).filter(ShopOrder.user_id == uid).delete()
+
+    # 反馈
+    deleted["feedbacks"] = db.query(Feedback).filter(Feedback.user_id == uid).delete()
+
+    # 好友关系（双向：user_id=我 OR friend_id=我）
+    deleted["friends"] = db.query(Friend).filter(
+        (Friend.user_id == uid) | (Friend.friend_id == uid)
+    ).delete()
+
+    # 问诊会话
+    deleted["inquiry_sessions"] = db.query(InquirySession).filter(InquirySession.user_id == uid).delete()
+
+    # ── 3. 重置用户建档标记 + 清体质向量基底 ──
     current.is_onboarded = False
     current.v_base = None
     db.commit()
 
-    logger.info(f"[reset] user={current.qingnang_id} 已重置: {deleted}")
+    # ── 4. 清理 qingmeng 引擎拓扑持久化文件（与 _reset_user.py 一致）──
+    TOPO_DIR = os.path.expanduser('~/.qingmeng/user_states')
+    qingnang_id = current.qingnang_id or f"user_{uid}"
+    if os.path.isdir(TOPO_DIR):
+        removed = 0
+        for f in _glob.glob(os.path.join(TOPO_DIR, f'user_*{qingnang_id}*.pkl')):
+            try:
+                os.remove(f); removed += 1
+            except OSError: pass
+        for f in _glob.glob(os.path.join(TOPO_DIR, f'user_{uid}.pkl')):
+            try:
+                os.remove(f); removed += 1
+            except OSError: pass
+        deleted["qingmeng_topology_files"] = removed
+
+    logger.info(f"[reset] user={qingnang_id} 已重置: {deleted}")
     return {"ok": True, "deleted": deleted, "message": "已重置，请重新建档"}
 
 
 @router.get("/today-todos")
-def get_today_todos(db: Session = Depends(get_db),
-                    current: User = Depends(get_current_user)):
+async def get_today_todos(db: Session = Depends(get_db),
+                          current: User = Depends(get_current_user)):
     """今日生活建议 Todo 聚合端点。
 
     合并三个数据源 → 统一格式 Todo 卡片：
-      1. /notifications/today 的动态生活提醒（food_good + home + 睡眠类）
+      1. qingmeng-engine LLM lifestyle 推理（food_good + home_reminders）
       2. 最近 assistant 消息的 analysis.suggestions（AI 从对话中给出的建议）
       3. LifeSignal 最近标签（给前端做"你聊过这些"提示）
 
@@ -766,40 +861,66 @@ def get_today_todos(db: Session = Depends(get_db),
     import json as _json
     from datetime import datetime, timedelta
     from ...models import ChatMessage, LifeSignal
+    from ...utils.maturity import compute_maturity
 
     case = db.query(Case).filter(Case.user_id == current.id).first()
     todos = []
 
-    # ═══ 数据源 1：notifications 生活提醒 ═══
+    # ═══ 2026-10-04: 按 maturity stage 过滤 todo 类别 ═══
+    mat = compute_maturity(current, db)
+    stage = mat["stage"]
+    _ALLOW_CATS_BY_STAGE = {
+        1: {"lifestyle"},
+        2: {"diet", "avoid", "lifestyle"},
+        3: {"diet", "avoid", "lifestyle", "exercise", "sleep", "cloth", "home"},
+        4: {"diet", "avoid", "lifestyle", "exercise", "sleep", "cloth", "home", "herb"},
+    }
+    allowed_cats = _ALLOW_CATS_BY_STAGE.get(stage, _ALLOW_CATS_BY_STAGE[1])
+
+    # ═══ 数据源 1：qingmeng-engine LLM lifestyle 推理 ═══
+    # 2026-10-05 重构：从硬编码规则引擎 → LLM 驱动
     try:
-        from .notifications import _generate_reminders
+        from .notifications import _call_qingmeng_lifestyle, build_user_meta
         v = (case.v_baseline if case else None) or current.v_base or {}
         if v:
-            rem = _generate_reminders(v)
-            # food_good → todo
-            for i, f in enumerate(rem.get("food_good", [])):
-                todos.append({
-                    "id": f"food-good-{i}",
-                    "title": f.get("title", ""),
-                    "desc": f.get("desc", ""),
-                    "icon": "🍜",
-                    "priority": "medium",
-                    "source": "lifestyle",
-                    "route": "/notifications",
-                })
-            # home → todo（最多 3 条）
-            for i, h in enumerate(rem.get("home", [])[:3]):
-                todos.append({
-                    "id": f"home-{i}",
-                    "title": h.get("title", ""),
-                    "desc": h.get("desc", ""),
-                    "icon": "🏠",
-                    "priority": "high" if h.get("urgent") else "medium",
-                    "source": "lifestyle",
-                    "route": "/notifications",
-                })
+            llm_data = await _call_qingmeng_lifestyle(
+                v_base=v,
+                v_current=(case.v_current if case else None),
+                qingnang_id=current.qingnang_id or f"user_{current.id}",
+                user_meta=build_user_meta(current, case),  # ⭐ 2026-10-06 医学个性化
+            )
+            # food_good → todo（带 detail/reason/source 给前端展开）
+            if "diet" in allowed_cats:
+                for i, f in enumerate(llm_data.get("food_good", [])):
+                    todos.append({
+                        "id": f"food-good-{i}",
+                        "title": f.get("title", ""),
+                        "desc": f.get("desc", ""),
+                        "detail": f.get("detail", ""),
+                        "reason": f.get("reason", ""),
+                        "source": f.get("source", ""),
+                        "icon": "🍜",
+                        "priority": "medium",
+                        "source_type": "lifestyle",
+                        "route": "/notifications",
+                    })
+            # home_reminders → todo（qingmeng-engine 字段名是 home_reminders）
+            if "home" in allowed_cats:
+                for i, h in enumerate(llm_data.get("home_reminders", [])[:3]):
+                    todos.append({
+                        "id": f"home-{i}",
+                        "title": h.get("title", ""),
+                        "desc": h.get("desc", ""),
+                        "detail": h.get("detail", ""),
+                        "reason": h.get("reason", ""),
+                        "source": h.get("source", ""),
+                        "icon": "🏠",
+                        "priority": "high" if h.get("urgent") else "medium",
+                        "source_type": "lifestyle",
+                        "route": "/notifications",
+                    })
     except Exception as e:
-        logger.info(f"[today-todos] notifications 源跳过: {e}")
+        logger.info(f"[today-todos] qingmeng LLM 源跳过: {e}")
 
     # ═══ 数据源 2：AI 对话的 analysis.suggestions ═══
     # 找最近 24h 的 assistant 消息，signals 里有 suggestions
@@ -829,8 +950,11 @@ def get_today_todos(db: Session = Depends(get_db),
             title = s.get("title", "")
             if not title or title in seen_titles:
                 continue
-            seen_titles.add(title)
             cat = s.get("category", "lifestyle")
+            # 2026-10-04: 按 maturity stage 过滤 AI suggestions 类别
+            if cat not in allowed_cats:
+                continue
+            seen_titles.add(title)
             icon_map = {"diet": "🍜", "herb": "🌿", "exercise": "🏃",
                         "avoid": "⚠️", "lifestyle": "💡", "sleep": "🌙"}
             todos.append({

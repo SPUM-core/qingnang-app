@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import * as storage from '../utils/storage'
 
 const routes = [
   // ── 登录/注册 (全屏独占 · 未登录可访问 · 已登录自动跳主页) ──
@@ -18,6 +19,8 @@ const routes = [
   { path: '/collect/voice', name: 'collect-voice', component: () => import('../views/VoiceSampleView.vue'), meta: { title: '语音样本' } },
   { path: '/collect/ppg', name: 'collect-ppg', component: () => import('../views/PpgCollectView.vue'), meta: { title: '脉搏采集' } },
   { path: '/collect/inquiry', name: 'collect-inquiry', component: () => import('../views/InquiryView.vue'), meta: { title: '问诊采集' } },
+  { path: '/collect/tongue', name: 'collect-tongue', component: () => import('../views/TonguePhotoView.vue'), meta: { title: '舌部照片' } },
+  { path: '/collect/report', name: 'collect-report', component: () => import('../views/ReportArchiveView.vue'), meta: { title: '检查报告' } },
 
   // 发现页（知识 + 商城 合并）
   { path: '/discover', name: 'discover', component: () => import('../views/DiscoverView.vue'), meta: { title: '发现' } },
@@ -25,7 +28,9 @@ const routes = [
   { path: '/shop', redirect: '/discover?tab=shop' },
   { path: '/shop/:id', name: 'shop-detail', component: () => import('../views/ShopDetailView.vue'), meta: { title: '商品详情' } },
 
-  { path: '/users', name: 'users', component: () => import('../views/UserManageView.vue'), meta: { title: '我的好友' } },
+  // 关系网暂时不在主导航暴露，但路由保留（可通过 /friends 直接访问）
+  { path: '/friends', name: 'friends', component: () => import('../views/UserManageView.vue'), meta: { title: '关系网' } },
+  { path: '/users', redirect: '/friends' },
   { path: '/notifications', name: 'notifications', component: () => import('../views/NotificationsView.vue'), meta: { title: '提醒通知' } },
   { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue'), meta: { title: '设置' } },
   { path: '/:pathMatch(.*)*', redirect: '/' }
@@ -38,8 +43,8 @@ const router = createRouter({
 
 // ── 导航守卫 ──
 router.beforeEach((to) => {
-  const token = localStorage.getItem('qn_token')
-  const onboarded = localStorage.getItem('qingnang_onboarded') === 'true'
+  const token = storage.getToken()
+  const onboarded = storage.getOnboarded()
 
   // ① 已登录 + 去 login/register → 跳主页（redirectIfLoggedIn）
   if (to.meta.redirectIfLoggedIn && token) {

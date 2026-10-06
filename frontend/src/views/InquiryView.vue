@@ -44,14 +44,17 @@
 
       <!-- 问题列表 -->
       <div class="questions">
-        <div v-for="(q, qi) in questions" :key="q.id" class="q-card" :class="{ answered: answers[q.id] }">
+        <div v-for="(q, qi) in questions" :key="q.id" class="q-card"
+             :class="{ answered: isAnswered(q), skipped: answers[q.id]?.skipped }">
           <div class="q-header">
-            <span class="q-num">Q{{ qi + 1 }}</span>
-            <span class="q-text">{{ q.text }}</span>
+            <span class="q-num" :class="{ skipped: answers[q.id]?.skipped }">
+              Q{{ qi + 1 }}{{ answers[q.id]?.skipped ? ' · 已跳过' : '' }}
+            </span>
+            <span class="q-text" :class="{ skipped: answers[q.id]?.skipped }">{{ q.text }}</span>
           </div>
 
           <!-- 单选 -->
-          <div v-if="q.type === 'single'" class="opt-list">
+          <div v-if="q.type === 'single' && !answers[q.id]?.skipped" class="opt-list">
             <button
               v-for="o in q.options" :key="o.id"
               class="opt-btn"
@@ -61,7 +64,7 @@
           </div>
 
           <!-- 多选 -->
-          <div v-else-if="q.type === 'multi'" class="opt-list">
+          <div v-else-if="q.type === 'multi' && !answers[q.id]?.skipped" class="opt-list">
             <button
               v-for="o in q.options" :key="o.id"
               class="opt-btn"
@@ -71,33 +74,44 @@
           </div>
 
           <!-- 纯文本 -->
-          <input v-else class="text-input"
+          <input v-else-if="q.type === 'text' && !answers[q.id]?.skipped" class="text-input"
                  :placeholder="q.note_hint || '请输入…'"
                  :value="answers[q.id]?.text || ''"
                  @input="answers[q.id] = { text: $event.target.value }" />
 
           <!-- 备注 -->
-          <div v-if="q.allow_note" class="note-row">
+          <div v-if="q.allow_note && !answers[q.id]?.skipped" class="note-row">
             <button class="note-toggle" @click="toggleNote(q.id)">
-              <span>{{ notes[q.id] ? '✎ 有备注' : '＋ 备注（可选）' }}</span>
+              <span>{{ notes[q.id] !== undefined ? '✎ 备注中' : '＋ 备注（可替代选择）' }}</span>
             </button>
             <textarea
               v-if="notes[q.id] !== undefined"
               class="note-input"
               rows="2"
-              :placeholder="q.note_hint || '想补充点什么？'"
+              :placeholder="q.note_hint || '想补充点什么？（只写备注也可以提交这题）'"
               v-model="notes[q.id]"
+              @input="onNoteInput(q)"
             />
+          </div>
+
+          <!-- 跳过按钮 -->
+          <div v-if="q.allow_skip && !answers[q.id]?.skipped" class="skip-row">
+            <button class="skip-btn" @click="skipQuestion(q.id)">跳过这题 →</button>
+          </div>
+          <div v-else-if="answers[q.id]?.skipped" class="unskip-row">
+            <button class="unskip-btn" @click="unskipQuestion(q.id)">← 我想答这题</button>
           </div>
         </div>
       </div>
 
       <!-- 提交 -->
-      <button class="primary-btn submit-btn" :disabled="!allAnswered || submitting" @click="submitAnswers">
+      <button class="primary-btn submit-btn" :disabled="!canSubmit || submitting" @click="submitAnswers">
         <span v-if="submitting">提交中…</span>
         <span v-else>{{ isFinal ? '完成问诊 → 查看状态摘要' : '提交并进入下一阶段' }}</span>
       </button>
-      <p class="hint" v-if="!allAnswered">请先回答本阶段所有问题</p>
+      <p class="hint" v-if="!canSubmit">
+        {{ unansweredCount > 0 ? `还有 ${unansweredCount} 道题没答（可跳过）` : '准备就绪' }}
+      </p>
     </div>
 
     <!-- 完成 -->
@@ -134,8 +148,8 @@
         </div>
       </div>
       <div class="done-actions">
+        <button class="ghost-btn" @click="goChatWithSummary">💬 把这些告诉青囊 · 让 AI 解读</button>
         <button class="ghost-btn" @click="$router.back()">返回采集</button>
-        <button class="primary-btn" @click="resetSession">再来一次</button>
       </div>
     </div>
   </section>
@@ -143,7 +157,11 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '../api/client'
+import * as storage from '../utils/storage'
+
+const router = useRouter()
 
 const STAGES = [
   { key: "initial",  idx: 0, label: "主诉与核心症状" },
@@ -169,11 +187,56 @@ const currentStageIdx = computed(() =>
 )
 const isFinal = computed(() => stage.value === "finalize")
 
-const allAnswered = computed(() =>
-  questions.value.every(q => answers[q.id])
+// 灵活判断：题算"已处理"（可以是选择了、写了备注、纯文本写了、或者允许跳过）
+function isAnswered(q) {
+  const a = answers[q.id]
+  if (!a) return false
+  if (a.skipped) return true
+  // text type：有 text 值就算
+  if (q.type === 'text') return !!a.text?.trim()
+  // single / multi：有选择值就算
+  if (q.type === 'single') return !!a.value
+  if (q.type === 'multi') return (a.values?.length || 0) > 0
+  return false
+}
+
+// 必须答的题（不可跳过 + 没答）
+// 兜底：allow_skip 缺省当 true（宁肯让用户能跳过，不让提交按钮卡死）
+const unansweredCount = computed(() =>
+  questions.value.filter(q => {
+    if (q.allow_skip !== false) return false   // 缺省 true → 可跳过，不算
+    return !isAnswered(q)                       // 不可跳过且没答
+  }).length
 )
 
+// 可提交：所有"不可跳过"的题都已答
+const canSubmit = computed(() => unansweredCount.value === 0)
+
+function skipQuestion(qid) {
+  answers[qid] = { skipped: true }
+}
+
+function unskipQuestion(qid) {
+  delete answers[qid]
+}
+
+// 备注输入时，自动创建空 answers 对象（表示"用备注作答"）
+function onNoteInput(q) {
+  const noteVal = notes[q.id]?.trim()
+  if (!noteVal) return
+  // 如果这题还没选也没跳过，自动补一个 answers 占位（让 isAnswered 在有备注时也算答）
+  if (!answers[q.id] || answers[q.id].skipped) {
+    if (q.type === 'multi') {
+      answers[q.id] = answers[q.id] || { values: [], labels: [] }
+    } else {
+      answers[q.id] = answers[q.id] || {}
+    }
+  }
+}
+
 function toggleMulti(qid, opt) {
+  // 如果之前跳过了，先取消跳过
+  if (answers[qid]?.skipped) delete answers[qid]
   if (!answers[qid]?.values) {
     answers[qid] = { values: [], labels: [] }
   }
@@ -192,7 +255,7 @@ function toggleNote(qid) {
 async function startSession() {
   loading.value = true
   try {
-    const provider = JSON.parse(localStorage.getItem('qingnang_settings') || '{}').llm_provider || 'spum'
+    const provider = (storage.get('qingnang_settings', {}) || {}).llm_provider || 'spum'
     const r = await api.post('/api/v1/assistant/inquiry/start', { provider })
     loadStage(r.data)
   } catch (e) {
@@ -212,7 +275,7 @@ function loadStage(d) {
 }
 
 async function submitAnswers() {
-  if (!allAnswered.value || submitting.value) return
+  if (!canSubmit.value || submitting.value) return
   submitting.value = true
 
   // 组装 answer payload
@@ -243,6 +306,20 @@ async function submitAnswers() {
   } finally { submitting.value = false }
 }
 
+function goChatWithSummary() {
+  // 把 summary 的关键发现注入 localStorage，让青囊管家 AI 自动读取并解读
+  const sm = summary.value
+  if (sm) {
+    storage.set('qingnang_inquiry_summary', {
+      dominant_pattern: sm.dominant_pattern,
+      key_findings: sm.key_findings?.slice(0, 3) || [],
+      next_action: sm.next_action,
+      ts: Date.now(),
+    })
+  }
+  router.push('/')  // 回 Dashboard，青囊管家在那里
+}
+
 function resetSession() {
   sessionId.value = null
   stage.value = "initial"
@@ -258,95 +335,96 @@ function resetSession() {
 .inquiry { max-width: 640px; margin: 0 auto; padding: 16px; }
 
 .inquiry__start { text-align: center; padding: 32px 20px; }
-.page-title { font-size: 22px; font-weight: 600; margin-bottom: 8px; color: var(--qingnang-emerald); }
-.page-desc { font-size: 13px; color: var(--ink-secondary); margin-bottom: 24px; line-height: 1.7; }
+.page-title { font-size: calc(22px * var(--qn-fs-scale)); font-weight: 600; margin-bottom: 8px; color: var(--qn-emerald); }
+.page-desc { font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink-2); margin-bottom: 24px; line-height: 1.7; }
 .start-info { display: flex; justify-content: center; gap: 24px; margin-bottom: 28px; }
 .info-row { display: flex; flex-direction: column; align-items: center; }
-.num { font-size: 22px; font-weight: 700; color: var(--qingnang-emerald); }
-.info-text { font-size: 11px; color: var(--ink-tertiary); margin-top: 4px; }
+.num { font-size: calc(22px * var(--qn-fs-scale)); font-weight: 700; color: var(--qn-emerald); }
+.info-text { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin-top: 4px; }
 
 .primary-btn {
-  background: var(--qingnang-emerald); color: #fff;
+  background: var(--qn-emerald); color: #fff;
   border: none; padding: 14px 36px; border-radius: 24px;
-  font-size: 14px; font-weight: 600; cursor: pointer;
+  font-size: calc(14px * var(--qn-fs-scale)); font-weight: 600; cursor: pointer;
   transition: all 0.15s;
 }
 .primary-btn:hover:not(:disabled) { background: #166f63; }
 .primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .submit-btn { margin-top: 20px; width: 100%; }
-.hint { font-size: 11px; color: var(--ink-tertiary); text-align: center; margin-top: 8px; }
+.hint { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); text-align: center; margin-top: 8px; }
 
 /* 进度条 */
 .progress-bar {
   display: flex; justify-content: space-between; align-items: flex-start;
-  gap: 8px; padding: 16px 4px 20px; border-bottom: 1px solid var(--ink-line); margin-bottom: 16px;
+  gap: 8px; padding: 16px 4px 20px; border-bottom: 1px solid var(--qn-line); margin-bottom: 16px;
 }
 .stage-dot {
   display: flex; flex-direction: column; align-items: center; flex: 1;
-  font-size: 11px; color: var(--ink-tertiary);
+  font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3);
 }
 .dot-num {
   width: 26px; height: 26px; border-radius: 50%;
-  border: 2px solid var(--ink-line);
+  border: 2px solid var(--qn-line);
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 600; margin-bottom: 6px; background: #fff;
+  font-size: calc(12px * var(--qn-fs-scale)); font-weight: 600; margin-bottom: 6px; background: var(--qn-surface);
 }
-.stage-dot.done .dot-num { background: var(--qingnang-emerald); border-color: var(--qingnang-emerald); color: #fff; }
-.stage-dot.active .dot-num { border-color: var(--qingnang-emerald); color: var(--qingnang-emerald); font-weight: 700; transform: scale(1.1); }
-.stage-dot.active { color: var(--qingnang-emerald); font-weight: 600; }
+.stage-dot.done .dot-num { background: var(--qn-emerald); border-color: var(--qn-emerald); color: #fff; }
+.stage-dot.active .dot-num { border-color: var(--qn-emerald); color: var(--qn-emerald); font-weight: 700; transform: scale(1.1); }
+.stage-dot.active { color: var(--qn-emerald); font-weight: 600; }
 .dot-label { text-align: center; line-height: 1.2; }
 
 .stage-header { text-align: center; margin-bottom: 20px; }
-.stage-header h3 { margin: 0 0 6px; font-size: 16px; color: var(--ink-primary); }
-.stage-desc { font-size: 12px; color: var(--ink-secondary); }
+.stage-header h3 { margin: 0 0 6px; font-size: calc(16px * var(--qn-fs-scale)); color: var(--qn-ink); }
+.stage-desc { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); }
 
 /* 问题卡片 */
 .questions { display: flex; flex-direction: column; gap: 16px; }
 .q-card {
-  background: #fff; border: 1px solid var(--ink-line);
-  border-radius: var(--radius-md); padding: 16px 18px;
+  /* ⚠️ border 已删 */
+  background: var(--qn-surface);
+  border-radius: var(--qn-r-lg); padding: 16px 18px;
 }
-.q-card.answered { border-color: var(--qingnang-emerald); background: rgba(46,125,106,0.03); }
+.q-card.answered { border-color: var(--qn-emerald); background: rgba(var(--qn-emerald-light-rgb),0.03); }
 .q-header { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; }
 .q-num {
-  background: var(--qingnang-emerald); color: #fff;
-  font-size: 10px; font-weight: 700;
+  background: var(--qn-emerald); color: #fff;
+  font-size: calc(10px * var(--qn-fs-scale)); font-weight: 700;
   padding: 2px 7px; border-radius: 4px;
   flex-shrink: 0;
 }
-.q-text { font-size: 14px; font-weight: 500; color: var(--ink-primary); line-height: 1.5; }
+.q-text { font-size: calc(14px * var(--qn-fs-scale)); font-weight: 500; color: var(--qn-ink); line-height: 1.5; }
 
 /* 选项 */
 .opt-list { display: flex; flex-direction: column; gap: 8px; }
 .opt-btn {
-  padding: 11px 14px; border: 1px solid var(--ink-line);
-  border-radius: 8px; background: #fff; font-size: 13px;
-  color: var(--ink-primary); cursor: pointer; text-align: left;
+  padding: 11px 14px; border: 1px solid var(--qn-line);
+  border-radius: 8px; background: var(--qn-surface); font-size: calc(13px * var(--qn-fs-scale));
+  color: var(--qn-ink); cursor: pointer; text-align: left;
   transition: all 0.12s;
 }
-.opt-btn:hover { border-color: var(--qingnang-emerald); }
+.opt-btn:hover { border-color: var(--qn-emerald); }
 .opt-btn.selected {
-  border-color: var(--qingnang-emerald);
-  background: rgba(46,125,106,0.08);
-  color: var(--qingnang-emerald);
+  border-color: var(--qn-emerald);
+  background: rgba(var(--qn-emerald-light-rgb),0.08);
+  color: var(--qn-emerald);
   font-weight: 600;
 }
 
 .text-input {
-  width: 100%; padding: 10px 12px; border: 1px solid var(--ink-line);
-  border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical;
+  width: 100%; padding: 10px 12px; border: 1px solid var(--qn-line);
+  border-radius: 8px; font-size: calc(13px * var(--qn-fs-scale)); font-family: inherit; resize: vertical;
   box-sizing: border-box;
 }
 
 .note-row { margin-top: 10px; }
 .note-toggle {
-  font-size: 11px; color: var(--ink-tertiary); background: none; border: none;
+  font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); background: none; border: none;
   cursor: pointer; padding: 0;
 }
-.note-toggle:hover { color: var(--qingnang-emerald); }
+.note-toggle:hover { color: var(--qn-emerald); }
 .note-input {
-  width: 100%; padding: 8px 10px; border: 1px dashed var(--ink-line);
-  border-radius: 6px; font-size: 12px; margin-top: 6px; font-family: inherit;
+  width: 100%; padding: 8px 10px; border: 1px dashed var(--qn-line);
+  border-radius: 6px; font-size: calc(12px * var(--qn-fs-scale)); margin-top: 6px; font-family: inherit;
   resize: vertical; box-sizing: border-box;
 }
 
@@ -354,31 +432,58 @@ function resetSession() {
 .inquiry__done { text-align: center; padding: 20px 0; }
 .done-badge {
   width: 60px; height: 60px; border-radius: 50%;
-  background: var(--qingnang-emerald); color: #fff;
+  background: var(--qn-emerald); color: #fff;
   display: flex; align-items: center; justify-content: center;
-  font-size: 30px; margin: 0 auto 16px;
+  font-size: calc(30px * var(--qn-fs-scale)); margin: 0 auto 16px;
 }
 .summary-card {
-  background: #fff; border: 1px solid var(--ink-line);
-  border-radius: var(--radius-md); padding: 20px 22px;
+  /* ⚠️ border 已删 */
+  background: var(--qn-surface);
+  border-radius: var(--qn-r-lg); padding: 20px 22px;
   margin: 20px 0; text-align: left;
 }
 .summary-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; }
-.summary-label { font-size: 12px; color: var(--ink-tertiary); }
-.summary-value { font-size: 14px; font-weight: 500; color: var(--ink-primary); }
-.summary-value.highlight { color: var(--qingnang-emerald); }
-.summary-block { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--ink-line); }
-.summary-title { font-size: 12px; font-weight: 600; color: var(--ink-secondary); margin: 0 0 6px; text-transform: uppercase; letter-spacing: 1px; }
-.summary-block ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink-primary); line-height: 1.7; }
+.summary-label { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
+.summary-value { font-size: calc(14px * var(--qn-fs-scale)); font-weight: 500; color: var(--qn-ink); }
+.summary-value.highlight { color: var(--qn-emerald); }
+.summary-block { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--qn-line); }
+.summary-title { font-size: calc(12px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-ink-2); margin: 0 0 6px; text-transform: uppercase; letter-spacing: 1px; }
+.summary-block ul { margin: 0; padding-left: 18px; font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink); line-height: 1.7; }
 .summary-warning {
   background: rgba(216,125,27,0.08); border: 1px solid rgba(216,125,27,0.3);
-  border-radius: 6px; padding: 8px 12px; font-size: 11px; color: #b07612; margin-top: 12px;
+  border-radius: 6px; padding: 8px 12px; font-size: calc(11px * var(--qn-fs-scale)); color: #b07612; margin-top: 12px;
 }
 .done-actions { display: flex; gap: 12px; justify-content: center; margin-top: 20px; }
 .ghost-btn {
-  padding: 10px 22px; border: 1px solid var(--ink-line);
-  background: #fff; border-radius: 20px; font-size: 13px;
-  color: var(--ink-secondary); cursor: pointer;
+  padding: 10px 22px; border: 1px solid var(--qn-line);
+  background: var(--qn-surface); border-radius: 20px; font-size: calc(13px * var(--qn-fs-scale));
+  color: var(--qn-ink-2); cursor: pointer;
 }
-.ghost-btn:hover { border-color: var(--ink-primary); }
+/* 跳过状态 */
+.q-card.skipped {
+  background: color-mix(in srgb, var(--qn-surface) 60%, transparent) !important;
+  border-color: var(--qn-line) !important;
+  opacity: 0.7;
+}
+.q-card.skipped .q-text { text-decoration: line-through; color: var(--qn-ink-3); }
+.q-num.skipped { background: var(--qn-ink-3) !important; }
+.q-text.skipped { color: var(--qn-ink-3); }
+
+/* 跳过按钮 */
+.skip-row { margin-top: 10px; text-align: right; }
+.skip-btn {
+  font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3);
+  background: none; border: 1px dashed var(--qn-line);
+  padding: 4px 12px; border-radius: 12px; cursor: pointer;
+  transition: all 0.12s;
+}
+.skip-btn:hover { color: var(--qn-fire); border-color: var(--qn-fire); }
+
+.unskip-row { margin-top: 10px; }
+.unskip-btn {
+  font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-emerald);
+  background: none; border: 1px solid var(--qn-emerald);
+  padding: 4px 12px; border-radius: 12px; cursor: pointer;
+}
+.unskip-btn:hover { background: rgba(var(--qn-emerald-light-rgb),0.08); }
 </style>

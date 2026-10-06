@@ -92,6 +92,131 @@
         <circle cx="24" cy="24" r="7" />
         <path d="M24 8 V12 M24 36 V40 M8 24 H12 M36 24 H40 M12.7 12.7 L15.5 15.5 M32.5 32.5 L35.3 35.3 M12.7 35.3 L15.5 32.5 M32.5 15.5 L35.3 12.7" />
       </template>
+
+      <!-- ═══ 2026-10-06 扩充：替换 emoji / 系统符号 ═══
+           规格：48 viewBox · 3px 圆头线宽· currentColor
+           设计约束：全站统一 3px，不混用 2px 细线（与既有 24 枚保持一致） -->
+
+      <!-- 新对话 / 清空重开：环形箭头 + 端点收在框内，避免视觉溢出 -->
+      <template v-else-if="name === 'refresh'">
+        <path d="M38 24 A14 14 0 1 1 31 12" />
+        <path d="M32 8 V14 H26" />
+      </template>
+
+      <!-- 全屏展开：四角括号，替代系统 ⛶ -->
+      <template v-else-if="name === 'expand'">
+        <path d="M14 18 V12 a2 2 0 0 1 2-2 h6 M34 18 V12 a2 2 0 0 0-2-2 h-6 M14 30 v6 a2 2 0 0 0 2 2 h6 M34 30 v6 a2 2 0 0 1-2 2 h-6" />
+      </template>
+
+      <!-- 全屏退出：内收括号 -->
+      <template v-else-if="name === 'collapse'">
+        <path d="M20 14 V20 M28 14 V20 M20 28 v6 M28 28 v6" />
+      </template>
+
+      <!-- 收起（抽屉往下）：下箭头 + 底横线，替代系统 — -->
+      <template v-else-if="name === 'minimize'">
+        <path d="M24 16 V32 M15 25 L24 33 L33 25" />
+        <path d="M14 40 H34" />
+      </template>
+
+      <!-- 关闭：标准 × -->
+      <template v-else-if="name === 'close'">
+        <path d="M15 15 L33 33 M33 15 L15 33" />
+      </template>
+
+      <!-- 侧栏收起：左尖括号，替代系统 ‹ -->
+      <template v-else-if="name === 'chevron-left'">
+        <path d="M27 13 L18 24 L27 35" />
+      </template>
+
+      <template v-else-if="name === 'chevron-right'">
+        <path d="M21 13 L30 24 L21 35" />
+      </template>
+
+      <!-- 青囊草本标记：替代 🌿 -->
+      <template v-else-if="name === 'sprout'">
+        <path d="M24 42 V26" />
+        <path d="M24 26 C24 18 18 12 10 12 C10 20 16 26 24 26 Z" />
+        <path d="M24 26 C24 19 30 14 38 14 C38 21 32 26 24 26 Z" />
+      </template>
+
+      <!-- 加号（新对话入口） -->
+      <template v-else-if="name === 'plus'">
+        <path d="M24 14 V34 M14 24 H34" />
+      </template>
+
+      <!-- 历史记录：书册，替代 📜 -->
+      <template v-else-if="name === 'history'">
+        <path d="M10 10 H38 V38 H16 a6 6 0 0 1-6-6 Z" />
+        <path d="M10 10 V32 a6 6 0 0 0 6 6" />
+        <path d="M19 18 H31 M19 25 H29" />
+      </template>
+
+      <!-- 上箭头（趋势/升），替代 ↑ -->
+      <template v-else-if="name === 'arrow-up'">
+        <path d="M24 38 V14 M15 23 L24 14 L33 23" />
+      </template>
+
+      <!-- 下箭头（趋势/降），替代 ↓ -->
+      <template v-else-if="name === 'arrow-down'">
+        <path d="M24 10 V34 M15 25 L24 34 L33 25" />
+      </template>
+
+      <!-- 右箭头（横向趋势），替代 → -->
+      <template v-else-if="name === 'arrow-right'">
+        <path d="M12 24 H36 M27 15 L36 24 L27 33" />
+      </template>
+
+      <!-- 提示/警告：三角 + 感叹号，替代 ⚠ -->
+      <template v-else-if="name === 'alert'">
+        <path d="M24 9 L42 39 H6 Z" />
+        <path d="M24 19 V28" />
+        <path d="M24 33.5 V34" />
+      </template>
+
+      <!-- 提示气泡，替代 💬 -->
+      <template v-else-if="name === 'message'">
+        <path d="M9 11 H39 V33 H21 L12 41 V33 H9 Z" />
+      </template>
+
+      <!-- 灯泡/建议，替代 💡 -->
+      <template v-else-if="name === 'idea'">
+        <path d="M24 8 A12 12 0 0 1 31 27 V31 H17 V27 A12 12 0 0 1 24 8 Z" />
+        <path d="M19 36 H29 M21 41 H27" />
+      </template>
+
+      <!-- 靶心/目标，替代 🎯 -->
+      <template v-else-if="name === 'target'">
+        <circle cx="24" cy="24" r="15" />
+        <circle cx="24" cy="24" r="7" />
+        <path d="M24 9 V15 M24 33 V39 M9 24 H15 M33 24 H39" />
+      </template>
+
+      <!-- 星标，替代 ⭐ -->
+      <template v-else-if="name === 'star'">
+        <path d="M24 8 L29.5 19 L41 20.5 L33 28 L35 40 L24 34 L13 40 L15 28 L7 20.5 L18.5 19 Z" />
+      </template>
+
+      <!-- 五行分布（雷达替代），替代 📊 -->
+      <template v-else-if="name === 'radar'">
+        <circle cx="24" cy="24" r="16" />
+        <circle cx="24" cy="24" r="9" />
+        <path d="M24 8 V40 M8 24 H40" />
+      </template>
+
+      <!-- 分享/导出，替代 📤 -->
+      <template v-else-if="name === 'share'">
+        <path d="M24 33 V10 M16 18 L24 10 L32 18" />
+        <path d="M12 28 V38 a2 2 0 0 0 2 2 H34 a2 2 0 0 0 2-2 V28" />
+      </template>
+
+      <!-- 医章/诊察，替代 🩺 -->
+      <template v-else-if="name === 'stethoscope'">
+        <path d="M16 8 V20 a8 8 0 0 0 16 0 V8" />
+        <path d="M13 8 H19 M29 8 H35" />
+        <path d="M24 28 V32 a7 7 0 0 0 14 0 V30" />
+        <circle cx="38" cy="28" r="3" />
+      </template>
     </g>
   </svg>
 </template>

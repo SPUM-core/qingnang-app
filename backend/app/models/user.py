@@ -24,6 +24,7 @@ class User(Base):
     birth_hour    = Column(String(10))      # 寅时
     height        = Column(Integer)         # cm
     weight        = Column(Integer)         # kg
+    city          = Column(String(20))      # ⭐ 2026-10-05 新增：用户所在城市（用于查天气）
 
     # 身份
     is_doctor     = Column(Boolean, default=False)   # 医生端
@@ -33,6 +34,17 @@ class User(Base):
 
     # 五形先天基底 S_0^0（出生时推导）
     v_base        = Column(JSON)             # {"wood": 70, "fire": 55, ...}
+
+    # ⭐ 健康标签（onboarding / 问诊 / AI 自动提取）
+    # {
+    #   "chronic": ["hypertension", "diabetes", "hyperlipidemia"],  // 三高
+    #   "allergies": ["花生", "青霉素"],
+    #   "surgeries": ["阑尾切除术"],
+    #   "conditions": ["慢性胃炎", "过敏性鼻炎"],
+    #   "update_source": "onboarding" / "inquiry" / "ai_extract",
+    #   "updated_at": "2026-10-06T10:00:00"
+    # }
+    health_tags   = Column(JSON, default=dict, server_default='{}')
 
     created_at    = Column(DateTime, server_default=func.now())
     updated_at    = Column(DateTime, server_default=func.now(), onupdate=func.now())

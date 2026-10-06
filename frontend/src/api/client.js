@@ -5,6 +5,7 @@
  * 前端不感知后端架构
  */
 import axios from 'axios'
+import * as storage from '../utils/storage'
 
 // dev 默认走相对路径 → vite proxy 代理到 8767（无 CORS）
 // prod（独立部署前端）需要设 VITE_API_BASE 指向后端域名
@@ -17,7 +18,7 @@ export const api = axios.create({
 
 // 请求拦截器：自动带 JWT
 api.interceptors.request.use(config => {
-  const token = localStorage.getItem('qn_token')
+  const token = storage.getToken()
   if (token && !config.headers['Authorization']) {
     config.headers['Authorization'] = `Bearer ${token}`
   }
@@ -29,8 +30,7 @@ api.interceptors.response.use(
   r => r,
   e => {
     if (e.response?.status === 401) {
-      localStorage.removeItem('qn_token')
-      localStorage.removeItem('qn_user')
+      storage.clearUserScope()   // 一键清 token + onboarded + scope 下全部业务数据
     }
     return Promise.reject(e)
   }
@@ -80,11 +80,18 @@ export const treatment = {
 
 // ── 好友 ──
 export const friends = {
-  list:  () => api.get('/api/v1/friends/list'),
-  add:   (qingnangId, relation = 'friend') =>
-             api.post('/api/v1/friends/add', { friend_qingnang_id: qingnangId, relation }),
-  match: (friendId) => api.get(`/api/v1/friends/match/${friendId}`),
-  bindDoctor: (friendId) => api.post(`/api/v1/friends/bind-doctor/${friendId}`),
+  list:            () => api.get('/api/v1/friends/list'),
+  pendingRequests: () => api.get('/api/v1/friends/pending-requests'),
+  add:             (qingnangId, relation = 'friend', extra = {}) =>
+                     api.post('/api/v1/friends/add', { friend_qingnang_id: qingnangId, relation, ...extra }),
+  accept:          (friendId) => api.post(`/api/v1/friends/${friendId}/accept`),
+  reject:          (friendId) => api.post(`/api/v1/friends/${friendId}/reject`),
+  remove:          (friendId) => api.delete(`/api/v1/friends/${friendId}`),
+  updatePermissions: (friendId, permissions) =>
+                     api.put(`/api/v1/friends/${friendId}/permissions`, { permissions }),
+  match:           (friendId) => api.get(`/api/v1/friends/match/${friendId}`),
+  bindDoctor:      (friendId) => api.post(`/api/v1/friends/bind-doctor/${friendId}`),
+  familyAggregate: () => api.get('/api/v1/friends/family-aggregate'),
 }
 
 // ── 商城 ──
@@ -104,11 +111,22 @@ export const notifications = {
 // ── 青囊管家 AI ──
 export const assistant = {
   health:    () => api.get('/api/v1/assistant/health'),
-  chat:      (message, history = []) => api.post('/api/v1/assistant/chat', { message, history }),
+  // ⭐ 2026-10-05：支持传 provider（'spum'/'ollama'/'deepseek'），默认从 settings 读
+  chat:      (message, history = [], provider) => {
+    const settings = (storage.get('qingnang_settings', {}) || {})
+    const prov = provider || settings.llm_provider || 'deepseek'
+    return api.post('/api/v1/assistant/chat', { message, history, provider: prov })
+  },
   // ── 结构化推理（青檬引擎 LLM 推理） ──
   diagnose:  (v_base, v_current) => api.post('/api/v1/assistant/reasoning/diagnose',
                 { v_base, v_current }),
-  lifestyle: (v_base) => api.post('/api/v1/assistant/reasoning/lifestyle', { v_base }),
+  // ⭐ 2026-10-05：payload 可以是 { v_base, v_current, city, provider } —— 支持按次切模型
+  lifestyle: (payload) => {
+    const body = payload && typeof payload === 'object' && !('v_base' in payload) 
+      ? { v_base: payload }  // 兼容旧调用 lifestyle(v_base)
+      : payload;
+    return api.post('/api/v1/assistant/reasoning/lifestyle', body);
+  },
   treatment: (current_plan, latest_observation) => api.post('/api/v1/assistant/reasoning/treatment',
                 { current_plan, latest_observation }),
   // ── 八字推演（青檬引擎真太阳时 + 四柱 + 五形向量） ──
@@ -116,18 +134,24 @@ export const assistant = {
   bazi: (birth_date, birth_hour, birthplace, birth_date_type = 'solar') =>
     api.post('/api/v1/assistant/reasoning/bazi',
       { birth_date, birth_hour, birthplace, birth_date_type }),
+  constitutionAnalysis: (payload) =>
+    api.post('/api/v1/assistant/constitution/analysis', payload),
 }
 
 // ── SSE 流式生活提醒（fetch ReadableStream，不走 axios） ──
-export function lifestyleStream({ onGenerating, onComplete, onNote, onError }) {
-  const token = localStorage.getItem('qn_token')
+// ⭐ 2026-10-05：接受 payload 参数 { v_base, city, provider } —— 支持按次切模型
+export function lifestyleStream(payload, { onGenerating, onComplete, onNote, onError }) {
+  const token = storage.getToken()
+  // 前端用 'spum' → qingmeng-engine 用 'ollama'
+  const body = { ...(payload || {}) }
+  if (body.provider === 'spum') body.provider = 'ollama'
   fetch(`${API_BASE}/api/v1/assistant/reasoning/lifestyle/stream`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({}),
+    body: JSON.stringify(body),
   }).then(async (response) => {
     if (!response.ok || !response.body) {
       // 尝试读取后端返回的 detail 信息（FastAPI 的 HTTPException 会放在 body 里）

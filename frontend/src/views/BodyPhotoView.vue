@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="page">
     <div class="page__header">
       <a class="back-link" @click.prevent="$router.back()" aria-label="返回">
@@ -38,6 +38,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import * as storage from '../utils/storage'
 
 const fileName = ref('')
 const uploading = ref(false)
@@ -55,7 +56,7 @@ const upload = async () => {
   result.value = ''
   try {
     // 体态照片当前无后端端点，本地暂存
-    localStorage.setItem('qn_body_photo', JSON.stringify({ name: fileName.value, ts: Date.now() }))
+    storage.set('qn_body_photo', { name: fileName.value, ts: Date.now() })
     result.value = `✓ ${fileName.value} 已暂存本地`
     resultOk.value = true
   } catch (e) {
@@ -73,28 +74,28 @@ const upload = async () => {
 
 .file-upload {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  border: 2px dashed var(--ink-line); border-radius: var(--radius-md);
-  padding: 60px 20px; cursor: pointer; color: var(--ink-tertiary);
-  font-size: 14px; transition: all 0.2s; background: var(--qingnang-paper);
+  border: 2px dashed var(--qn-line); border-radius: var(--qn-r-lg);
+  padding: 60px 20px; cursor: pointer; color: var(--qn-ink-3);
+  font-size: calc(14px * var(--qn-fs-scale)); transition: all 0.2s; background: var(--qn-paper);
   margin-bottom: 20px;
 }
-.file-upload:hover { border-color: var(--qingnang-spirit); color: var(--qingnang-emerald); background: rgba(46,125,106,0.06); }
+.file-upload:hover { border-color: var(--qingnang-spirit); color: var(--qn-emerald); background: rgba(var(--qn-emerald-light-rgb),0.06); }
 
-.upload-icon { font-size: 48px; margin-bottom: 12px; }
-.upload-text { font-size: 14px; }
+.upload-icon { font-size: calc(48px * var(--qn-fs-scale)); margin-bottom: 12px; }
+.upload-text { font-size: calc(14px * var(--qn-fs-scale)); }
 
 .upload-done { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.done-icon { font-size: 32px; color: var(--qingnang-emerald); }
-.done-name { color: var(--qingnang-spirit); font-weight: 500; font-size: 14px; }
-.done-hint { color: var(--ink-tertiary); font-size: 12px; }
+.done-icon { font-size: calc(32px * var(--qn-fs-scale)); color: var(--qn-emerald); }
+.done-name { color: var(--qingnang-spirit); font-weight: 500; font-size: calc(14px * var(--qn-fs-scale)); }
+.done-hint { color: var(--qn-ink-3); font-size: calc(12px * var(--qn-fs-scale)); }
 
-.btn { padding: 10px 20px; border-radius: var(--radius-sm); border: none; cursor: pointer; font-size: 14px; font-family: var(--font-body); transition: all 0.2s; }
-.btn-primary { background: var(--qingnang-emerald); color: #fff; }
-.btn-primary:hover { background: var(--qingnang-emerald-light); }
-.btn-primary:disabled { background: var(--ink-line); cursor: not-allowed; opacity: 0.6; }
+.btn { padding: 10px 20px; border-radius: var(--qn-r-sm); border: none; cursor: pointer; font-size: calc(14px * var(--qn-fs-scale)); font-family: var(--qn-font-body); transition: all 0.2s; }
+.btn-primary { background: var(--qn-emerald); color: #fff; }
+.btn-primary:hover { background: var(--qn-emerald-light); }
+.btn-primary:disabled { background: var(--qn-line); cursor: not-allowed; opacity: 0.6; }
 .btn-block { width: 100%; }
 
-.result { margin-top: 12px; font-size: 13px; padding: 8px 12px; border-radius: var(--radius-sm); }
-.result-success { background: rgba(46, 134, 126, 0.1); color: var(--qingnang-emerald); }
+.result { margin-top: 12px; font-size: calc(13px * var(--qn-fs-scale)); padding: 8px 12px; border-radius: var(--qn-r-sm); }
+.result-success { background: rgba(46, 134, 126, 0.1); color: var(--qn-emerald); }
 .result-error { background: rgba(201, 79, 58, 0.1); color: var(--trend-up); }
 </style>

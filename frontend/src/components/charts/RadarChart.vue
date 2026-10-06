@@ -5,11 +5,12 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, onActivated, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
+import { fs, watchFsScale } from '../../utils/scale'
+import { chartPalette, watchThemeChange } from '../../utils/chartTheme'
 
 const props = defineProps({
   vBase: { type: Object, default: null },
   vObs: { type: Object, default: null },
-  // v0.2 新增：健康区带（每维范围，默认为 40-60 对称区间）
   healthyZone: {
     type: Object,
     default: () => ({ min: 40, max: 60 })
@@ -21,53 +22,56 @@ const props = defineProps({
 const el = ref(null)
 let chart = null
 let ro = null
-
-const COLOR_BASE = '#1A4D45'        // 先天基底（细灰绿线）
-const COLOR_OBS = '#A8442F'         // 当前观测（粗红线）
-const COLOR_H_CENTER = '#7BC4A9'     // 健康区带中心（淡绿虚线圆）
-const COLOR_H_ZONE = 'rgba(123, 196, 169, 0.06)'  // 健康区带填充
-const COLOR_GRID = '#EAEAE4'
-const COLOR_TEXT = '#6B7277'
+let unwatchTheme = null
 
 const render = () => {
   if (!chart) return
+  const pal = chartPalette()
+  const rgba = pal.rgba
+  const WHITE = pal.white
+
+  // 每次 render 取最新主题色
+  const COLOR_BASE = pal.primary          // 先天基底
+  const COLOR_OBS = pal.cinnabar          // 当前观测
+  const COLOR_H_CENTER = pal.primaryAccent // 健康区带中心（淡绿虚线）
+  const COLOR_H_ZONE = rgba('--qn-emerald-accent-rgb', 0.12)
+  const COLOR_GRID = pal.gridLine
+  const COLOR_TEXT = pal.axisText
+
   const dims = ['wood', 'fire', 'earth', 'metal', 'water']
   const labels = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
   const base = dims.map((k) => props.vBase?.[k] ?? null)
   const obs = dims.map((k) => props.vObs?.values?.[k] ?? props.vObs?.[k] ?? null)
-
-  // 健康区带中心（理想值 50）
   const hCenter = dims.map(() => 50)
 
   chart.setOption({
     tooltip: {
       trigger: 'item',
-      backgroundColor: 'rgba(26, 77, 69, 0.95)',
-      borderColor: '#1A4D45',
-      textStyle: { color: '#fff', fontSize: 12 }
+      backgroundColor: rgba('--qn-emerald-rgb', 0.95),
+      borderColor: pal.primary,
+      textStyle: { color: WHITE, fontSize: fs(12) }
     },
     legend: {
       show: !props.hideLegend,
       bottom: 0,
-      textStyle: { color: COLOR_TEXT, fontSize: 12 },
+      textStyle: { color: COLOR_TEXT, fontSize: fs(12) },
       itemWidth: 14, itemHeight: 10
     },
     radar: {
       indicator: dims.map((k) => ({ name: labels[k], max: 100 })),
       radius: '62%',
       center: ['50%', '45%'],
-      axisName: { color: COLOR_TEXT, fontSize: 13, fontWeight: 500 },
+      axisName: { color: COLOR_TEXT, fontSize: fs(13), fontWeight: 500 },
       splitNumber: 5,
       splitArea: {
         show: true,
         areaStyle: {
-          // 健康区带（index 3-4 = 40-60）用淡绿色，其余淡灰
           color: [
-            'rgba(245, 245, 240, 0.3)',
-            'rgba(245, 245, 240, 0.3)',
-            'rgba(123, 196, 169, 0.08)',  // 健康区带内
-            'rgba(123, 196, 169, 0.12)',  // 健康区带内
-            'rgba(245, 245, 240, 0.3)',
+            rgba('--qn-line', 0.4),
+            rgba('--qn-line', 0.4),
+            COLOR_H_ZONE,
+            rgba('--qn-emerald-accent-rgb', 0.18),
+            rgba('--qn-line', 0.4),
           ]
         }
       },
@@ -78,7 +82,6 @@ const render = () => {
       type: 'radar',
       symbolSize: 6,
       data: [
-        // 3. 健康区带中心（最浅，底层）
         {
           value: hCenter,
           name: '健康区带 H',
@@ -88,23 +91,21 @@ const render = () => {
           itemStyle: { color: COLOR_H_CENTER },
           emphasis: { disabled: true }
         },
-        // 1. 先天基底（细淡线）
         ...(props.vBase ? [{
           value: base,
           name: '先天基底 S₀⁰',
           symbol: 'circle', symbolSize: 7,
           lineStyle: { width: 1.5, color: COLOR_BASE, opacity: 0.55 },
           areaStyle: { color: COLOR_BASE, opacity: 0.06 },
-          itemStyle: { color: COLOR_BASE, borderColor: '#fff', borderWidth: 1.5 }
+          itemStyle: { color: COLOR_BASE, borderColor: WHITE, borderWidth: 1.5 }
         }] : []),
-        // 2. 当前观测（最粗，顶层）
         ...(props.vObs ? [{
           value: obs,
           name: '当前观测 V_obs',
           symbol: 'circle', symbolSize: 8,
           lineStyle: { width: 2.5, color: COLOR_OBS },
           areaStyle: { color: COLOR_OBS, opacity: 0.15 },
-          itemStyle: { color: COLOR_OBS, borderColor: '#fff', borderWidth: 2 }
+          itemStyle: { color: COLOR_OBS, borderColor: WHITE, borderWidth: 2 }
         }] : [])
       ]
     }]
@@ -132,11 +133,13 @@ const tryInit = async () => {
   chart = echarts.init(el.value)
   attachResizeObserver()
   render()
+  watchFsScale(() => { chart && chart.resize(); render() })
 }
 
 onMounted(async () => {
   await tryInit()
   window.addEventListener('resize', onResize)
+  unwatchTheme = watchThemeChange(() => { chart && chart.resize(); render() })
 })
 
 onActivated(async () => {
@@ -149,6 +152,7 @@ onActivated(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
+  unwatchTheme?.()
   ro?.disconnect()
   ro = null
   chart?.dispose()

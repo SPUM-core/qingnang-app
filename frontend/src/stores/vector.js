@@ -114,6 +114,7 @@ export const useVectorStore = defineStore('vector', {
       this.error = null
       try {
         const r = await api.get('/api/v1/cases/mine')
+        console.log('[fetchCase] cases/mine ok:', { onboarded: r.data?.onboarded, hasCase: !!r.data?.case, bazi: r.data?.case?.bazi })
         const d = r.data
         if (!d.onboarded) {
           return { onboarded: false, needOnboarding: true }
@@ -185,7 +186,10 @@ export const useVectorStore = defineStore('vector', {
         try {
           const pr = await api.get('/api/v1/treatment/versions')
           this.plans = pr.data
-        } catch {}
+          console.log('[fetchCase] treatment/versions:', pr.data?.length, 'plans')
+        } catch (e) {
+          console.error('[fetchCase] treatment/versions FAILED:', e.message)
+        }
 
         // 拉全量 PPG 历史 → vObsList + driftSeries
         let history = []
@@ -299,6 +303,7 @@ export const useVectorStore = defineStore('vector', {
         this.trendState = 'treatment_active'
         return d
       } catch (e) {
+        console.error('[fetchCase] FATAL:', e.message, e.stack?.slice(0, 200))
         this.error = e.message
         return null
       } finally {

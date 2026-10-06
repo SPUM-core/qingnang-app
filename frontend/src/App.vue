@@ -1,175 +1,105 @@
-<template>
-  <!-- 全屏独占页（登录/注册/建档初始化） -->
-  <router-view v-if="route.meta.fullScreen" />
+﻿<template>
+  <div class="app-root">
+    <!-- ═══ 主应用壳（始终挂载，避免路由切换时 LayoutShell 被销毁重建导致 double-render） ═══ -->
+    <div class="app-shell" :style="{ display: route.meta.fullScreen ? 'none' : null }">
+      <LayoutShell>
+        <router-view v-if="!route.meta.fullScreen" />
+      </LayoutShell>
+      <ComplianceBar v-if="!route.meta.fullScreen" />
+      <QingnangAssistant v-if="!route.meta.fullScreen" />
+    </div>
 
-  <!-- 主应用页: LayoutShell 包裹 -->
-  <div v-else class="app-shell">
-    <LayoutShell>
-      <router-view />
-    </LayoutShell>
-    <ComplianceBar />
-    <QingnangAssistant />
+    <!-- ═══ 全屏独占页（登录/注册/建档初始化） ═══ -->
+    <router-view v-if="route.meta.fullScreen" />
+
+    <!-- ═══ 引导（始终挂载，让从 fullScreen 页跳回主应用时 onMounted/watch 都能触发） ═══ -->
+    <GuideOverlay />
   </div>
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import LayoutShell from './components/LayoutShell.vue'
 import ComplianceBar from './components/ComplianceBar.vue'
 import QingnangAssistant from './components/QingnangAssistant.vue'
+import GuideOverlay from './components/GuideOverlay.vue'
 import { useUserStore } from './stores/user'
+import { useSettingsStore } from './stores/settings'
 
 const route = useRoute()
 const user = useUserStore()
+const settings = useSettingsStore()
 
-// 启动时从 localStorage 恢复登录态
+// ── 监听设置变化 → 实时应用到 DOM ──
+watch(
+  () => [settings.theme, settings.font_size, settings.elder_mode, settings.reduce_motion],
+  () => {
+    settings.applyDisplay()
+    settings.persist()
+  },
+  { deep: true }
+)
+
+// 监听系统主题变化（auto 模式下跟随）
+let darkMedia = null
+function onSystemThemeChange() { settings.applyDisplay() }
+
 onMounted(() => {
   user.initFromLocalStorage()
+  settings.applyDisplay()
+  if (window.matchMedia) {
+    darkMedia = window.matchMedia('(prefers-color-scheme: dark)')
+    darkMedia.addEventListener('change', onSystemThemeChange)
+  }
+})
+
+onUnmounted(() => {
+  if (darkMedia) darkMedia.removeEventListener('change', onSystemThemeChange)
 })
 </script>
 
 <style>
-/* ============== 青囊 QINGNANG · 品牌设计变量 · v2 新中式极简科技风 ==============
-   核心思路：去油腻、提层次 —— 背景做减法（变浅变干净），数据配色做加法（增加对比冷暖互补）
-*/
-:root {
-  /* ── 品牌锚点（对齐 UI Kit Design Tokens v1.0） ──
-     https://.../ui-kit/tokens/tokens.css
-  */
-  --qingnang-emerald: #17534C;       /* UI Kit 主色：青囊绿 */
-  --qingnang-emerald-dark: #123F3A;  /* UI Kit 按压态 */
-  --qingnang-emerald-light: #2E7D6A; /* UI Kit 松烟绿 · 悬浮态 */
-  --qingnang-spirit: #A8442F;        /* UI Kit 朱砂 · 点缀（原为生机青，按规范换成朱砂） */
-  --qingnang-spirit-soft: #C45A3C;
-
-  /* ── 背景体系 ── */
-  --qingnang-paper: #F2EFE7;         /* UI Kit 宣纸米 */
-  --qingnang-paper-deep: #E5E1D6;
-  --qingnang-card: #FFFFFF;
-  --accent: #A8442F;                 /* UI Kit 朱砂点缀 */
-
-  /* ── 中性文字色 ── */
-  --ink-primary: #33403B;            /* UI Kit textDark */
-  --ink-secondary: #5A6A64;
-  --ink-tertiary: #8A9A94;
-  --ink-line: #E5E1D6;
-
-  /* ── 五形语义色（业务逻辑色，独立于品牌 token） ── */
-  --wuxing-wood: #43A047;
-  --wuxing-fire: #D84315;
-  --wuxing-earth: #D4A017;
-  --wuxing-metal: #90A4AE;
-  --wuxing-water: #0288D1;
-
-  /* ── 功能色 ── */
-  --trend-up: #D84315;
-  --trend-down: #0288D1;
-
-  /* ── 排版（对齐 UI Kit：Source Han Sans / Noto Sans SC） ── */
-  --font-title: 'Source Han Sans CN', 'Noto Sans SC', 'PingFang SC', serif;
-  --font-body: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-
-  /* ── 圆角（UI Kit 规格） ── */
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 16px;
-  --radius-pill: 28px;               /* UI Kit 胶囊按钮 */
-
-  /* ── 阴影 ── */
-  --shadow-card: 0 1px 2px rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.06);
-  --shadow-card-hover: 0 2px 4px rgba(0,0,0,0.06), 0 6px 16px rgba(0,0,0,0.10);
-
-  /* ── 状态标签色 ── */
-  --tag-ok-bg: rgba(67,160,71,0.08);
-  --tag-ok-border: rgba(67,160,71,0.35);
-  --tag-warn-bg: rgba(212,160,23,0.08);
-  --tag-warn-border: rgba(212,160,23,0.40);
-  --tag-bad-bg: rgba(216,67,21,0.08);
-  --tag-bad-border: rgba(216,67,21,0.40);
-}
-
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body, #app { height: 100%; }
-
-/* 全局防弹：禁止横向溢出（治"发现/通知"页面偶发超出屏幕问题） */
-html, body { overflow-x: hidden; max-width: 100vw; }
-.app-shell { width: 100%; max-width: 100vw; overflow-x: hidden; }
-
-/* 全局防弹 2: flex/grid 子项允许 shrink，文本强制换行 */
-*::before, *::after { box-sizing: border-box; }
-img, svg { max-width: 100%; height: auto; }
-
-/* 所有包含长文本的元素强制换行 */
-.page, .card, .rem-card, .kb-card, .notice, .timeline, .today-card {
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-
-/* flex 容器内的子项允许收缩（经典 flex 撑爆 bug 修复） */
-.page > * { min-width: 0; }
-.card-grid > * { min-width: 0; }
-.kb-grid > * { min-width: 0; }
-.timeline > * { min-width: 0; }
-.card-grid, .kb-grid { width: 100%; max-width: 100%; }
-.timeline { width: 100%; max-width: 100%; }
-
-body {
-  font-family: var(--font-body);
-  background: var(--qingnang-paper);
-  color: var(--ink-primary);
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-  /* 拓扑网格纹理 — 调淡（去油腻） */
-  background-image:
-    radial-gradient(circle at 1px 1px, rgba(26, 77, 69, 0.025) 1px, transparent 0);
-  background-size: 24px 24px;
-}
-
-/* 全局页面容器 */
-.page { max-width: 1200px; margin: 0 auto; padding: 24px 20px; width: 100%; overflow-x: hidden; }
-.page h1 { font-family: var(--font-title); color: var(--qingnang-emerald); font-size: 22px; margin-bottom: 4px; letter-spacing: 1px; font-weight: 600; }
-.page__desc { color: var(--ink-tertiary); font-size: 13px; margin-bottom: 16px; }
-
-/* 全局返回按钮（箭头图标 + 文字）—— 所有子页面复用 */
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 14px;
-  color: var(--qingnang-spirit);
-  text-decoration: none;
-  cursor: pointer;
-  flex-shrink: 0;
-  padding: 4px 8px 4px 0;
-  border-radius: 6px;
-  transition: all 0.15s;
-  font-weight: 500;
-}
-.back-link:hover { background: rgba(46,125,106,0.08); color: var(--qingnang-emerald); }
-.back-link svg { width: 18px; height: 18px; flex-shrink: 0; }
+/* ═══════════════════════════════════════════════════════════════
+   ⚠️ 全局变量、reset、排版、主题切换代码已迁移到：
+     - src/styles/tokens.css  —— --qn-* 变量 + 暗色/老年/字体/减少动画
+     - src/styles/base.css    —— reset + 排版 + 原子类 .btn/.card/.tag/.back-link
+   
+   本文件只保留 App 组件特有的、base.css 里没有或版本不同的样式块。
+   ═══════════════════════════════════════════════════════════════ */
 
 /* 纵向屏：页面 padding 减小，让 grid 占更多宽度 */
 @media (orientation: portrait) {
   .page { padding: 16px 14px; }
 }
 
-/* 全局卡片样式（纯白浮层 + 淡灰边框 + 轻微阴影 — 层级感 ↑） */
+/* ═══════════════════════════════════════════════════════
+   🚧 以下全局原子类待逐页迁移至 base.css（版本不同，暂保留）
+   
+   迁移原则：
+   - .btn / .btn-ghost  → base.css 里已经有新版胶囊样式；
+     旧组件引用 .btn 的逐页替换为 .btn--primary / .btn--ghost
+   - .card / .card h2   → base.css 里已有新版（box-shadow）；
+     旧版是 border + padding 不同
+   - .table             → base.css 里没有，保留
+   - .tag-ok/warn/bad   → base.css 里用了新名 .tag--ok；旧名暂保留兼容
+   ═══════════════════════════════════════════════════════ */
+
+/* 全局卡片样式（纯白浮层 + 淡灰边框 + 轻微阴影 — 层级感 ↑）
+   ⚠️ 已与 base.css 同步，新版值以 UI Kit 为准（圆角 16、无 border 纯 shadow） */
 .card {
-  background: var(--qingnang-card);
-  border: 1px solid var(--ink-line);
-  border-radius: var(--radius-md);
-  padding: 18px;
-  box-shadow: var(--shadow-card);
-  transition: box-shadow 0.2s;
+  background: var(--qn-surface);
+  border-radius: var(--qn-r-lg);      /* 16px */
+  padding: var(--qn-s4);              /* 16px */
+  box-shadow: var(--qn-shadow-1);
+  transition: box-shadow var(--qn-dur) var(--qn-ease);
 }
-.card:hover { box-shadow: var(--shadow-card-hover); }
+.card:hover { box-shadow: var(--qn-shadow-2); }
 .card h2 {
-  font-family: var(--font-title);
-  color: var(--qingnang-emerald);
-  font-size: 15px;
-  border-bottom: 1px solid var(--ink-line);
+  font-family: var(--qn-font-title);
+  color: var(--qn-emerald);
+  font-size: calc(15px * var(--qn-fs-scale));
+  border-bottom: 1px solid var(--qn-line);
   padding-bottom: 10px;
   margin-bottom: 14px;
   letter-spacing: 0.5px;
@@ -177,51 +107,58 @@ body {
 }
 
 /* 表格全局 */
-.table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.table th { background: var(--qingnang-paper); color: var(--ink-secondary); font-weight: 500; text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--ink-line); }
+.table { width: 100%; border-collapse: collapse; font-size: calc(14px * var(--qn-fs-scale)); }
+.table th { background: var(--qn-paper); color: var(--qn-ink-2); font-weight: 500; text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--qn-line); }
 .table td { padding: 8px 10px; border-bottom: 1px solid #F0F0EA; }
 
-/* 全局按钮 */
+/* 全局按钮（已同步 UI Kit：胶囊 28px、min-height 44）
+   ⚠️ 旧版是小方角 8px，新版是胶囊 28px；视觉差异大，逐页验证 */
 .btn {
-  background: var(--qingnang-emerald);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px;
+  background: var(--qn-emerald);
   color: #fff;
   border: none;
-  padding: 8px 18px;
-  border-radius: var(--radius-sm);
-  font-size: 14px;
-  font-family: var(--font-body);
-  cursor: pointer;
-  transition: background 0.2s, box-shadow 0.2s;
-  font-weight: 500;
+  padding: 0 var(--qn-s5);             /* 20px */
+  border-radius: var(--qn-r-pill);     /* 28px 胶囊 */
+  font-size: calc(15px * var(--qn-fs-scale));
+  font-family: var(--qn-font-body);
+  font-weight: 500; letter-spacing: .5px;
+  cursor: pointer; white-space: nowrap;
+  transition: background var(--qn-dur) var(--qn-ease),
+              transform var(--qn-dur) var(--qn-ease);
 }
-.btn:hover { background: var(--qingnang-emerald-light); box-shadow: 0 2px 6px rgba(26,77,69,0.2); }
+.btn:active { transform: scale(.97); }   /* 触摸反馈 */
+.btn:hover { background: var(--qn-emerald-light); }
 .btn-ghost {
-  background: transparent;
-  color: var(--qingnang-emerald);
-  border: 1px solid var(--qingnang-emerald);
+  background: none;
+  color: var(--qn-emerald);
+  box-shadow: inset 0 0 0 1px var(--qn-emerald-light);
 }
-.btn-ghost:hover { background: var(--qingnang-paper); }
+.btn-ghost:hover { background: var(--qn-surface); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ΔV 涨跌色 */
 .delta.up { color: var(--trend-up); }
 .delta.down { color: var(--trend-down); }
 
 /* 占位文案 */
-.placeholder, .empty { color: var(--ink-tertiary); text-align: center; padding: 32px 16px; }
+.placeholder, .empty { color: var(--qn-ink-3); text-align: center; padding: 32px 16px; }
 
 /* 合规警示/提示条 */
 .notice {
   background: #FBF8F0;
   border-left: 3px solid var(--wuxing-earth);
   padding: 10px 14px;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  font-size: 13px;
-  color: var(--ink-secondary);
+  border-radius: 0 var(--qn-r-sm) var(--qn-r-sm) 0;
+  font-size: calc(13px * var(--qn-fs-scale));
+  color: var(--qn-ink-2);
   line-height: 1.6;
 }
 
-/* 状态标签（极浅底色 + 同系深色边框 + 深色文字 — 轻盈克制） */
-.tag-ok { background: var(--tag-ok-bg); border: 1px solid var(--tag-ok-border); color: var(--wuxing-wood); border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: 500; }
-.tag-warn { background: var(--tag-warn-bg); border: 1px solid var(--tag-warn-border); color: var(--wuxing-earth); border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: 500; }
-.tag-bad { background: var(--tag-bad-bg); border: 1px solid var(--tag-bad-border); color: var(--wuxing-fire); border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: 500; }
+/* 状态标签（旧名兼容，值已同步 .tag--ok/warn/bad）
+   新版是 .tag--ok / .tag--warn / .tag--bad（前缀双横线区分修饰类） */
+.tag-ok   { background: var(--qn-ok-bg);   box-shadow: inset 0 0 0 1px var(--qn-ok-bd);   color: var(--qn-wood);    border-radius: var(--qn-r-sm); padding: 2px 8px; font-size: calc(12px * var(--qn-fs-scale)); font-weight: 500; display: inline-block; }
+.tag-warn { background: var(--qn-warn-bg); box-shadow: inset 0 0 0 1px var(--qn-warn-bd); color: var(--qn-earth);   border-radius: var(--qn-r-sm); padding: 2px 8px; font-size: calc(12px * var(--qn-fs-scale)); font-weight: 500; display: inline-block; }
+.tag-bad  { background: var(--qn-bad-bg);  box-shadow: inset 0 0 0 1px var(--qn-bad-bd);  color: var(--qn-fire);    border-radius: var(--qn-r-sm); padding: 2px 8px; font-size: calc(12px * var(--qn-fs-scale)); font-weight: 500; display: inline-block; }
 </style>

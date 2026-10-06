@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="page collect-entry">
     <div class="page__header">
       <a class="back-link" @click.prevent="$router.back()" aria-label="返回">
@@ -45,6 +45,24 @@
         </div>
         <span class="entry-arrow">›</span>
       </router-link>
+
+      <router-link to="/collect/tongue" class="entry-btn">
+        <span class="entry-icon">👅</span>
+        <div class="entry-text">
+          <span class="entry-label">舌部照片</span>
+          <span class="entry-sub">望诊 · HSV 颜色分析 · SPUM 舌象判定</span>
+        </div>
+        <span class="entry-arrow">›</span>
+      </router-link>
+
+      <router-link to="/collect/report" class="entry-btn">
+        <span class="entry-icon">📄</span>
+        <div class="entry-text">
+          <span class="entry-label">检查报告</span>
+          <span class="entry-sub">上传归档 · 随时调取</span>
+        </div>
+        <span class="entry-arrow">›</span>
+      </router-link>
     </div>
   </section>
 </template>
@@ -74,27 +92,27 @@
   align-items: center;
   gap: 16px;
   padding: 24px 20px;
-  background: var(--qingnang-paper);
-  border: 1px solid var(--ink-line);
-  border-radius: var(--radius-md);
+  background: var(--qn-paper);
+  border: 1px solid var(--qn-line);
+  border-radius: var(--qn-r-lg);
   text-decoration: none;
-  color: var(--ink-primary);
+  color: var(--qn-ink);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .entry-btn:hover {
   border-color: var(--qingnang-spirit);
-  background: rgba(46, 125, 106, 0.06);
+  background: rgba(var(--qn-emerald-light-rgb), 0.06);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-.entry-icon { font-size: 40px; flex-shrink: 0; }
+.entry-icon { font-size: calc(40px * var(--qn-fs-scale)); flex-shrink: 0; }
 .entry-text { display: flex; flex-direction: column; gap: 2px; flex: 1; }
-.entry-label { font-size: 16px; font-weight: 600; color: var(--ink-primary); }
-.entry-sub { font-size: 12px; color: var(--ink-tertiary); }
-.entry-arrow { font-size: 22px; color: var(--ink-tertiary); flex-shrink: 0; }
+.entry-label { font-size: calc(16px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-ink); }
+.entry-sub { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
+.entry-arrow { font-size: calc(22px * var(--qn-fs-scale)); color: var(--qn-ink-3); flex-shrink: 0; }
 
 /* 桌面横屏：入口页也居中，三个按钮横排 */
 @media (min-width: 721px) and (orientation: landscape) {

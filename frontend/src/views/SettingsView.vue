@@ -1,9 +1,9 @@
-<template>
+﻿<template>
   <section class="page settings">
     <!-- 顶部：个人名片 -->
     <div class="profile-card">
       <div class="avatar">
-        <img src="/assets/logo/icon-light.png" alt="" />
+        <img src="/assets/logo/icon-light.png" alt="" role="presentation" />
       </div>
       <div class="profile-info">
         <h2>{{ user.displayName }}</h2>
@@ -24,7 +24,8 @@
       <h3 class="group-title"><QIcon :name="group.icon" :size="16" /> {{ group.title }}</h3>
       <div class="setting-list">
         <div v-for="item in group.items" :key="item.action || item.key"
-             class="setting-row" :class="{ danger: item.danger }">
+             class="setting-row"
+             :class="{ danger: item.danger, 'is-select': item.type === 'select' }">
           <div class="row-left">
             <span class="row-icon"><QIcon :name="item.icon" :size="15" /></span>
             <div class="row-text">
@@ -84,11 +85,28 @@
 import { reactive, ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
+import { useSettingsStore } from '../stores/settings'
 import { api } from '../api/client'
+import * as storage from '../utils/storage'
 import QIcon from '../components/ui/QIcon.vue'
 
 const router = useRouter()
 const user   = useUserStore()
+const settings = useSettingsStore()   // ← 替换原来的本地 reactive
+
+// ⭐ 2026-10-05：城市变化 → 保存到后端 + 清缓存触发重新推理
+watch(() => settings.city, async (newCity, oldCity) => {
+  if (oldCity === undefined) return  // 初始化加载时跳过
+  try {
+    await api.patch('/api/v1/auth/me', { city: newCity })
+    // 清今日 lifestyle 缓存标记 → 下次 Dashboard 进页面重新推理
+    storage.remove('qingnang_today_lifestyle_md5')
+  } catch (e) {
+    console.warn('保存城市到后端失败:', e)
+  }
+})
+
+// settings 已在 stores/settings.js 初始化 + watch persist，这里不需要再配 defaults 和 watch
 
 // ── 状态 ──
 const busy     = ref(null)
@@ -107,37 +125,40 @@ onMounted(async () => {
   } catch {}
 })
 
-// ── 设置 (localStorage 持久化) ──
-const STORAGE_KEY = 'qingnang_settings'
-const defaults = {
-  notify_push: true,
-  notify_time_morning: '07:00',
-  notify_time_evening: '21:00',
-  notify_cloth: true,
-  notify_food: true,
-  notify_home: false,
-  notify_hourly: false,
-  theme: 'auto',
-  font_size: 'medium',
-  reduce_motion: false,
-  auto_collect: true,
-  collect_freq: 'daily',
-  collect_remind: true,
-  share_family: true,
-  share_data_anonymous: true,
-  primary_goal: 'dispatch_qi',
-  secondary_goal: 'warm_earth',
-  llm_provider: 'spum',   // spum=SPUM本地模型(默认), deepseek=云端
-}
-const settings = reactive({ ...defaults })
-try { Object.assign(settings, JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')) } catch {}
-watch(settings, v => localStorage.setItem(STORAGE_KEY, JSON.stringify(v)), { deep: true })
+// ── 设置 (storage 持久化 + App.vue 全局应用) ──
+// 设置已全部迁到 stores/settings.js (Pinia store)
+// 这里直接使用 settings.theme / settings.font_size / settings.reduce_motion 等
+// UI 改值 → store state 变化 → store.watch persist() → App.vue watch applyDisplay()
 
 // ── 分组定义（图标使用品牌线性 QIcon）──
 const groups = [
   {
     key: 'notify', icon: 'bell', title: '通知与提醒',
     items: [
+      // ⭐ 2026-10-05 新增：城市选择（真实天气查询）
+      { key: 'city', type: 'select', icon: 'home', label: '所在城市',
+        desc: '用于查询真实天气，结合五形推理今日宜忌',
+        options: [
+          { value: '', label: '未设置（节气模拟）' },
+          { value: '北京', label: '北京' }, { value: '上海', label: '上海' },
+          { value: '天津', label: '天津' }, { value: '重庆', label: '重庆' },
+          { value: '广州', label: '广州' }, { value: '深圳', label: '深圳' },
+          { value: '杭州', label: '杭州' }, { value: '南京', label: '南京' },
+          { value: '成都', label: '成都' }, { value: '武汉', label: '武汉' },
+          { value: '西安', label: '西安' }, { value: '长沙', label: '长沙' },
+          { value: '郑州', label: '郑州' }, { value: '济南', label: '济南' },
+          { value: '青岛', label: '青岛' }, { value: '大连', label: '大连' },
+          { value: '沈阳', label: '沈阳' }, { value: '哈尔滨', label: '哈尔滨' },
+          { value: '昆明', label: '昆明' }, { value: '贵阳', label: '贵阳' },
+          { value: '福州', label: '福州' }, { value: '厦门', label: '厦门' },
+          { value: '合肥', label: '合肥' }, { value: '南昌', label: '南昌' },
+          { value: '太原', label: '太原' }, { value: '石家庄', label: '石家庄' },
+          { value: '呼和浩特', label: '呼和浩特' }, { value: '乌鲁木齐', label: '乌鲁木齐' },
+          { value: '苏州', label: '苏州' }, { value: '无锡', label: '无锡' },
+          { value: '宁波', label: '宁波' }, { value: '佛山', label: '佛山' },
+          { value: '东莞', label: '东莞' }, { value: '珠海', label: '珠海' },
+          { value: '三亚', label: '三亚' }, { value: '海口', label: '海口' },
+        ] },
       { key: 'notify_push', type: 'toggle', icon: 'bell', label: '推送通知', desc: '接收生活建议、时辰节律等提醒' },
       { key: 'notify_time_morning', type: 'select', icon: 'spark', label: '晨间提醒时间',
         options: [
@@ -169,6 +190,7 @@ const groups = [
           { value: 'small', label: '小' }, { value: 'medium', label: '中' }, { value: 'large', label: '大' }
         ] },
       { key: 'reduce_motion', type: 'toggle', icon: 'spark', label: '减少动画' },
+      { key: 'elder_mode', type: 'toggle', icon: 'heart', label: '老年关怀模式', desc: '字号放大 35%，按钮更易点击' },
     ]
   },
   {
@@ -281,16 +303,17 @@ async function handleAction(action) {
       try {
         // 1. 清后端数据
         await api.post('/api/v1/cases/reset')
-        // 2. 清前端状态
-        localStorage.removeItem('qingnang_onboarded')
-        try {
-          const u = JSON.parse(localStorage.getItem('qn_user') || '{}')
-          u.is_onboarded = false
-          localStorage.setItem('qn_user', JSON.stringify(u))
-        } catch {}
+        // 2. 清前端 Pinia 状态
+        storage.setOnboarded(false)
+        const u = storage.get('qn_user', {}) || {}
+        u.is_onboarded = false
+        storage.set('qn_user', u)
         user.isOnboarded = false
         caseData.value = null
-        // 3. 跳 onboarding
+        // 3. 清前端 localStorage 缓存（今日建议、归档、反馈等）
+        ;['qingnang_today', 'qingnang_archive', 'qingnang_feedbacks', 'qingnang_settings']
+          .forEach(k => storage.remove(k))
+        // 4. 跳 onboarding
         window.location.href = '/onboarding'
       } catch (e) {
         alert('重置失败：' + (e.response?.data?.detail || e.message))
@@ -322,7 +345,7 @@ async function handleAction(action) {
     case 'clear_cache': {
       if (!confirm('清除本地缓存？这会重置通知偏好、今日待办等，云端数据不受影响。')) return
       ;['qingnang_settings', 'qingnang_today', 'qingnang_archive', 'qingnang_feedbacks']
-        .forEach(k => localStorage.removeItem(k))
+        .forEach(k => storage.remove(k))
       alert('已清除，页面将刷新')
       location.reload()
       break
@@ -337,13 +360,13 @@ async function handleAction(action) {
 /* 个人名片 */
 .profile-card {
   display: flex; align-items: center; gap: 16px;
-  background: linear-gradient(135deg, var(--qingnang-emerald) 0%, #2A6B60 100%);
-  color: #fff; border-radius: var(--radius-md); padding: 20px 24px;
+  background: linear-gradient(135deg, var(--qn-emerald) 0%, #2A6B60 100%);
+  color: #fff; border-radius: var(--qn-r-lg); padding: 20px 24px;
   margin-bottom: 24px; position: relative; overflow: hidden;
 }
 .profile-card::after {
   content: ''; position: absolute; top: -50%; right: -20%; width: 200px; height: 200px;
-  background: radial-gradient(circle, rgba(46,125,106,0.4), transparent 70%);
+  background: radial-gradient(circle, rgba(var(--qn-emerald-light-rgb),0.4), transparent 70%);
   pointer-events: none;
 }
 .avatar {
@@ -354,90 +377,115 @@ async function handleAction(action) {
 }
 .avatar img { width: 34px; height: auto; }
 .profile-info { flex: 1; position: relative; z-index: 2; }
-.profile-info h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
-.profile-sub { font-size: 12px; color: rgba(255,255,255,0.7); margin: 0 0 2px; }
-.profile-model { font-size: 11px; color: rgba(46,125,106,0.9); margin: 0; }
+.profile-info h2 { margin: 0 0 4px; font-size: calc(18px * var(--qn-fs-scale)); font-weight: 600; }
+.profile-sub { font-size: calc(12px * var(--qn-fs-scale)); color: rgba(255,255,255,0.7); margin: 0 0 2px; }
+.profile-model { font-size: calc(11px * var(--qn-fs-scale)); color: rgba(var(--qn-emerald-light-rgb),0.9); margin: 0; }
 
 /* 分组 */
 .setting-group { margin-bottom: 28px; }
 .group-title {
-  font-size: 13px; font-weight: 600; color: var(--ink-tertiary);
+  font-size: calc(13px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-ink-3);
   text-transform: uppercase; letter-spacing: 1px; margin: 0 0 10px;
   padding-left: 4px;
 }
 .setting-list {
-  background: #fff; border: 1px solid var(--ink-line); border-radius: var(--radius-md);
+  background: var(--qn-surface); border: 1px solid var(--qn-line); border-radius: var(--qn-r-lg);
   overflow: hidden;
 }
 
 /* 行 */
 .setting-row {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 18px; border-bottom: 1px solid var(--ink-line);
+  padding: 14px 18px; border-bottom: 1px solid var(--qn-line);
   transition: background 0.1s;
 }
 .setting-row:last-child { border-bottom: none; }
-.setting-row:hover { background: rgba(26,77,69,0.02); }
+.setting-row:hover { background: rgba(var(--qn-emerald-rgb),0.02); }
 .setting-row.danger:hover { background: rgba(216,67,21,0.04); }
 
 .row-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
-.row-icon { width: 28px; text-align: center; color: var(--qingnang-emerald); display: inline-flex; justify-content: center; }
-.row-text { display: flex; flex-direction: column; gap: 2px; }
-.row-label { font-size: 14px; color: var(--ink-primary); font-weight: 500; }
-.row-desc { font-size: 11px; color: var(--ink-tertiary); line-height: 1.4; }
-.row-value { font-size: 13px; color: var(--ink-secondary); font-family: var(--font-mono); }
+.row-icon { width: 28px; text-align: center; color: var(--qn-emerald); display: inline-flex; justify-content: center; flex-shrink: 0; }
+.row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: break-word; }
+.row-label { font-size: calc(14px * var(--qn-fs-scale)); color: var(--qn-ink); font-weight: 500; white-space: nowrap; }
+.row-desc { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); line-height: 1.4; overflow-wrap: break-word; }
+.row-value { font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink-2); font-family: var(--font-mono); }
 
 /* 开关 */
 .switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
 .switch input { opacity: 0; width: 0; height: 0; }
 .switch-track {
   position: absolute; cursor: pointer; inset: 0;
-  background: var(--ink-line); border-radius: 24px;
+  background: var(--qn-line); border-radius: 24px;
   transition: background 0.2s;
 }
 .switch-track::before {
   content: ''; position: absolute;
   width: 18px; height: 18px; border-radius: 50%;
-  left: 3px; top: 3px; background: #fff;
+  left: 3px; top: 3px; background: var(--qn-surface);
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
   transition: transform 0.2s;
 }
-.switch input:checked + .switch-track { background: var(--qingnang-emerald); }
+.switch input:checked + .switch-track { background: var(--qn-emerald); }
 .switch input:checked + .switch-track::before { transform: translateX(20px); }
 
 /* 选择 */
 .select {
-  font-size: 13px; padding: 6px 28px 6px 10px;
-  border: 1px solid var(--ink-line); border-radius: var(--radius-sm);
-  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7277' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 8px center;
-  appearance: none; cursor: pointer; color: var(--ink-primary);
+  font-size: calc(13px * var(--qn-fs-scale)); padding: 6px 28px 6px 10px;
+  border: 1px solid var(--qn-line); border-radius: var(--qn-r-sm);
+  background: var(--qn-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7277' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 8px center;
+  appearance: none; cursor: pointer; color: var(--qn-ink);
+  flex-shrink: 0; max-width: 60%;
 }
-.select:focus { outline: none; border-color: var(--qingnang-emerald); }
+.select:focus { outline: none; border-color: var(--qn-emerald); }
 
 /* 按钮行 */
 .row-btn {
-  font-size: 12px; padding: 5px 14px; border-radius: var(--radius-sm);
-  border: 1px solid var(--qingnang-emerald); background: #fff;
-  color: var(--qingnang-emerald); cursor: pointer; transition: all 0.15s;
+  font-size: calc(12px * var(--qn-fs-scale)); padding: 5px 14px; border-radius: var(--qn-r-sm);
+  border: 1px solid var(--qn-emerald); background: var(--qn-surface);
+  color: var(--qn-emerald); cursor: pointer; transition: all 0.15s;
 }
-.row-btn:hover:not(:disabled) { background: var(--qingnang-emerald); color: #fff; }
+.row-btn:hover:not(:disabled) { background: var(--qn-emerald); color: #fff; }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .row-btn.danger { border-color: var(--wuxing-fire); color: var(--wuxing-fire); }
 .row-btn.danger:hover:not(:disabled) { background: var(--wuxing-fire); color: #fff; }
 
 /* 底部 */
 .app-info { text-align: center; padding: 30px 20px; margin-top: 20px; }
-.app-name { font-size: 16px; font-weight: 600; color: var(--qingnang-emerald); margin: 0 0 6px; }
-.app-ver { font-size: 11px; color: var(--ink-tertiary); margin: 0 0 14px; }
-.legal-links { font-size: 11px; color: var(--ink-tertiary); margin-bottom: 16px; }
-.legal-links a { color: var(--ink-secondary); margin: 0 6px; cursor: pointer; }
-.legal-links a:hover { color: var(--qingnang-emerald); }
-.legal-links span { color: var(--ink-line); }
+.app-name { font-size: calc(16px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-emerald); margin: 0 0 6px; }
+.app-ver { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin: 0 0 14px; }
+.legal-links { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin-bottom: 16px; }
+.legal-links a { color: var(--qn-ink-2); margin: 0 6px; cursor: pointer; }
+.legal-links a:hover { color: var(--qn-emerald); }
+.legal-links span { color: var(--qn-line); }
 .logout-btn {
-  font-size: 13px; padding: 8px 32px; border-radius: 20px;
-  border: 1px solid var(--ink-line); background: #fff;
-  color: var(--ink-tertiary); cursor: pointer; transition: all 0.15s;
+  font-size: calc(13px * var(--qn-fs-scale)); padding: 8px 32px; border-radius: 20px;
+  border: 1px solid var(--qn-line); background: var(--qn-surface);
+  color: var(--qn-ink-3); cursor: pointer; transition: all 0.15s;
 }
 .logout-btn:hover:not(:disabled) { border-color: var(--wuxing-fire); color: var(--wuxing-fire); }
 .logout-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ═══ 移动端自适应 ═══ */
+@media (max-width: 720px) {
+  .setting-row { padding: 12px 14px; gap: 12px; }
+  .row-icon { width: 22px; }
+  .row-label { font-size: calc(13px * var(--qn-fs-scale)); }
+  .row-desc { font-size: calc(10px * var(--qn-fs-scale)); }
+
+  /* select 类型行：上下布局，label 在上 select 在下 */
+  .setting-row.is-select {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .setting-row.is-select .row-left {
+    flex-basis: 100%;
+  }
+  .setting-row.is-select .select {
+    flex-basis: 100%;
+    max-width: none;
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
 </style>

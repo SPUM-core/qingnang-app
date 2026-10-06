@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     # 青檬引擎（AI 对话 · SPUM 本地模型）
     QINGMENG_URL: str = "http://localhost:8000"
-    QINGMENG_MODEL: str = "spum-coder:latest"
+    QINGMENG_MODEL: str = "spum-v9-thinking:latest"
 
     # DeepSeek（云端 LLM 备选 — 用户在设置里选择）
     DEEPSEEK_API_KEY: str | None = None

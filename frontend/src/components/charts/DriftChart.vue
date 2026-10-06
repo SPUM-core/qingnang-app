@@ -5,6 +5,8 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, onActivated, watch, nextTick, computed } from 'vue'
 import * as echarts from 'echarts'
+import { fs, watchFsScale } from '../../utils/scale'
+import { chartPalette, watchThemeChange } from '../../utils/chartTheme'
 
 const props = defineProps({
   trajectory: { type: Object, default: null },
@@ -17,20 +19,32 @@ let chart = null
 let ro = null
 
 // ═══════════════════════════════════════════════════════════
-// 主题
+// 主题色（每次 render 时从 chartPalette() 取最新值，
+// 以支持暗色/亮色主题切换）
 // ═══════════════════════════════════════════════════════════
-const C = {
-  wood:  { label: '木', color: '#43A047' },
-  fire:  { label: '火', color: '#E53935' },
-  earth: { label: '土', color: '#F9A825' },
-  metal: { label: '金', color: '#90A4AE' },
-  water: { label: '水', color: '#1E88E5' },
+let pal = null
+function refreshPalette() {
+  pal = chartPalette()
+  // echarts 可读的颜色对象
+  pal.C = {
+    wood:  { label: '木', color: pal.wood },
+    fire:  { label: '火', color: pal.fire },
+    earth: { label: '土', color: pal.earth },
+    metal: { label: '金', color: pal.metal },
+    water: { label: '水', color: pal.water },
+  }
+  pal.NURBS = pal.primary
+  pal.GRID = pal.gridLine
+  pal.AXIS = pal.axisText
+  pal.TEXT = pal.text
+  pal.WHITE = pal.white
 }
+// 初始化一次（为了首次 render 前 pal 可用）
+refreshPalette()
 const DIMS = ['wood', 'fire', 'earth', 'metal', 'water']
-const NURBS = '#1A4D45'
-const GRID = '#EAEAE4'
-const AXIS = '#9AA0A5'
-const TEXT = '#6B7277'
+// ⚠️ 注意：C/NURBS/GRID/AXIS/TEXT/WHITE 这些名字是在 render 函数内
+// 通过 refreshPalette() 后重新 const { ... } = pal 解构获取的。
+// 顶层不做一次性解构，避免 render 时拿到陈旧值。
 
 // ═══════════════════════════════════════════════════════════
 // 坐标系约定
@@ -225,7 +239,7 @@ function computeYinYangModel (elems, innate, events) {
 const useNewMode = computed(() => !!props.trajectory)
 
 // ═══ 动态背景（顶端先天五行色 → 中轴白 → 底端黑）═══
-const dominantBg = ref('#1A4D45')   // 默认深绿
+const dominantBg = ref('')   // 默认深绿，render 时由 refreshPalette 赋值
 const bgStyle = computed(() => ({
   height: props.height,
   background: `linear-gradient(to bottom,
@@ -249,6 +263,9 @@ const PARADOX_LABELS = {
 }
 
 function renderYinYang () {
+  refreshPalette()
+  const { C, NURBS, GRID, AXIS, TEXT, WHITE } = pal
+  const rgba = pal.rgba
   const traj = props.trajectory
   // ═══ 版本检测: v1 或 v2 都走新算法路径（v2 后端仍返回 v1 兼容字段）═══
   const isSpumNew = (traj.algorithm === 'spum_computeHealthBounds_v1' ||
@@ -310,7 +327,7 @@ function renderYinYang () {
   }
 
   // 颜色约定
-  const AXIS_COLOR = '#1A4D45'
+  const AXIS_COLOR = NURBS
 
   // ═══ 注入先天主色到背景 ═══
   dominantBg.value = dominantColor
@@ -326,9 +343,9 @@ function renderYinYang () {
     if (idx < 0) return null
     return {
       xAxis: idx,
-      lineStyle: { color: '#C62828', type: 'dashed', width: 1.5, opacity: 0.7 },
+      lineStyle: { color: C.fire, type: 'dashed', width: 1.5, opacity: 0.7 },
       symbol: 'none',
-      label: { show: true, position: 'start', color: '#C62828', fontSize: 9,
+      label: { show: true, position: 'start', color: C.fire, fontSize: fs(9),
         fontWeight: 600, formatter: ev.label || ev.type },
     }
   }).filter(Boolean)
@@ -338,15 +355,15 @@ function renderYinYang () {
     const idx = elems.findIndex(p => p.day === ev.day)
     if (idx < 0) return null
     let color
-    if (ev.isParadox) color = '#FF6F00'
-    else if (ev.surgery || ev.isMedical) color = '#C62828'
-    else if (ev.isSideEffect) color = '#E65100'
-    else color = '#546E7A'
+    if (ev.isParadox) color = rgba('--qn-cinnabar-rgb', 0.85)
+    else if (ev.surgery || ev.isMedical) color = C.fire
+    else if (ev.isSideEffect) color = rgba('--qn-cinnabar-rgb', 0.75)
+    else color = AXIS
     return {
       coord: [idx, driftData[idx] ?? 0],
       symbol: ev.surgery || ev.isMedical ? 'rect' : (ev.isParadox ? 'triangle' : 'pin'),
       symbolSize: ev.surgery || ev.isMedical ? 24 : (ev.isParadox ? 22 : 22),
-      itemStyle: { color, borderColor: '#fff', borderWidth: 2 },
+      itemStyle: { color, borderColor: WHITE, borderWidth: 2 },
       label: { show: false }
     }
   }).filter(Boolean)
@@ -366,25 +383,25 @@ function renderYinYang () {
   chart.setOption({
     tooltip: {
       trigger: 'axis',
-      backgroundColor: 'rgba(26, 77, 69, 0.95)',
-      borderColor: '#1A4D45',
-      textStyle: { color: '#fff', fontSize: 12 },
+      backgroundColor: rgba('--qn-emerald-rgb', 0.95),
+      borderColor: NURBS,
+      textStyle: { color: WHITE, fontSize: fs(12) },
       axisPointer: { type: 'cross', lineStyle: { color: NURBS, opacity: 0.3 } },
       formatter: (params) => {
         const idx = params[0].dataIndex
         const pt = elems[idx]
         if (!pt) return ''
         let h = `<div style="font-weight:600;margin-bottom:6px;">第 ${pt.day} 天 · ${pt.t}`
-        if (pt.hhmm) h += ` <span style="opacity:0.6;font-weight:400;font-size:11px;">${pt.hhmm}</span>`
+        if (pt.hhmm) h += ` <span style="opacity:0.6;font-weight:400;font-size:${fs(11)}px;">${pt.hhmm}</span>`
         h += `</div>`
-        if (pt.age) h += `<div style="font-size:11px;opacity:0.7;margin-bottom:2px;">年龄 ${pt.age} 岁 · ${innateTag()}</div>`
-        if (pt.syndromeHint) h += `<div style="font-size:11px;opacity:0.8;margin-bottom:4px;font-style:italic;">${pt.syndromeHint}</div>`
+        if (pt.age) h += `<div style="font-size:${fs(11)}px;opacity:0.7;margin-bottom:2px;">年龄 ${pt.age} 岁 · ${innateTag()}</div>`
+        if (pt.syndromeHint) h += `<div style="font-size:${fs(11)}px;opacity:0.8;margin-bottom:4px;font-style:italic;">${pt.syndromeHint}</div>`
 
         h += `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:3px 10px;margin-bottom:6px;">`
         for (const k of DIMS) {
           const v = pt[k] ?? 50, dev = Math.round((v - 50) * 10) / 10
           const devC = dev > 0 ? '#F9A825' : dev < 0 ? '#1E88E5' : TEXT
-          h += `<div><span style="color:${C[k].color};font-weight:700;">${C[k].label}</span> ${v.toFixed(1)} <span style="color:${devC};font-size:10px;">(${dev >= 0 ? '+' : ''}${dev})</span></div>`
+          h += `<div><span style="color:${C[k].color};font-weight:700;">${C[k].label}</span> ${v.toFixed(1)} <span style="color:${devC};font-size:${fs(10)}px;">(${dev >= 0 ? '+' : ''}${dev})</span></div>`
         }
         h += `</div>`
 
@@ -400,23 +417,23 @@ function renderYinYang () {
         else { direction = '阴阳交合（中轴附近）'; dirColor = '#7BC4A9' }
 
         h += `<div style="border-top:1px dashed rgba(255,255,255,0.25);padding-top:4px;">`
-        h += `<strong>体质偏移:</strong> <span style="font-size:14px;">${hs?.toFixed(1) ?? '—'}</span> `
-        if (hs > 0) h += `<span style="color:#DA6C57;font-size:10px;">↑阳(+${Math.abs(hs).toFixed(1)})</span>`
-        else h += `<span style="color:#4C90AF;font-size:10px;">↓阴(${Math.abs(hs).toFixed(1)})</span>`
+        h += `<strong>体质偏移:</strong> <span style="font-size:${fs(14)}px;">${hs?.toFixed(1) ?? '—'}</span> `
+        if (hs > 0) h += `<span style="color:#DA6C57;font-size:${fs(10)}px;">↑阳(+${Math.abs(hs).toFixed(1)})</span>`
+        else h += `<span style="color:#4C90AF;font-size:${fs(10)}px;">↓阴(${Math.abs(hs).toFixed(1)})</span>`
         const zoneTag = inZone
           ? `<span style="color:#7BC4A9;margin-left:6px;">健康区间内</span>`
           : `<span style="color:#E57373;margin-left:6px;">超出区间 ⚠️</span>`
-        h += zoneTag + `<span style="font-size:11px;opacity:0.7;margin-left:4px;">区间 [${yu.toFixed(0)}, ${yl.toFixed(0)}]</span>`
+        h += zoneTag + `<span style="font-size:${fs(11)}px;opacity:0.7;margin-left:4px;">区间 [${yu.toFixed(0)}, ${yl.toFixed(0)}]</span>`
         h += `</div>`
 
         // 疾病模式
         const dm = diseaseModes[idx]
         if (dm === 'acuteDeviation') {
-          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(229,57,53,0.18);border-left:3px solid #E53935;border-radius:3px;font-size:11px;color:#E57373;">⚠️ 急性偏离：突发冲出阴阳交合区</div>`
+          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(229,57,53,0.18);border-left:3px solid #E53935;border-radius:3px;font-size:${fs(11)}px;color:#E57373;">⚠️ 急性偏离：突发冲出阴阳交合区</div>`
         } else if (dm === 'subtleDeviation') {
-          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(255,171,64,0.15);border-left:3px solid #FFAB40;border-radius:3px;font-size:11px;color:#FFAB40;">⚠️ 亚临床偏离：凸多面体触碰边界</div>`
+          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(255,171,64,0.15);border-left:3px solid #FFAB40;border-radius:3px;font-size:${fs(11)}px;color:#FFAB40;">⚠️ 亚临床偏离：凸多面体触碰边界</div>`
         } else if (dm === 'chronicBoundary') {
-          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(249,168,37,0.15);border-left:3px solid #F9A825;border-radius:3px;font-size:11px;color:#FFD54F;">⚠️ 慢性贴边：长期游离于边界</div>`
+          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(249,168,37,0.15);border-left:3px solid #F9A825;border-radius:3px;font-size:${fs(11)}px;color:#FFD54F;">⚠️ 慢性贴边：长期游离于边界</div>`
         }
 
         // ═══ v2 SPUM 理论数据段 ═══
@@ -432,10 +449,10 @@ function renderYinYang () {
           else if (ps === 'OUT') { psColor = '#E53935'; psLabel = '越界' }
 
           h += `<div style="margin-top:6px;border-top:1px dashed rgba(255,255,255,0.2);padding-top:4px;">`
-          h += `<div style="font-size:10px;opacity:0.6;margin-bottom:3px;">── SPUM v2 理论值 ──</div>`
+          h += `<div style="font-size:${fs(10)}px;opacity:0.6;margin-bottom:3px;">── SPUM v2 理论值 ──</div>`
 
           // σ + health_score 进度条
-          h += `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:2px;">`
+          h += `<div style="display:flex;align-items:center;gap:6px;font-size:${fs(11)}px;margin-bottom:2px;">`
           h += `<span style="color:#B2EBF2;width:50px;">健康度</span>`
           h += `<div style="flex:1;height:6px;background:rgba(255,255,255,0.15);border-radius:3px;overflow:hidden;">`
           h += `<div style="height:100%;width:${(hs_v2 * 100).toFixed(0)}%;background:linear-gradient(90deg,${hs_v2 > 0.6 ? '#7BC4A9' : hs_v2 > 0.3 ? '#FFAB40' : '#E53935'},${hs_v2 > 0.6 ? '#B2DFDB' : hs_v2 > 0.3 ? '#FFD54F' : '#EF9A9A'});border-radius:3px;"></div>`
@@ -443,7 +460,7 @@ function renderYinYang () {
           h += `<span style="color:#fff;width:32px;text-align:right;">${(hs_v2 * 100).toFixed(0)}%</span>`
           h += `</div>`
 
-          h += `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:2px;">`
+          h += `<div style="display:flex;align-items:center;gap:6px;font-size:${fs(11)}px;margin-bottom:2px;">`
           h += `<span style="color:#B2EBF2;width:50px;">σ 密度</span>`
           h += `<div style="flex:1;height:6px;background:rgba(255,255,255,0.15);border-radius:3px;overflow:hidden;">`
           h += `<div style="height:100%;width:${(st * 100).toFixed(0)}%;background:linear-gradient(90deg,#4DB6AC,#80CBC4);border-radius:3px;"></div>`
@@ -451,38 +468,38 @@ function renderYinYang () {
           h += `<span style="color:#fff;width:32px;text-align:right;">${st.toFixed(2)}</span>`
           h += `</div>`
 
-          h += `<div style="font-size:10px;color:${psColor};margin-top:2px;">◆ 凸多面体: ${psLabel}${vd > 0 ? ` · 越界深度 ${vd.toFixed(1)}` : ''} · 帧残留 ${fr.toFixed(2)}</div>`
+          h += `<div style="font-size:${fs(10)}px;color:${psColor};margin-top:2px;">◆ 凸多面体: ${psLabel}${vd > 0 ? ` · 越界深度 ${vd.toFixed(1)}` : ''} · 帧残留 ${fr.toFixed(2)}</div>`
           h += `</div>`
         }
 
         // 虚火提示（阳半带极窄且 fire↓）
         if (rawYangMax < 8 && (innate.fire ?? 50) < 48) {
-          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(218,108,87,0.15);border-left:3px solid #DA6C57;border-radius:3px;font-size:11px;color:#DA6C57;">🔥 虚火：先天阳不足，阳半带收窄</div>`
+          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(218,108,87,0.15);border-left:3px solid #DA6C57;border-radius:3px;font-size:${fs(11)}px;color:#DA6C57;">🔥 虚火：先天阳不足，阳半带收窄</div>`
         }
 
         if (pt.paradoxFlags?.length) {
-          h += `<div style="margin-top:4px;padding:4px 6px;background:rgba(255,111,0,0.2);border-left:3px solid #FF6F00;border-radius:3px;font-size:11px;">⚠️ 悖论态：`
+          h += `<div style="margin-top:4px;padding:4px 6px;background:rgba(255,111,0,0.2);border-left:3px solid #FF6F00;border-radius:3px;font-size:${fs(11)}px;">⚠️ 悖论态：`
           h += pt.paradoxFlags.map(f => PARADOX_LABELS[f] || f).join('；') + `</div>`
         }
 
         const evs = (traj.events || []).filter(e => e.day === pt.day)
         for (const ev of evs) {
-          const ec = ev.surgery || ev.isMedical ? '#C62828'
-            : ev.isParadox ? '#FF6F00'
-            : ev.isSideEffect ? '#E65100'
-            : '#546E7A'
+          const ec = ev.surgery || ev.isMedical ? C.fire
+            : ev.isParadox ? rgba('--qn-cinnabar-rgb', 0.85)
+            : ev.isSideEffect ? rgba('--qn-cinnabar-rgb', 0.75)
+            : AXIS
           const evt = ev.surgery || ev.isMedical ? '🔬 西医' : ev.type
-          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(255,255,255,0.08);border-left:3px solid ${ec};border-radius:3px;font-size:11px;">[${evt}] ${ev.label}</div>`
+          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(255,255,255,0.08);border-left:3px solid ${ec};border-radius:3px;font-size:${fs(11)}px;">[${evt}] ${ev.label}</div>`
         }
         return h
       }
     },
     legend: {
-      bottom: 0, textStyle: { color: TEXT, fontSize: 11 }, itemWidth: 12, itemHeight: 9,
+      bottom: 0, textStyle: { color: TEXT, fontSize: fs(11) }, itemWidth: 12, itemHeight: 9,
       data: [
         { name: '体质偏移', itemStyle: { color: NURBS } },
         ...(isSpumV2 && healthScore.length
-          ? [{ name: '健康度', itemStyle: { color: '#4DB6AC' } }] : []),
+          ? [{ name: '健康度', itemStyle: { color: NURBS } }] : []),
       ]
     },
     backgroundColor: 'transparent',
@@ -494,24 +511,24 @@ function renderYinYang () {
     },
     dataZoom: n > 4 ? [
       { type: 'slider', start: 0, end: 100, height: 20, bottom: 24, borderColor: AXIS,
-        fillerColor: 'rgba(26,77,69,0.15)', handleStyle: { color: NURBS },
-        textStyle: { color: TEXT, fontSize: 10 }, dataBackground: { lineStyle: { color: AXIS } } },
+        fillerColor: rgba('--qn-emerald-rgb', 0.15), handleStyle: { color: NURBS },
+        textStyle: { color: TEXT, fontSize: fs(10) }, dataBackground: { lineStyle: { color: AXIS } } },
       { type: 'inside', start: 0, end: 100, zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
     ] : [],
     xAxis: {
       type: 'category', data: times, boundaryGap: false,
       axisLine: { lineStyle: { color: AXIS } },
-      axisLabel: { color: AXIS, fontSize: 10, interval: Math.max(0, Math.floor(n / 8)) },
+      axisLabel: { color: AXIS, fontSize: fs(10), interval: Math.max(0, Math.floor(n / 8)) },
       axisTick: { show: false }
     },
     yAxis: [
       {
         type: 'value', inverse: false, min: -100, max: 100, interval: 20,
         name: '阳 ↑  |  阴 ↓',
-        nameTextStyle: { color: AXIS, fontSize: 11, padding: [0, 0, 0, -30] },
+        nameTextStyle: { color: AXIS, fontSize: fs(11), padding: [0, 0, 0, -30] },
         axisLine: { show: false },
         axisLabel: {
-          color: AXIS, fontSize: 10,
+          color: AXIS, fontSize: fs(10),
           formatter: (v) => {
             if (v === 0) return '0 中轴'
             if (v > 0) return `+${v} 阳`
@@ -523,9 +540,9 @@ function renderYinYang () {
       // v2 右轴: 健康度 [0, 1]
       ...(isSpumV2 && healthScore.length ? [{
         type: 'value', position: 'right', min: 0, max: 1, interval: 0.25,
-        name: '健康度', nameTextStyle: { color: '#4DB6AC', fontSize: 10 },
+        name: '健康度', nameTextStyle: { color: NURBS, fontSize: fs(10) },
         axisLine: { show: false }, axisTick: { show: false },
-        axisLabel: { color: '#4DB6AC', fontSize: 9, formatter: v => (v * 100).toFixed(0) + '%' },
+        axisLabel: { color: NURBS, fontSize: fs(9), formatter: v => (v * 100).toFixed(0) + '%' },
         splitLine: { show: false }
       }] : []),
     ],
@@ -560,13 +577,13 @@ function renderYinYang () {
         symbol: n <= 1 ? 'circle' : 'none',
         symbolSize: 11,
         lineStyle: { width: 3.5, color: NURBS, opacity: 0.92 },
-        itemStyle: { color: NURBS, borderColor: '#fff', borderWidth: 2 },
+        itemStyle: { color: NURBS, borderColor: WHITE, borderWidth: 2 },
         data: driftData,
         z: 10,
         // ═══ markLine: 中轴 + 医疗事件（固定边界已改为 yangLine/yinLine series）═══
         markLine: {
           silent: true, symbol: 'none',
-          label: { show: true, fontSize: 10, fontWeight: 600 },
+          label: { show: true, fontSize: fs(10), fontWeight: 600 },
           data: [
             // 中轴
             {
@@ -591,12 +608,12 @@ function renderYinYang () {
           },
           itemStyle: (params) => {
             const m = diseaseModes[params.dataIndex]
-            if (m === 'acuteDeviation') return { color: '#E53935', borderColor: '#fff', borderWidth: 2 }
-            if (m === 'subtleDeviation') return { color: '#FFAB40', borderColor: '#fff', borderWidth: 2 }
-            if (m === 'chronicBoundary') return { color: '#F9A825', borderColor: '#fff', borderWidth: 2 }
+            if (m === 'acuteDeviation') return { color: C.fire, borderColor: WHITE, borderWidth: 2 }
+            if (m === 'subtleDeviation') return { color: rgba('--qn-earth-rgb', 0.9), borderColor: WHITE, borderWidth: 2 }
+            if (m === 'chronicBoundary') return { color: C.earth, borderColor: WHITE, borderWidth: 2 }
             // v2: polytope OUT 用深红
             if (isSpumV2 && polytopeStatuses[params.dataIndex] === 'OUT')
-              return { color: '#EF5350', borderColor: '#fff', borderWidth: 1.5 }
+              return { color: C.fire, borderColor: WHITE, borderWidth: 1.5 }
             return { color: 'transparent' }
           },
           label: { show: false },
@@ -634,9 +651,9 @@ function renderYinYang () {
         smooth: true,
         symbol: 'none',
         showSymbol: false,
-        lineStyle: { width: 2, color: '#4DB6AC', opacity: 0.55, type: 'solid' },
+        lineStyle: { width: 2, color: NURBS, opacity: 0.55, type: 'solid' },
         areaStyle: { color: 'rgba(77,182,172,0.12)' },
-        itemStyle: { color: '#4DB6AC' },
+        itemStyle: { color: NURBS },
         data: healthScore,
         z: 3,
       }] : []),
@@ -645,18 +662,21 @@ function renderYinYang () {
 }
 
 function renderLegacy () {
+  refreshPalette()
+  const { C, NURBS, GRID, AXIS, TEXT, WHITE } = pal
+  const rgba = pal.rgba
   const labels = { wood:'木', fire:'火', earth:'土', metal:'金', water:'水' }
   const times = props.series.map(p => p.t)
   chart.setOption({
-    tooltip: { trigger: 'axis', backgroundColor: 'rgba(26,77,69,0.95)', borderColor: '#1A4D45', textStyle: { color: '#fff', fontSize: 12 } },
-    legend: { bottom: 0, textStyle: { color: TEXT, fontSize: 12 }, itemWidth: 18, itemHeight: 3, icon: 'roundRect' },
+    tooltip: { trigger: 'axis', backgroundColor: rgba('--qn-emerald-rgb', 0.95), borderColor: NURBS, textStyle: { color: WHITE, fontSize: fs(12) } },
+    legend: { bottom: 0, textStyle: { color: TEXT, fontSize: fs(12) }, itemWidth: 18, itemHeight: 3, icon: 'roundRect' },
     grid: { left: 44, right: 16, top: 20, bottom: 52 },
-    xAxis: { type: 'category', data: times, axisLine: { lineStyle: { color: AXIS } }, axisLabel: { color: AXIS, fontSize: 11 }, axisTick: { show: false } },
-    yAxis: { type: 'value', name: 'ΔV 漂移', axisLine: { show: false }, axisLabel: { color: AXIS, fontSize: 11 }, splitLine: { lineStyle: { color: GRID, type: 'dashed' } } },
+    xAxis: { type: 'category', data: times, axisLine: { lineStyle: { color: AXIS } }, axisLabel: { color: AXIS, fontSize: fs(11) }, axisTick: { show: false } },
+    yAxis: { type: 'value', name: 'ΔV 漂移', axisLine: { show: false }, axisLabel: { color: AXIS, fontSize: fs(11) }, splitLine: { lineStyle: { color: GRID, type: 'dashed' } } },
     series: DIMS.map(k => ({
       name: labels[k], type: 'line', smooth: true, symbol: 'circle', symbolSize: 5,
       showSymbol: props.series.length <= 12,
-      lineStyle: { width: 2, color: C[k].color }, itemStyle: { color: C[k].color, borderColor: '#fff', borderWidth: 1 },
+      lineStyle: { width: 2, color: C[k].color }, itemStyle: { color: C[k].color, borderColor: WHITE, borderWidth: 1 },
       data: props.series.map(p => p.delta?.[k] ?? null)
     }))
   })
@@ -679,6 +699,10 @@ const tryInit = async () => {
   }
   if (chart) return
   chart = echarts.init(el.value); attachRO(); render()
+  watchFsScale(() => {
+    chart && chart.resize()
+    render()
+  })
 }
 
 onMounted(async () => { await tryInit(); window.addEventListener('resize', onResize) })

@@ -1,28 +1,40 @@
-<template>
-  <div class="assistant-root" :style="fabPosStyle">
+﻿<template>
+  <div class="assistant-root" ref="rootRef" :style="fabPosStyle">
     <!-- 悬浮触发按钮（可拖动） -->
     <button class="fab" :class="{ minimized: isOpen, dragging: isDragging }"
             @click="onFabClick"
             @mousedown="onDragStart"
-            @touchstart.prevent="onTouchStart"
-            :title="isOpen ? '收起青囊管家' : '青囊管家（可拖动）'">
+            @touchstart="onTouchStart"
+            @touchmove="onTouchMove"
+            @touchend="onTouchEnd"
+            :title="isOpen ? '收起青囊管家' : '青囊管家（可拖动）'"
+            :aria-label="isOpen ? '收起青囊管家' : '打开青囊管家'">
       <svg v-if="!isOpen" viewBox="0 0 100 100" width="28" height="28" class="fab-logo">
         <polygon points="50,5 90,28 90,72 50,95 10,72 10,28" fill="none" stroke="#fff" stroke-width="4"/>
-        <circle cx="50" cy="50" r="14" fill="none" stroke="#45C4A8" stroke-width="2" stroke-dasharray="3 2"/>
-        <path d="M38 50 Q50 42 62 50 Q50 58 38 50" fill="none" stroke="#45C4A8" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="50" cy="50" r="14" fill="none" stroke="var(--qn-emerald-accent)" stroke-width="2" stroke-dasharray="3 2"/>
+        <path d="M38 50 Q50 42 62 50 Q50 58 38 50" fill="none" stroke="var(--qn-emerald-accent)" stroke-width="2.5" stroke-linecap="round"/>
       </svg>
       <span v-else class="fab-close">✕</span>
       <span class="fab-pulse" v-if="unread > 0"></span>
     </button>
 
+    <!-- 遮罩：仅用于变暗与拦截页面点击，关闭逻辑由 document 监听统一处理 -->
+    <transition name="fade">
+      <div v-if="isOpen" class="drawer-backdrop"></div>
+    </transition>
+
     <!-- 对话抽屉 -->
     <transition name="drawer">
-      <div v-if="isOpen" :class="['drawer', { fullscreen: isFullscreen }]">
+      <div v-if="isOpen" ref="drawerRef" :class="['drawer', { fullscreen: isFullscreen }]">
         <!-- 📜 全屏模式专属：历史左栏 -->
-        <aside v-if="isFullscreen" class="history-sidebar">
+        <aside v-if="isFullscreen && !sidebarCollapsed" class="history-sidebar">
           <div class="hs-head">
-            <span class="hs-title">📜 对话历史</span>
-            <button class="hs-btn" @click="clearChat" title="新对话">＋</button>
+            <span class="hs-title">
+              <QIcon name="history" :size="14" />对话历史
+            </span>
+            <button class="hs-btn" @click="clearChat" title="新对话" aria-label="新对话">
+              <QIcon name="plus" :size="15" />
+            </button>
           </div>
           <div class="hs-list">
             <!-- 今日 -->
@@ -50,22 +62,39 @@
             </div>
           </div>
         </aside>
+        <!-- 侧栏收起时的悬浮展开按钮 -->
+        <button v-if="isFullscreen && sidebarCollapsed"
+                class="sidebar-toggle expand" @click="sidebarCollapsed = false"
+                title="展开历史记录" aria-label="展开历史记录">
+          <QIcon name="history" :size="16" />
+        </button>
+        <!-- 侧栏展开时的收起按钮（贴在右边缘） -->
+        <button v-if="isFullscreen && !sidebarCollapsed"
+                class="sidebar-toggle collapse" @click="sidebarCollapsed = true"
+                title="收起历史记录" aria-label="收起历史记录">
+          <QIcon name="chevron-left" :size="16" />
+        </button>
 
         <!-- 💬 对话主区 -->
         <div class="drawer-main">
         <!-- 头部 -->
         <div class="drawer-head">
-          <div class="avatar">🌿</div>
+          <div class="avatar"><QIcon name="sprout" :size="20" /></div>
           <div class="head-info">
             <h3>青囊管家</h3>
             <p class="head-sub">SPUM · 你的专属健康生活顾问</p>
           </div>
-          <button class="head-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏模式'">
-            <span v-if="isFullscreen" class="fs-icon">⤢</span>
-            <span v-else class="fs-icon">⛶</span>
+          <button class="head-btn" @click="toggleFullscreen"
+                  :title="isFullscreen ? '退出全屏' : '全屏模式'"
+                  :aria-label="isFullscreen ? '退出全屏' : '全屏模式'">
+            <QIcon :name="isFullscreen ? 'collapse' : 'expand'" :size="16" />
           </button>
-          <button class="head-btn" @click="clearChat" title="新对话">🔄</button>
-          <button class="head-btn close" @click="toggle" title="收起">—</button>
+          <button class="head-btn" @click="clearChat" title="新对话" aria-label="新对话">
+            <QIcon name="refresh" :size="16" />
+          </button>
+          <button class="head-btn close" @click="toggle" title="收起" aria-label="收起">
+            <QIcon name="minimize" :size="16" />
+          </button>
         </div>
 
         <!-- 状态条（从 userStore 动态取，不再硬编码胡运涛） -->
@@ -80,7 +109,7 @@
         <div class="msg-area" ref="msgAreaRef" @scroll="onScroll">
           <!-- 欢迎态 -->
           <div v-if="messages.length === 0" class="welcome">
-            <div class="welcome-avatar">🌿</div>
+            <div class="welcome-avatar"><QIcon name="sprout" :size="30" /></div>
             <h2>{{ greetingTimeText }}，{{ userStore.displayName || '朋友' }}</h2>
             <p class="welcome-time">{{ todayStr }}</p>
             <!-- 🎖️ 数字模型成熟度徽章 -->
@@ -99,8 +128,10 @@
 
           <!-- 消息列表 -->
           <template v-else>
-            <div v-for="m in messages" :key="m.id" class="msg-row" :class="m.role">
-              <div class="msg-avatar">{{ m.role === 'ai' ? '🌿' : '🧑' }}</div>
+            <div v-for="m in visibleMessages" :key="m.id" class="msg-row" :class="m.role">
+              <div class="msg-avatar">
+                <QIcon :name="m.role === 'ai' ? 'sprout' : 'user'" :size="16" />
+              </div>
               <div class="msg-bubble">
                 <div v-if="m.role === 'ai' && m.typing" class="typing-dots">
                   <span></span><span></span><span></span>
@@ -143,6 +174,45 @@
                       </span>
                     </div>
                   </div>
+                  <div v-if="m.brief" class="brief-card">
+                    <!-- L2+: LLM 填的人话解读（anchor_note / food_highlight）—— 把冷数据变成 AI 说的话 -->
+                    <div v-if="m.brief_card_fill?.anchor_note || m.brief_card_fill?.food_highlight" class="brief-ai-note">
+                      <span v-if="m.brief_card_fill?.anchor_note" class="brief-note-line">💡 {{ m.brief_card_fill.anchor_note }}</span>
+                      <span v-if="m.brief_card_fill?.food_highlight" class="brief-note-line accent">🍜 {{ m.brief_card_fill.food_highlight }}</span>
+                    </div>
+                    <div v-if="m.brief.anchor?.ganzhi" class="brief-anchor">
+                      <span class="brief-label">今日干支</span>
+                      <span class="brief-ganzhi">{{ m.brief.anchor.ganzhi }}</span>
+                      <span v-if="m.brief.anchor.chong" class="brief-chong">· 冲 {{ m.brief.anchor.chong }}</span>
+                      <span v-if="m.brief.anchor.state" class="brief-state">· {{ m.brief.anchor.state }}</span>
+                    </div>
+                    <div class="brief-yi-ji">
+                      <div v-if="m.brief.anchor?.yi" class="brief-row yi">
+                        <span class="brief-tag-tag">宜</span><span>{{ m.brief.anchor.yi }}</span>
+                      </div>
+                      <div v-if="m.brief.anchor?.ji" class="brief-row ji">
+                        <span class="brief-tag-tag">忌</span><span>{{ m.brief.anchor.ji }}</span>
+                      </div>
+                    </div>
+                    <div v-if="m.brief.food_good?.length || m.brief.food_bad?.length" class="brief-section">
+                      <span class="brief-section-title">🍜 饮食</span>
+                      <div v-if="m.brief.food_good?.length" class="brief-items good">
+                        <span v-for="(f, i) in m.brief.food_good.slice(0,4)" :key="'g'+i" class="brief-item good"
+                              :title="f.desc">{{ f.title }}</span>
+                      </div>
+                      <div v-if="m.brief.food_bad?.length" class="brief-items bad">
+                        <span v-for="(f, i) in m.brief.food_bad.slice(0,3)" :key="'b'+i" class="brief-item bad"
+                              :title="f.desc">{{ f.title }}</span>
+                      </div>
+                    </div>
+                    <div v-if="m.brief.cloth?.length" class="brief-section">
+                      <span class="brief-section-title">👗 穿搭</span>
+                      <div class="brief-items">
+                        <span v-for="(c, i) in m.brief.cloth.slice(0,4)" :key="'c'+i" class="brief-item cloth"
+                              :title="c.desc">{{ c.title }}</span>
+                      </div>
+                    </div>
+                  </div>
                   <div v-if="m.footnote" class="msg-footnote">{{ m.footnote }}</div>
                 </template>
                 <div class="msg-time">{{ m.time }}</div>
@@ -153,15 +223,40 @@
 
         <!-- 输入区 -->
         <div class="input-area">
+          <!-- 🎤 语音按钮 -->
+          <button class="voice-btn" :class="{ recording: recording }"
+                  @click="toggleRecordVoice" :disabled="thinking"
+                  :title="recording ? '停止录音' : '语音输入'">
+            <svg v-if="!recording" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+            <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2"/>
+            </svg>
+          </button>
+
           <textarea
             v-model="input"
             rows="1"
-            :placeholder="placeholder"
+            :placeholder="recording ? '录音中…再次点击停止' : placeholder"
             @keydown="onKeydown"
             @input="autoResize"
             ref="taRef"
+            :disabled="recording"
           ></textarea>
-          <button class="send-btn" :disabled="!input.trim() || thinking" @click="send(input.trim())">
+
+          <!-- 录音状态条 -->
+          <div v-if="recording" class="recording-bar">
+            <span class="rec-dot"></span>
+            <span class="rec-time">{{ recordingDuration }}s</span>
+            <span class="rec-hint">松开发送</span>
+          </div>
+
+          <button class="send-btn" :disabled="(!input.trim() && !pendingVoice) || thinking"
+                  @click="sendWithVoice(input.trim())">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <line x1="22" y1="2" x2="11" y2="13"/>
               <polygon points="22 2 15 22 11 13 2 9 22 2"/>
@@ -179,24 +274,32 @@
 import { ref, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
+import * as storage from '../utils/storage'
 import { api } from '../api/client'
+import QIcon from './ui/QIcon.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
 
 // ═══ 状态 ═══
 const isOpen = ref(false)
+const sidebarCollapsed = ref(false)   // 全屏模式下历史侧栏是否收起
 const messages = ref([])
 const input = ref('')
 const thinking = ref(false)
 const unread = ref(0)
 const msgAreaRef = ref(null)
 const taRef = ref(null)
+const rootRef = ref(null)
+const drawerRef = ref(null)
 const isFullscreen = ref(false)
 
 // ═══ 历史消息侧栏 ═══
 const chatHistory = ref([])  // 从后端 /chat/messages 拉
 const historyLoaded = ref(false)
+
+// ⭐ 过滤掉幕后 context 消息（_context=true）—— 只渲染 user/ai 可见消息
+const visibleMessages = computed(() => messages.value.filter(m => !m._context))
 
 async function loadHistoryList() {
   try {
@@ -220,34 +323,51 @@ async function loadHistoryList() {
   }
 }
 
-// 按日期分组的历史（给左栏渲染）
+// 按"一次对话"分组的历史（给左栏渲染）
+// 每条 = 用户发问 + 紧随其后的 AI 回复，preview 优先用 AI 回复的开头
+function groupSessions(msgs) {
+  const sessions = []
+  let cur = null
+  for (const m of msgs) {
+    if (m.role === 'user') {
+      // 结束上一组（如果有 user 但没 AI 回复也算一组）
+      if (cur) sessions.push(cur)
+      cur = { userMsg: m, aiMsg: null }
+    } else if (m.role === 'assistant' && cur) {
+      cur.aiMsg = m
+      sessions.push(cur)
+      cur = null
+    }
+  }
+  if (cur) sessions.push(cur)   // 最后一个没 AI 回复的 user
+  return sessions
+}
+
 const historyToday = computed(() => {
   const today = new Date().toISOString().slice(0, 10)
-  const todayItems = chatHistory.value
-    .filter(m => m.role === 'user' && m.dateStr === today)
-    .map(m => ({
-      id: m.id,
-      time: m.timeStr,
-      preview: (m.content || '').slice(0, 30),
-      ts: m.ts,
+  return groupSessions(chatHistory.value)
+    .filter(s => s.userMsg.dateStr === today)
+    .map((s, i) => ({
+      id: s.userMsg.id,                // 用 user 消息 id 作为跳转锚点
+      time: s.userMsg.timeStr,
+      preview: (s.aiMsg?.content || s.userMsg.content || '').slice(0, 36),
+      ts: s.userMsg.ts,
     }))
-    .sort((a, b) => b.ts - a.ts)
-  // 每个 user 消息 + 下一个 ai 消息拼成一组（用 ai 的 preview 如果有）
-  return todayItems
+    .sort((a, b) => b.ts - a.ts)     // 最新在前
 })
 
 const historyEarlier = computed(() => {
   const today = new Date().toISOString().slice(0, 10)
-  const earlierItems = chatHistory.value
-    .filter(m => m.role === 'user' && m.dateStr !== today)
-    .map(m => ({
-      id: m.id,
-      date: m.dateStr,
-      preview: (m.content || '').slice(0, 30),
-      ts: m.ts,
+  return groupSessions(chatHistory.value)
+    .filter(s => s.userMsg.dateStr !== today)
+    .map((s, i) => ({
+      id: s.userMsg.id,
+      date: s.userMsg.dateStr,
+      preview: (s.aiMsg?.content || s.userMsg.content || '').slice(0, 36),
+      ts: s.userMsg.ts,
     }))
     .sort((a, b) => b.ts - a.ts)
-  return earlierItems.slice(0, 20)  // 最多显示 20 条更早
+    .slice(0, 20)
 })
 
 function loadHistory(msgId) {
@@ -270,8 +390,7 @@ function loadHistory(msgId) {
   scrollBottom()
 }
 
-// ═══ FAB 拖动相关 ═══
-const FAB_STORAGE_KEY = 'qingnang-fab-pos'
+// ═══ FAB 拖动相关（位置偏好是全局 key，跨账号共享） ═══
 const fabX = ref(null)   // px from left
 const fabY = ref(null)   // px from top
 const isDragging = ref(false)
@@ -293,21 +412,16 @@ const fabPosStyle = computed(() => {
   return {}  // 默认 CSS 的 right:24px; bottom:24px
 })
 
-/** 从 localStorage 加载记忆位置 */
+/** 加载 FAB 位置（全局 key，跨账号共享） */
 function loadFabPos() {
-  try {
-    const raw = localStorage.getItem(FAB_STORAGE_KEY)
-    if (raw) {
-      const { x, y } = JSON.parse(raw)
-      if (typeof x === 'number' && typeof y === 'number') {
-        fabX.value = x
-        fabY.value = y
-      }
-    }
-  } catch {}
+  const pos = storage.getGlobal('qingnang-fab-pos', {}) || {}
+  if (typeof pos.x === 'number' && typeof pos.y === 'number') {
+    fabX.value = pos.x
+    fabY.value = pos.y
+  }
 }
 
-/** 保存位置到 localStorage（边界对齐窗口） */
+/** 保存 FAB 位置到全局 scope（跨账号共享） */
 function saveFabPos(x, y) {
   try {
     const FAB_SIZE = 56
@@ -316,7 +430,7 @@ function saveFabPos(x, y) {
     const maxY = window.innerHeight - FAB_SIZE - TAB_BAR_H - 8
     const safeX = Math.max(8, Math.min(x, maxX))
     const safeY = Math.max(8, Math.min(y, maxY))
-    localStorage.setItem(FAB_STORAGE_KEY, JSON.stringify({ x: safeX, y: safeY }))
+    storage.setGlobal('qingnang-fab-pos', { x: safeX, y: safeY })
     fabX.value = safeX
     fabY.value = safeY
   } catch {}
@@ -354,44 +468,44 @@ function onDragEnd() {
 }
 
 // ── 移动端触摸拖动 ──
-let touchIdentifier = null
+let skipNextClick = false   // 触摸结束后跳过浏览器自动触发的 click
 function onTouchStart(e) {
-  const t = e.changedTouches[0]
-  touchIdentifier = t.identifier
   isDragging.value = true
   dragMoved = false
-  dragStartX = t.clientX
-  dragStartY = t.clientY
+  dragStartX = e.touches[0].clientX
+  dragStartY = e.touches[0].clientY
   fabStartX = fabX.value !== null ? fabX.value : window.innerWidth - 80
   fabStartY = fabY.value !== null ? fabY.value : window.innerHeight - 100
-  document.addEventListener('touchmove', onTouchMove, { passive: false })
-  document.addEventListener('touchend', onTouchEnd)
 }
 function onTouchMove(e) {
-  const t = Array.from(e.changedTouches).find(tt => tt.identifier === touchIdentifier)
-  if (!t) return
-  e.preventDefault()   // 防止页面滚动
+  const t = e.touches[0]
   const dx = t.clientX - dragStartX
   const dy = t.clientY - dragStartY
   if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragMoved = true
   if (dragMoved) {
+    e.preventDefault()  // 只在拖动时阻止滚动
     fabX.value = fabStartX + dx
     fabY.value = fabStartY + dy
   }
 }
-function onTouchEnd(e) {
-  const t = Array.from(e.changedTouches).find(tt => tt.identifier === touchIdentifier)
-  if (t && dragMoved) {
+function onTouchEnd() {
+  if (dragMoved) {
     saveFabPos(fabX.value, fabY.value)
+    skipNextClick = true   // 拖动了 — 阻止浏览器后续的 click
+  } else {
+    // 没拖动 — 这是点击！立即 toggle
+    skipNextClick = true   // 阻止浏览器后续的 click 重复 toggle
+    toggle()
   }
-  touchIdentifier = null
-  document.removeEventListener('touchmove', onTouchMove)
-  document.removeEventListener('touchend', onTouchEnd)
   isDragging.value = false
 }
 
-/** 点击 vs 拖动：拖动了就不 toggle */
+/** 桌面端鼠标点击（移动端触摸后浏览器会自动触发 click — 用 skipNextClick 跳过） */
 function onFabClick() {
+  if (skipNextClick) {
+    skipNextClick = false
+    return
+  }
   if (dragMoved) {
     dragMoved = false
     return
@@ -406,16 +520,64 @@ function onResize() {
   }
 }
 
+// ═══ 外部触发：带上下文打开对话（anchor 解读 → 管家聊天）═══
+// 方案：onMounted 把 openWithContext 挂到 window.__qingnangAssistant
+// DashboardView 直接调用，比 CustomEvent 更可靠
+function openWithContext({ anchor, explain, followup }) {
+  try {
+    console.log('[QA.openWithContext] called', { anchor, explainLen: explain?.length })
+    // 1. 开抽屉
+    isOpen.value = true
+    unread.value = 0
+    console.log('[QA] isOpen set to true, current:', isOpen.value)
+    nextTick(() => taRef.value?.focus({ preventScroll: true }))
+
+    // 2. 注入"AI 之前给的解读"作为 system 消息（幕后，不渲染）
+    if (explain) {
+      if (!messages.value.some(m => m._context)) {
+        messages.value = [...messages.value, {
+          id: ++msgId, role: 'system',
+          content: `【今日时空锚点 AI 大白话解读 · ${anchor?.ganzhi || ''}】\n${explain}`,
+          time: nowTime(), segments: [{ text: explain, bold: false }], _context: true,
+        }]
+        console.log('[QA] context msg injected, total msgs:', messages.value.length)
+      }
+    }
+
+    // 3. 自动发 follow-up —— setTimeout 300ms 等 drawer DOM 完全渲染（send() 需要访问 taRef）
+    const defaultFollowup = followup || '关于今天的时空锚点解读，我还有一些问题想深入聊聊'
+    console.log('[QA] about to send:', defaultFollowup)
+    setTimeout(() => {
+      try {
+        send(defaultFollowup)
+        console.log('[QA] send() called OK')
+      } catch (e) {
+        console.error('[QA] send() threw:', e)
+      }
+    }, 350)
+  } catch (e) {
+    console.error('[QA.openWithContext] FATAL:', e)
+  }
+}
+
 onMounted(() => {
   loadFabPos()
   window.addEventListener('resize', onResize)
+  // 点击空白区域关闭抽屉（pointerdown 同时覆盖鼠标与触摸）
+  document.addEventListener('pointerdown', onDocPointerDown, true)
   // 🎖️ 登录后拉一次成熟度（欢迎态徽章立即显示）
   if (userStore.loggedIn && !userStore.maturity) {
     userStore.fetchMaturity().catch(() => {})
   }
+  // ⭐ 暴露给外部（DashboardView 等）：直接调用比 CustomEvent 可靠
+  window.__qingnangAssistant = { openWithContext, toggle }
 })
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
+  document.removeEventListener('pointerdown', onDocPointerDown, true)
+  if (window.__qingnangAssistant?.openWithContext === openWithContext) {
+    window.__qingnangAssistant = null
+  }
 })
 
 // ═══ 成熟度徽章（从 userStore.maturity 取，chat 响应也会更新）═══
@@ -498,8 +660,18 @@ const toggle = () => {
   isOpen.value = !isOpen.value
   if (isOpen.value) {
     unread.value = 0
-    nextTick(() => taRef.value?.focus())
+    // preventScroll：避免聚焦输入框时把抽屉内部整块滚动，导致顶部标题栏（含关闭按钮）被顶出可视区
+    nextTick(() => taRef.value?.focus({ preventScroll: true }))
   }
+}
+
+/** 点击抽屉/悬浮球以外的空白区域 → 关闭抽屉 */
+function onDocPointerDown(e) {
+  if (!isOpen.value) return
+  const d = drawerRef.value
+  if (d && d.contains(e.target)) return                     // 点在抽屉内 → 忽略
+  if (e.target?.closest?.('.fab')) return                    // 点在悬浮球 → 交给 onFabClick
+  toggle()                                                   // 其余（含遮罩/页面空白）→ 关闭
 }
 const clearChat = () => {
   if (messages.value.length === 0) return
@@ -566,8 +738,77 @@ function safeParseSegments(raw) {
   return segs
 }
 
-const send = async (text) => {
-  if (!text || thinking.value) return
+// ═══ 语音录音 ═══
+const recording = ref(false)
+const recordingDuration = ref(0)
+const pendingVoice = ref(null)  // { base64, format, duration }
+let mediaRecorder = null
+let audioChunks = []
+let recTimer = null
+
+async function toggleRecordVoice() {
+  if (recording.value) {
+    // 停止
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop()
+    }
+    recording.value = false
+    if (recTimer) { clearInterval(recTimer); recTimer = null }
+  } else {
+    // 开始
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      audioChunks = []
+      recordingDuration.value = 0
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunks.push(e.data)
+      }
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(audioChunks, { type: 'audio/webm' })
+        // 转 base64
+        const b64 = await blobToBase64(blob)
+        pendingVoice.value = {
+          base64: b64,
+          format: 'webm',
+          duration: recordingDuration.value,
+        }
+        // 有语音了自动发（如果文字也空的话）
+        if (!input.value.trim() && pendingVoice.value) {
+          await sendWithVoice('')
+        }
+      }
+
+      mediaRecorder.start()
+      recording.value = true
+      recTimer = setInterval(() => { recordingDuration.value++ }, 1000)
+    } catch (e) {
+      alert('麦克风访问失败：' + e.message)
+    }
+  }
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(r.result.split(',')[1])
+    r.onerror = reject
+    r.readAsDataURL(blob)
+  })
+}
+
+// sendWithVoice：同时发文字和语音
+const sendWithVoice = async (text) => {
+  if ((!text && !pendingVoice.value) || thinking.value) return
+  await send(text, pendingVoice.value)
+  pendingVoice.value = null
+}
+
+const send = async (text, voiceData = null) => {
+  if (!text && !voiceData) return
 
   // 用户消息（用户输入已经是安全文本，无 bold 处理）
   const uMsg = { id: msgId++, role: 'user', content: text, time: nowTime(), segments: [{ text, bold: false }] }
@@ -589,15 +830,27 @@ const send = async (text) => {
   let r = null  // ⚠️ 先声明，catch 后也能访问
   try {
     const history = messages.value
-      .filter(m => m.id !== typingMsg.id && !m.typing)
+      .filter(m => m.id !== typingMsg.id && !m.typing && !m._context)   // context 消息不进 history（我们把它作为新对话的 system prompt 前缀注入）
       .slice(-10)
       .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
 
-    // 从设置读取用户选择的 provider
-    let provider = 'spum'
-    try { provider = JSON.parse(localStorage.getItem('qingnang_settings') || '{}').llm_provider || 'spum' } catch {}
+    // ⭐ 把 context 解读作为 system prompt 前缀 —— 确保 LLM 知道"前置上下文"
+    const contextMsg = messages.value.find(m => m._context)
+    if (contextMsg) {
+      // 插到 history 最前面（DeepSeek 要求 system 必须在第一条）
+      history.unshift({ role: 'system', content: contextMsg.content })
+    }
 
-    r = await api.post('/api/v1/assistant/chat', { message: text, history, provider })
+    const settings = storage.get('qingnang_settings', {}) || {}
+    let provider = settings.llm_provider || 'spum'
+
+    const chatPayload = { message: text || '', history, provider }
+    if (voiceData) {
+      chatPayload.voice_base64 = voiceData.base64
+      chatPayload.voice_format = voiceData.format
+      chatPayload.voice_duration = voiceData.duration
+    }
+    r = await api.post('/api/v1/assistant/chat', chatPayload)
     replyText = r.data?.reply || ''
     // 🎖️ 后端返回的成熟度阶段 → 更新 store（下次欢迎态立刻显示）
     if (r.data?.maturity) {
@@ -631,17 +884,19 @@ const send = async (text) => {
     .slice(0, 3)
 
   // 从后端响应读 actions + analysis（AI Tool Calling 结果）
-  const actions = r.data?.actions || []
+  const actions = (r.data?.actions || []).map(a => ({
+    ...a,
+    type: a.type || 'navigate',  // 兼容旧后端（只有 route 没有 type）
+  }))
   const analysis = r.data?.analysis || null
-  // extracted_signals 也存到全局 window 方便 Dashboard 后续消费
+  // brief 卡片：后端决定何时渲染，前端只管消费
+  const briefCtx = r.data?.render_brief_card ? r.data?.brief_context : null
+  // extracted_signals 存到 scope 方便同账号消费
   if (r.data?.extracted_signals?.length) {
-    try {
-      const key = 'qingnang-latest-signals'
-      localStorage.setItem(key, JSON.stringify({
-        signals: r.data.extracted_signals,
-        at: Date.now(),
-      }))
-    } catch {}
+    storage.set('qingnang-latest-signals', {
+      signals: r.data.extracted_signals,
+      at: Date.now(),
+    })
   }
 
   // 替换 typingMsg
@@ -649,6 +904,8 @@ const send = async (text) => {
     id: typingMsg.id, role: 'ai',
     content: replyText, suggestions, footnote,
     actions, analysis,
+    brief: briefCtx,                  // 后端说渲染才渲染（冷数据）
+    brief_card_fill: r.data?.brief_card_fill || null,  // L2+: LLM 填的人话注释
     time: nowTime(), typing: false,
     segments: safeParseSegments(replyText),
   }
@@ -670,16 +927,80 @@ const scrollBottom = () => {
 }
 const onScroll = () => {}
 
-// 🎯 AI Tool Calling：点击青囊建议的动作按钮 → 跳转对应页面
-function doAction(a) {
-  // 先关闭抽屉，避免路由跳转时视觉混乱
-  isOpen.value = false
-  // 小延迟让关闭动画完成
-  setTimeout(() => {
-    if (a?.route) {
-      router.push(a.route)
+// 🎯 AI Tool Calling：点击青囊建议的动作按钮
+async function doAction(a) {
+  if (!a) return
+  const type = a.type || 'navigate'
+
+  // 按钮禁用防抖（api_call 过程中）
+  if (a._executing) return
+  a._executing = true
+
+  try {
+    if (type === 'api_call') {
+      // ── 真实执行：调后端 /execute 端点 ──
+      const r = await api.post('/api/v1/assistant/execute', {
+        action_id: a.action_id,
+        params: a.params || {},
+      })
+      const ok = r.data?.ok
+      const result = r.data?.result
+      // 反馈 toast（用 alert 兜底，避免再引 toast 组件依赖）
+      if (ok) {
+        const detail = result?.created?.title
+          || result?.updated?.chief_complaint
+          || (result?.skipped ? '已存在，跳过' : '执行成功')
+        showToast(`✅ ${a.label?.split('「')[0].trim() || '已执行'} — ${detail}`)
+      } else {
+        showToast(`⚠️ 执行失败：${result?.reason || '未知原因'}`)
+      }
+    } else {
+      // ── 跳转页面（navigate，兼容旧后端）──
+      isOpen.value = false
+      setTimeout(() => {
+        router.push(a.route)
+      }, 200)
     }
-  }, 200)
+  } catch (e) {
+    const status = e.response?.status
+    const detail = e.response?.data?.detail || e.message
+    let human
+    if (status === 403) {
+      human = '当前阶段不允许此操作'
+    } else if (status === 404) {
+      human = '未知操作'
+    } else if (status === 422) {
+      // L3: Pydantic 模板验证失败 — 后端会返回 detail 指出缺哪个字段
+      // 例子："action_id='add_reminder' 的 params 不符合模板: {}"
+      human = `参数不合法：${typeof detail === 'string' ? detail : JSON.stringify(detail)}`
+    } else {
+      human = `操作失败(${status || '网络'})`
+    }
+    showToast(`❌ ${human}`)
+  } finally {
+    a._executing = false
+  }
+}
+
+// 轻量 toast（不引入新组件，用 DOM + 自动移除）
+function showToast(text) {
+  // 清除旧的
+  document.querySelectorAll('.qn-toast').forEach(n => n.remove())
+  const el = document.createElement('div')
+  el.className = 'qn-toast'
+  el.textContent = text
+  Object.assign(el.style, {
+    position: 'fixed', bottom: '80px', left: '50%',
+    transform: 'translateX(-50%)',
+    background: 'rgba(var(--qn-emerald-rgb),0.92)', color: '#fff',
+    padding: '10px 18px', borderRadius: '20px', fontSize: '13px',
+    zIndex: 9999, pointerEvents: 'none',
+    boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+    maxWidth: '80vw', textAlign: 'center',
+  })
+  document.body.appendChild(el)
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s' }, 2200)
+  setTimeout(() => el.remove(), 2600)
 }
 </script>
 
@@ -689,17 +1010,17 @@ function doAction(a) {
 /* 悬浮按钮 */
 .fab {
   width: 56px; height: 56px; border-radius: 50%;
-  background: linear-gradient(135deg, var(--qingnang-emerald) 0%, var(--qingnang-emerald-dark) 100%);
+  background: linear-gradient(135deg, var(--qn-emerald) 0%, var(--qn-emerald-dark) 100%);
   border: none; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 4px 20px rgba(26,77,69,0.35);
+  box-shadow: 0 4px 20px rgba(var(--qn-emerald-rgb),0.35);
   transition: all 0.2s; position: relative;
 }
-.fab:hover { transform: scale(1.08); box-shadow: 0 6px 28px rgba(26,77,69,0.45); }
+.fab:hover { transform: scale(1.08); box-shadow: 0 6px 28px rgba(var(--qn-emerald-rgb),0.45); }
 .fab:active { transform: scale(0.95); }
 .fab.minimized { width: 40px; height: 40px; box-shadow: 0 2px 10px rgba(0,0,0,0.15); }
 .fab-logo { filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2)); }
-.fab-close { color: #fff; font-size: 18px; font-weight: 300; }
+.fab-close { color: #fff; font-size: calc(18px * var(--qn-fs-scale)); font-weight: 300; }
 .fab-pulse {
   position: absolute; top: -2px; right: -2px; width: 14px; height: 14px;
   background: var(--wuxing-fire); border-radius: 50%;
@@ -710,51 +1031,135 @@ function doAction(a) {
   100% { transform: scale(1.5); opacity: 0; }
 }
 
+/* 遮罩：点击空白区域关闭抽屉 */
+.drawer-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(18, 38, 34, 0.28);
+  z-index: 1;  /* 位于 .assistant-root 内部，低于抽屉(1001) */
+}
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
 /* 抽屉 */
 .drawer {
   position: fixed; right: 24px; bottom: 24px;
   width: 420px; height: 620px;
-  background: #fff; border-radius: 16px;
-  box-shadow: 0 12px 48px rgba(26,77,69,0.18), 0 2px 8px rgba(0,0,0,0.06);
+  background: var(--qn-surface); border-radius: 16px;
+  box-shadow: 0 12px 48px rgba(var(--qn-emerald-rgb),0.18), 0 2px 8px rgba(0,0,0,0.06);
   display: flex; flex-direction: column; overflow: hidden;
-  border: 1px solid var(--ink-line);
+  border: 1px solid var(--qn-line);
   z-index: 1001;
   transition: width .25s ease, height .25s ease, right .25s ease, bottom .25s ease, border-radius .25s ease;
 }
 .drawer.fullscreen {
   right: 0; bottom: 0; left: 0; top: 0;
-  width: 100vw; height: 100vh;
+  width: 100vw; height: 100dvh;  /* 用 dvh 避免 iOS Safari 地址栏 bug */
   border-radius: 0;
   z-index: 2000;
   flex-direction: row;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ═══ 移动端适配 ═══ */
+/* 手机屏幕小，抽屉始终全屏铺满 —— 没有"悬浮小窗"和"全屏"两个状态 */
+@media (max-width: 720px) {
+  .drawer,
+  .drawer.fullscreen {
+    position: fixed;
+    right: 0; bottom: 0; left: 0; top: 0;
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    box-sizing: border-box;
+    border: none;
+    flex-direction: column;
+    z-index: 2000;
+  }
+  /* 手机端禁用 Vue transition 的 scale+slide 动画 —— 只保留淡出淡入 */
+  .drawer-enter-active,
+  .drawer-leave-active {
+    transition: opacity 0.18s ease !important;
+  }
+  .drawer-enter-from,
+  .drawer-leave-to {
+    opacity: 0;
+    transform: none !important;
+  }
+  /* 手机端不需要"全屏/退出全屏"按钮 —— 抽屉本来就铺满 */
+  .drawer .fs-btn {
+    display: none;
+  }
+  /* 历史侧栏：桌面全屏专属，手机隐藏 */
+  .drawer .history-sidebar {
+    display: none;
+  }
+  /* 安全区适配 */
+  .drawer-head { padding-top: calc(14px + env(safe-area-inset-top)); }
+  .input-area { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .disclaimer { padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
 }
 
 /* 📜 历史侧栏（全屏专属） */
 .history-sidebar {
   width: 260px; flex-shrink: 0;
   background: linear-gradient(180deg, #faf9f5, #f3f1ea);
-  border-right: 1px solid var(--ink-line);
+  border-right: 1px solid var(--qn-line);
   display: flex; flex-direction: column;
   overflow: hidden;
+  transition: width 0.25s ease, opacity 0.2s;
+}
+
+/* 侧栏收/展切换按钮 */
+.sidebar-toggle {
+  position: absolute;
+  z-index: 5;
+  width: 24px; height: 48px;
+  border: 1px solid var(--qn-line);
+  border-radius: 0 8px 8px 0;
+  background: var(--qn-surface);
+  color: var(--qn-emerald);
+  line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+  box-shadow: 2px 0 6px rgba(0,0,0,0.05);
+}
+.sidebar-toggle.collapse {
+  left: 260px; top: 50%;
+  transform: translateY(-50%);
+  border-left: none;
+}
+.sidebar-toggle.expand {
+  left: 0; top: 50%;
+  transform: translateY(-50%);
+  border-radius: 0 8px 8px 0;
+}
+.sidebar-toggle:hover {
+  background: var(--qn-emerald); color: #fff;
+  box-shadow: 3px 0 8px rgba(var(--qn-emerald-rgb),0.2);
 }
 .hs-head {
   padding: 14px 16px;
   display: flex; align-items: center; justify-content: space-between;
-  border-bottom: 1px solid var(--ink-line);
-  background: rgba(26,77,69,0.04);
+  border-bottom: 1px solid var(--qn-line);
+  background: rgba(var(--qn-emerald-rgb),0.04);
 }
-.hs-title { font-size: 13px; font-weight: 600; color: #1A4D45; }
+.hs-title {
+  font-size: calc(13px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-emerald);
+  display: inline-flex; align-items: center; gap: 5px;
+}
 .hs-btn {
-  width: 26px; height: 26px; border-radius: 6px;
-  border: 1px solid rgba(26,77,69,0.3); background: #fff;
-  color: #1A4D45; font-size: 14px; line-height: 1;
+  width: 28px; height: 28px; border-radius: 6px;
+  border: 1px solid rgba(var(--qn-emerald-rgb),0.3); background: var(--qn-surface);
+  color: var(--qn-emerald); line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; transition: all 0.15s;
 }
-.hs-btn:hover { background: #1A4D45; color: #fff; }
+.hs-btn:hover { background: var(--qn-emerald); color: #fff; }
 .hs-list { flex: 1; overflow-y: auto; padding: 8px; }
 .hs-group { margin-bottom: 12px; }
 .hs-group-title {
-  font-size: 10px; color: var(--ink-tertiary);
+  font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-3);
   padding: 6px 10px; text-transform: uppercase; letter-spacing: 0.5px;
 }
 .hs-item {
@@ -762,28 +1167,29 @@ function doAction(a) {
   display: flex; flex-direction: column; gap: 2px;
   transition: background 0.12s;
 }
-.hs-item:hover { background: rgba(26,77,69,0.06); }
+.hs-item:hover { background: rgba(var(--qn-emerald-rgb),0.06); }
 .hs-time, .hs-date {
-  font-size: 10px; color: var(--ink-tertiary);
+  font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-3);
 }
 .hs-preview {
-  font-size: 12px; color: var(--ink-primary);
+  font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .hs-empty {
-  padding: 40px 20px; text-align: center; color: var(--ink-tertiary);
+  padding: 40px 20px; text-align: center; color: var(--qn-ink-3);
 }
 .hs-empty p { margin: 4px 0; }
-.hs-empty-hint { font-size: 11px; opacity: 0.6; }
+.hs-empty-hint { font-size: calc(11px * var(--qn-fs-scale)); opacity: 0.6; }
 
 /* 💬 全屏下的对话主区 */
 .drawer.fullscreen .drawer-main {
   flex: 1; display: flex; flex-direction: column;
-  min-width: 0; /* flex 子元素防溢出 */
+  min-width: 0; min-height: 0; overflow: hidden;
 }
 /* 非全屏时 drawer-main 就是 drawer 本身 */
 .drawer:not(.fullscreen) .drawer-main {
-  flex: 1; display: flex; flex-direction: column; min-width: 0;
+  flex: 1; display: flex; flex-direction: column;
+  min-width: 0; min-height: 0; overflow: hidden;
 }
 .drawer-enter-active, .drawer-leave-active { transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .drawer-enter-from, .drawer-leave-to { opacity: 0; transform: translateY(20px) scale(0.95); }
@@ -792,88 +1198,96 @@ function doAction(a) {
 .drawer-head {
   display: flex; align-items: center; gap: 10px;
   padding: 14px 16px;
-  background: linear-gradient(135deg, var(--qingnang-emerald) 0%, var(--qingnang-emerald-dark) 100%);
+  background: linear-gradient(135deg, var(--qn-emerald) 0%, var(--qn-emerald-dark) 100%);
   color: #fff; flex-shrink: 0;
 }
 .avatar {
   width: 36px; height: 36px; border-radius: 50%;
   background: rgba(255,255,255,0.15);
   display: flex; align-items: center; justify-content: center;
-  font-size: 18px; flex-shrink: 0;
+  flex-shrink: 0; color: #fff;
 }
 .welcome-avatar {
   width: 64px; height: 64px; border-radius: 50%;
-  background: linear-gradient(135deg, rgba(26,77,69,0.1), rgba(46,125,106,0.2));
+  background: linear-gradient(135deg, rgba(var(--qn-emerald-rgb),0.1), rgba(var(--qn-emerald-light-rgb),0.2));
   display: flex; align-items: center; justify-content: center;
-  font-size: 32px; margin: 0 auto 14px;
-  box-shadow: 0 4px 20px rgba(26,77,69,0.15);
+  margin: 0 auto 14px;
+  color: var(--qn-emerald);
+  box-shadow: 0 4px 20px rgba(var(--qn-emerald-rgb),0.15);
 }
 .head-info { flex: 1; }
-.head-info h3 { margin: 0; font-size: 15px; font-weight: 600; }
-.head-sub { margin: 2px 0 0; font-size: 11px; color: rgba(255,255,255,0.65); }
+.head-info h3 { margin: 0; font-size: calc(15px * var(--qn-fs-scale)); font-weight: 600; }
+.head-sub { margin: 2px 0 0; font-size: calc(11px * var(--qn-fs-scale)); color: rgba(255,255,255,0.65); }
 .head-btn {
-  width: 30px; height: 30px; border-radius: 50%;
+  width: 32px; height: 32px; border-radius: 50%;
   border: none; background: rgba(255,255,255,0.15);
-  color: #fff; cursor: pointer; font-size: 14px;
+  color: #fff; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  transition: background 0.15s;
+  flex-shrink: 0;
+  transition: background 0.15s, transform 0.15s;
 }
 .head-btn:hover { background: rgba(255,255,255,0.25); }
+.head-btn:active { transform: scale(.92); }
+/* 图标按钮的键盘焦点环（青囊绿在深绿底上看不见，用白色半透明） */
+.head-btn:focus-visible {
+  outline: 2px solid rgba(255,255,255,.7);
+  outline-offset: 2px;
+}
 
 /* 状态条 */
 .ctx-bar {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   padding: 8px 16px;
-  background: var(--qingnang-paper); border-bottom: 1px solid var(--ink-line);
-  font-size: 11px; flex-shrink: 0;
+  background: var(--qn-paper); border-bottom: 1px solid var(--qn-line);
+  font-size: calc(11px * var(--qn-fs-scale)); flex-shrink: 0;
 }
-.ctx-item { color: var(--ink-secondary); font-weight: 500; }
-.ctx-sep { color: var(--ink-tertiary); opacity: 0.4; }
-.ctx-warn { color: var(--qingnang-emerald); font-weight: 600; }
+.ctx-item { color: var(--qn-ink-2); font-weight: 500; }
+.ctx-sep { color: var(--qn-ink-3); opacity: 0.4; }
+.ctx-warn { color: var(--qn-emerald); font-weight: 600; }
 
 /* 消息区 */
 .msg-area {
-  flex: 1; overflow-y: auto; padding: 16px;
-  background: var(--qingnang-paper);
+  flex: 1; min-height: 0; overflow-y: auto; padding: 16px;
+  background: var(--qn-paper);
   scroll-behavior: smooth;
 }
 .msg-area::-webkit-scrollbar { width: 4px; }
-.msg-area::-webkit-scrollbar-thumb { background: var(--ink-line); border-radius: 2px; }
+.msg-area::-webkit-scrollbar-thumb { background: var(--qn-line); border-radius: 2px; }
 
 /* 欢迎态 */
 .welcome { text-align: center; padding: 20px 10px; }
-.welcome h2 { margin: 0 0 4px; font-size: 18px; color: var(--ink-primary); }
-.welcome-time { margin: 0 0 12px; font-size: 12px; color: var(--ink-tertiary); }
-.welcome-status { margin: 0 0 6px; font-size: 12px; color: var(--ink-secondary); line-height: 1.6; }
+.welcome h2 { margin: 0 0 4px; font-size: calc(18px * var(--qn-fs-scale)); color: var(--qn-ink); }
+.welcome-time { margin: 0 0 12px; font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
+.welcome-status { margin: 0 0 6px; font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); line-height: 1.6; }
 
 /* 🎖️ 数字模型成熟度徽章 */
 .stage-badge {
   display: inline-flex; align-items: center; gap: 6px;
   margin: 4px 0 8px; padding: 5px 12px;
-  background: linear-gradient(135deg, rgba(26,77,69,0.08), rgba(69,196,168,0.12));
-  border: 1px solid rgba(26,77,69,0.2);
+  background: linear-gradient(135deg, rgba(var(--qn-emerald-rgb),0.08), rgba(var(--qn-emerald-accent-rgb),0.12));
+  border: 1px solid rgba(var(--qn-emerald-rgb),0.2);
   border-radius: 16px;
-  font-size: 11px; color: #1A4D45;
+  font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-emerald);
 }
-.sb-icon { font-size: 14px; }
+.sb-icon { font-size: calc(14px * var(--qn-fs-scale)); }
 .sb-text { font-weight: 600; }
 .sb-score {
   margin-left: 2px; padding: 1px 6px;
-  background: rgba(26,77,69,0.12); border-radius: 10px;
-  font-weight: 500; color: var(--qingnang-emerald);
+  background: rgba(var(--qn-emerald-rgb),0.12); border-radius: 10px;
+  font-weight: 500; color: var(--qn-emerald);
 }
 
-.welcome-hint { margin: 16px 0 10px; font-size: 11px; color: var(--ink-tertiary); letter-spacing: 0.5px; }
+.welcome-hint { margin: 16px 0 10px; font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); letter-spacing: 0.5px; }
 .quick-chips { display: flex; flex-direction: column; gap: 8px; max-width: 320px; margin: 0 auto; }
 .chip-btn {
-  font-size: 13px; padding: 10px 16px;
-  border: 1px solid rgba(26,77,69,0.2); background: #fff;
-  color: var(--qingnang-emerald); border-radius: 20px;
+  font-size: calc(13px * var(--qn-fs-scale)); padding: 10px 16px;
+  border: 1px solid rgba(var(--qn-emerald-rgb),0.2); background: var(--qn-surface);
+  color: var(--qn-emerald); border-radius: 20px;
   cursor: pointer; text-align: center; transition: all 0.15s;
 }
 .chip-btn:hover {
-  background: var(--qingnang-emerald); color: #fff;
-  border-color: var(--qingnang-emerald);
+  background: var(--qn-emerald); color: #fff;
+  border-color: var(--qn-emerald);
   transform: translateY(-1px);
 }
 
@@ -884,32 +1298,33 @@ function doAction(a) {
 .msg-row .msg-avatar {
   width: 30px; height: 30px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 14px; flex-shrink: 0;
-  background: rgba(26,77,69,0.08);
+  flex-shrink: 0;
+  background: rgba(var(--qn-emerald-rgb),0.08);
+  color: var(--qn-emerald);
 }
-.msg-row.ai .msg-avatar { background: rgba(26,77,69,0.1); }
-.msg-row.user .msg-avatar { background: rgba(46,125,106,0.2); }
+.msg-row.ai .msg-avatar { background: rgba(var(--qn-emerald-rgb),0.1); }
+.msg-row.user .msg-avatar { background: rgba(var(--qn-emerald-light-rgb),0.2); color: var(--qn-emerald-dark); }
 
 .msg-bubble {
   max-width: 82%; padding: 10px 14px; border-radius: 12px;
-  font-size: 13px; line-height: 1.6; position: relative;
+  font-size: calc(13px * var(--qn-fs-scale)); line-height: 1.6; position: relative;
 }
 .msg-row.ai .msg-bubble {
-  background: #fff; color: var(--ink-primary);
-  border: 1px solid var(--ink-line); border-top-left-radius: 4px;
+  background: var(--qn-surface); color: var(--qn-ink);
+  border: 1px solid var(--qn-line); border-top-left-radius: 4px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.03);
 }
 .msg-row.user .msg-bubble {
-  background: linear-gradient(135deg, var(--qingnang-emerald) 0%, var(--qingnang-emerald-light) 100%);
+  background: linear-gradient(135deg, var(--qn-emerald) 0%, var(--qn-emerald-light) 100%);
   color: #fff; border-top-right-radius: 4px;
 }
-.msg-text strong { color: var(--qingnang-emerald); }
+.msg-text strong { color: var(--qn-emerald); }
 .msg-row.user .msg-text strong { color: #fff; }
 
 .typing-dots { display: flex; gap: 4px; padding: 4px 0; }
 .typing-dots span {
   width: 7px; height: 7px; border-radius: 50%;
-  background: var(--qingnang-emerald); opacity: 0.4;
+  background: var(--qn-emerald); opacity: 0.4;
   animation: bounce 1.4s infinite ease-in-out both;
 }
 .typing-dots span:nth-child(1) { animation-delay: -0.32s; }
@@ -921,12 +1336,12 @@ function doAction(a) {
 
 .suggest-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .sugg-btn {
-  font-size: 11px; padding: 4px 10px;
-  border: 1px solid rgba(26,77,69,0.2); background: #fff;
-  color: var(--qingnang-emerald); border-radius: 12px;
+  font-size: calc(11px * var(--qn-fs-scale)); padding: 4px 10px;
+  border: 1px solid rgba(var(--qn-emerald-rgb),0.2); background: var(--qn-surface);
+  color: var(--qn-emerald); border-radius: 12px;
   cursor: pointer; transition: all 0.15s;
 }
-.sugg-btn:hover { background: rgba(26,77,69,0.06); border-color: var(--qingnang-emerald); }
+.sugg-btn:hover { background: rgba(var(--qn-emerald-rgb),0.06); border-color: var(--qn-emerald); }
 
 /* 🎯 AI Tool Calling 动作按钮 */
 .action-row {
@@ -934,97 +1349,161 @@ function doAction(a) {
 }
 .action-btn {
   display: flex; align-items: center; gap: 6px;
-  font-size: 12px; padding: 8px 12px;
-  border: 1px solid rgba(26,77,69,0.25); background: linear-gradient(135deg, #f0faf7, #fff);
-  color: #1A4D45; border-radius: 8px;
+  font-size: calc(12px * var(--qn-fs-scale)); padding: 8px 12px;
+  border: 1px solid rgba(var(--qn-emerald-rgb),0.25); background: linear-gradient(135deg, rgba(var(--qn-emerald-light-rgb),0.08), var(--qn-surface));
+  color: var(--qn-emerald); border-radius: 8px;
   cursor: pointer; transition: all 0.15s;
   text-align: left; font-weight: 500;
 }
 .action-btn:hover {
   background: linear-gradient(135deg, #e0f5ee, #f5fff9);
-  border-color: var(--qingnang-emerald);
+  border-color: var(--qn-emerald);
   transform: translateX(2px);
 }
-.action-btn.high { border-color: #D84315; color: #D84315; background: linear-gradient(135deg, #fff5f2, #fff); }
-.action-btn.high:hover { background: linear-gradient(135deg, #ffeae2, #fff); }
-.action-icon { font-size: 14px; }
-.action-arrow { margin-left: auto; opacity: 0.5; font-size: 11px; }
+.action-btn.high { border-color: var(--qn-fire); color: var(--qn-fire); background: linear-gradient(135deg, rgba(216,67,21,0.08), var(--qn-surface)); }
+.action-btn.high:hover { background: linear-gradient(135deg, rgba(216,67,21,0.12), var(--qn-surface)); }
+.action-icon { font-size: calc(14px * var(--qn-fs-scale)); }
+.action-arrow { margin-left: auto; opacity: 0.5; font-size: calc(11px * var(--qn-fs-scale)); }
 
 /* 📊 AI 深度解析摘要卡 */
 .analysis-card {
   margin-top: 10px; padding: 10px 12px;
-  background: linear-gradient(135deg, rgba(26,77,69,0.05), rgba(212,160,23,0.04));
-  border: 1px solid rgba(26,77,69,0.12);
-  border-radius: 10px; font-size: 11px; line-height: 1.6;
+  background: linear-gradient(135deg, rgba(var(--qn-emerald-rgb),0.05), rgba(212,160,23,0.04));
+  border: 1px solid rgba(var(--qn-emerald-rgb),0.12);
+  border-radius: 10px; font-size: calc(11px * var(--qn-fs-scale)); line-height: 1.6;
 }
 .ana-section { margin-bottom: 6px; }
 .ana-section:last-child { margin-bottom: 0; }
 .ana-tag {
   display: inline-block; margin-right: 6px;
-  color: var(--ink-tertiary); font-weight: 500;
+  color: var(--qn-ink-3); font-weight: 500;
 }
 .ana-path {
   display: inline-block; margin: 0 3px;
-  background: rgba(216,67,21,0.08); color: #D84315;
+  background: rgba(216,67,21,0.08); color: var(--qn-fire);
   padding: 1px 7px; border-radius: 4px; font-weight: 500;
 }
-.ana-base { color: var(--ink-tertiary); font-size: 10px; font-weight: 400; }
+.ana-base { color: var(--qn-ink-3); font-size: calc(10px * var(--qn-fs-scale)); font-weight: 400; }
 .ana-sugg {
   display: inline-block; margin: 0 3px;
-  background: rgba(26,77,69,0.08); color: #1A4D45;
+  background: rgba(var(--qn-emerald-rgb),0.08); color: var(--qn-emerald);
   padding: 1px 7px; border-radius: 4px;
 }
-.ana-sugg.high { background: rgba(216,67,21,0.1); color: #D84315; font-weight: 500; }
+.ana-sugg.high { background: rgba(216,67,21,0.1); color: var(--qn-fire); font-weight: 500; }
 .ana-sugg.low { opacity: 0.7; }
+
+/* 📅 今日宜忌/饮食/穿搭卡片（AI 真实输出 APP 数据） */
+.brief-card {
+  margin-top: 10px; padding: 12px 14px;
+  background: linear-gradient(135deg, rgba(var(--qn-emerald-accent-rgb),0.08), rgba(var(--qn-emerald-rgb),0.04));
+  border: 1px solid rgba(var(--qn-emerald-accent-rgb),0.25);
+  border-radius: 10px; font-size: calc(12px * var(--qn-fs-scale)); line-height: 1.6;
+}
+/* L2+: LLM 填的人话解读 — 把冷数据变成 AI 说的话 */
+.brief-ai-note {
+  margin-bottom: 8px; padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(var(--qn-emerald-rgb),0.15);
+  font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-emerald);
+  font-style: italic;
+}
+.brief-note-line { display: block; margin-bottom: 2px; }
+.brief-note-line.accent { color: var(--qn-fire); font-style: normal; font-weight: 500; }
+.brief-anchor {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding-bottom: 8px; border-bottom: 1px dashed rgba(var(--qn-emerald-rgb),0.15); margin-bottom: 8px;
+}
+.brief-label { font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-3); letter-spacing: 0.5px; }
+.brief-ganzhi { font-weight: 600; color: var(--qn-emerald); font-size: calc(14px * var(--qn-fs-scale)); }
+.brief-chong { color: var(--qn-fire); font-size: calc(11px * var(--qn-fs-scale)); }
+.brief-state { color: var(--qn-ink-2); font-size: calc(11px * var(--qn-fs-scale)); }
+.brief-yi-ji { margin-bottom: 8px; }
+.brief-row { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 3px; font-size: calc(11px * var(--qn-fs-scale)); }
+.brief-row .brief-tag-tag {
+  flex-shrink: 0; width: 16px; height: 16px; line-height: 16px;
+  border-radius: 4px; text-align: center; font-size: calc(10px * var(--qn-fs-scale)); font-weight: 600;
+}
+.brief-row.yi .brief-tag-tag { background: rgba(var(--qn-emerald-accent-rgb),0.2); color: var(--qn-emerald); }
+.brief-row.ji .brief-tag-tag { background: rgba(216,67,21,0.15); color: var(--qn-fire); }
+.brief-section { margin-top: 6px; }
+.brief-section-title {
+  display: block; font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3);
+  margin-bottom: 6px; font-weight: 500;
+}
+.brief-items { display: flex; flex-wrap: wrap; gap: 5px; }
+.brief-item {
+  font-size: calc(11px * var(--qn-fs-scale)); padding: 3px 9px; border-radius: 12px;
+  cursor: default;
+}
+.brief-item.good { background: rgba(var(--qn-emerald-accent-rgb),0.12); color: var(--qn-emerald); }
+.brief-item.bad { background: rgba(216,67,21,0.1); color: var(--qn-fire); }
+.brief-item.cloth { background: rgba(156,39,176,0.08); color: #6A1B9A; }
 
 .msg-footnote {
   margin-top: 8px; padding-top: 6px;
-  border-top: 1px dashed var(--ink-line);
-  font-size: 10px; color: var(--ink-tertiary); font-style: italic;
+  border-top: 1px dashed var(--qn-line);
+  font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-3); font-style: italic;
 }
 .msg-row.user .msg-footnote { display: none; }
 
 .msg-time {
-  font-size: 10px; color: var(--ink-tertiary); margin-top: 4px; opacity: 0.6;
+  font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin-top: 4px; opacity: 0.6;
 }
 .msg-row.user .msg-time { text-align: right; }
 
 /* 输入区 */
 .input-area {
   display: flex; align-items: flex-end; gap: 8px;
-  padding: 12px 14px; background: #fff; border-top: 1px solid var(--ink-line);
+  padding: 12px 14px; background: var(--qn-surface); border-top: 1px solid var(--qn-line);
   flex-shrink: 0;
 }
 .input-area textarea {
-  flex: 1; resize: none; border: 1px solid var(--ink-line); border-radius: 20px;
-  padding: 9px 16px; font-size: 13px; font-family: inherit;
-  background: var(--qingnang-paper); color: var(--ink-primary);
+  flex: 1; resize: none; border: 1px solid var(--qn-line); border-radius: 20px;
+  padding: 9px 16px; font-size: calc(13px * var(--qn-fs-scale)); font-family: inherit;
+  background: var(--qn-paper); color: var(--qn-ink);
   max-height: 120px; line-height: 1.5; outline: none;
   transition: border-color 0.15s;
 }
-.input-area textarea:focus { border-color: var(--qingnang-emerald); background: #fff; }
+.input-area textarea:focus { border-color: var(--qn-emerald); background: var(--qn-surface); }
 .send-btn {
   width: 36px; height: 36px; border-radius: 50%;
-  background: var(--qingnang-emerald); border: none; color: #fff;
+  background: var(--qn-emerald); border: none; color: #fff;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; flex-shrink: 0; transition: all 0.15s;
 }
-.send-btn:hover:not(:disabled) { background: var(--qingnang-emerald-light); transform: scale(1.05); }
+.send-btn:hover:not(:disabled) { background: var(--qn-emerald-light); transform: scale(1.05); }
 .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 🎤 语音按钮 */
+.voice-btn {
+  width: 36px; height: 36px; flex-shrink: 0;
+  background: transparent; border: 1.5px solid var(--qn-line);
+  border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--qn-ink-3); transition: all 0.15s;
+}
+.voice-btn:hover:not(:disabled) { border-color: var(--qn-emerald); color: var(--qn-emerald); }
+.voice-btn.recording { background: #d33; border-color: #d33; color: #fff; animation: pulse-rec 1.2s ease-in-out infinite; }
+@keyframes pulse-rec { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+.voice-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 录音状态条 */
+.recording-bar {
+  position: absolute; bottom: 100%; left: 40px; margin-bottom: 8px;
+  background: #333; color: #fff; padding: 4px 10px; border-radius: 14px;
+  font-size: calc(12px * var(--qn-fs-scale)); display: flex; align-items: center; gap: 6px;
+  white-space: nowrap; z-index: 10;
+}
+.rec-dot { width: 8px; height: 8px; background: #ff4444; border-radius: 50%; animation: rec-blink 1s infinite; }
+@keyframes rec-blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+.rec-time { font-weight: 600; font-variant-numeric: tabular-nums; }
+.rec-hint { color: #aaa; }
 
 .disclaimer {
   margin: 0; padding: 6px 16px;
-  background: var(--qingnang-paper); border-top: 1px solid var(--ink-line);
-  font-size: 10px; color: var(--ink-tertiary); text-align: center; flex-shrink: 0;
+  background: var(--qn-paper); border-top: 1px solid var(--qn-line);
+  font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-3); text-align: center; flex-shrink: 0;
   line-height: 1.4;
 }
 
-@media (max-width: 520px) {
-  .drawer {
-    right: 12px; left: 12px; width: auto;
-    bottom: calc(72px + env(safe-area-inset-bottom));
-    height: calc(100vh - 140px);
-    max-height: calc(100vh - 140px);
-  }
-}
+/* 注：旧的 520px media query 已合并入上面 720px 规则 —— 手机端抽屉始终全屏铺满 */
 </style>

@@ -1,0 +1,265 @@
+/* ═══════════════════════════════════════════════════════════════
+   src/styles/tokens.css —— 唯一设计变量真源
+   
+   ⚠️ 所有组件禁止硬编码色值、圆角、阴影。修改此处即全站生效。
+   上游规范：design-assets/ui-kit/tokens/tokens.css（待建立）
+   引入位置：main.js 第一行（必须最先，在 App.vue 之前）
+   
+   ── 命名约定 ──
+   新名前缀 --qn-* （审计文档建议，语义清晰、避免冲突）
+   旧名前缀 --qingnang-* / --ink-* / --wuxing-* 保留为别名
+   （逐页替换完成后可删除别名层）
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ═══════════════════════════════════
+     品牌锚点（勿改，改动需同步 design-assets/ui-kit）
+     ═══════════════════════════════════ */
+  --qn-emerald:       #17534C;   /* 青囊绿 · 主色 */
+  --qn-emerald-rgb:   23, 83, 76;     /* 用于 rgba(var(--qn-emerald-rgb), 0.xx) */
+  --qn-emerald-dark:  #123F3A;   /* 按压态 */
+  --qn-emerald-dark-rgb: 18, 63, 58;
+  --qn-emerald-light: #2E7D6A;   /* 松烟绿 · 悬浮/描边 */
+  --qn-emerald-light-rgb: 46, 125, 106;
+  --qn-emerald-accent:#45C4A8;   /* 亮青 · 渐变亮端 / 强调 */
+  --qn-emerald-accent-rgb: 69, 196, 168;
+  --qn-cinnabar:      #A8442F;   /* 朱砂 · 点缀（慎用） */
+  --qn-cinnabar-rgb:  168, 68, 47;
+  --qn-cinnabar-soft: #C45A3C;
+
+  /* ═══════════════════════════════════
+     背景
+     ═══════════════════════════════════ */
+  --qn-bg-dark:   #0B0F0E;
+  --qn-bg-light:  #F2EFE7;      /* 宣纸米 */
+  --qn-bg-paper:  #E5E1D6;
+  --qn-paper:     var(--qn-bg-paper);   /* 别名：批量替换遗留，59 处引用 */
+  --qn-surface:   #FFFFFF;      /* 卡片白底 */
+
+  /* ═══════════════════════════════════
+     中性文字色
+     ═══════════════════════════════════ */
+  --qn-ink:    #33403B;         /* 主文字 */
+  --qn-ink-2:  #5A6A64;         /* 次级 */
+  --qn-ink-3:  #8A9A94;         /* 辅助 */
+  --qn-line:   #E5E1D6;         /* 描边/分割线 */
+
+  /* ═══════════════════════════════════
+     五形语义色（业务逻辑色，独立于品牌色，不随主题切换）
+     ═══════════════════════════════════ */
+  --qn-wood:  #43A047;
+  --qn-wood-rgb:  67, 160, 71;
+  --qn-fire:  #D84315;
+  --qn-fire-rgb:  216, 67, 21;
+  --qn-earth: #D4A017;
+  --qn-earth-rgb: 212, 160, 23;
+  --qn-metal: #90A4AE;
+  --qn-metal-rgb: 144, 164, 174;
+  --qn-water: #0288D1;
+  --qn-water-rgb: 2, 136, 209;
+
+  /* ═══════════════════════════════════
+     趋势色（中式习惯：涨=朱砂，跌=靛蓝）
+     ═══════════════════════════════════ */
+  --qn-trend-up:   #D84315;
+  --qn-trend-down: #0288D1;
+
+  /* ═══════════════════════════════════
+     字体
+     ═══════════════════════════════════ */
+  --qn-font-title: 'Source Han Sans CN','Noto Sans SC','PingFang SC',serif;
+  --qn-font-body:  'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;
+  --qn-font-mono:  'JetBrains Mono','Fira Code',monospace;
+
+  /* ═══════════════════════════════════
+     字号（老年关怀通过 --qn-fs-scale 联动）
+     ═══════════════════════════════════ */
+  --qn-fs-scale: 1;
+
+  /* ═══════════════════════════════════
+     间距（8pt 栅格）
+     ═══════════════════════════════════ */
+  --qn-s1: 4px;
+  --qn-s2: 8px;
+  --qn-s3: 12px;
+  --qn-s4: 16px;
+  --qn-s5: 20px;
+  --qn-s6: 24px;
+  --qn-s8: 32px;
+  --qn-s10: 40px;
+  --qn-s12: 48px;
+  --qn-page-x: 20px;          /* 移动端页边距 */
+
+  /* ═══════════════════════════════════
+     圆角
+     ═══════════════════════════════════ */
+  --qn-r-sm:   8px;
+  --qn-r-md:   14px;
+  --qn-r-lg:   16px;
+  --qn-r-pill: 28px;           /* UI Kit 胶囊按钮 */
+
+  /* ═══════════════════════════════════
+     阴影（宣纸底上需极轻）
+     ═══════════════════════════════════ */
+  --qn-shadow-1: 0 1px 2px rgba(0,0,0,.04), 0 2px 8px rgba(0,0,0,.06);
+  --qn-shadow-2: 0 2px 4px rgba(0,0,0,.06), 0 6px 16px rgba(0,0,0,.10);
+
+  /* ═══════════════════════════════════
+     状态标签（底色透明度 0.08，描边 0.35~0.40）
+     ═══════════════════════════════════ */
+  --qn-ok-bg:   rgba(67,160,71,.08);
+  --qn-ok-bd:   rgba(67,160,71,.35);
+  --qn-warn-bg: rgba(212,160,23,.08);
+  --qn-warn-bd: rgba(212,160,23,.40);
+  --qn-bad-bg:  rgba(216,67,21,.08);
+  --qn-bad-bd:  rgba(216,67,21,.40);
+
+  /* ═══════════════════════════════════
+     提示框专用实色底（区别于标签的透明底）
+     暗色模式下自动覆盖为深色调
+     ═══════════════════════════════════ */
+  --qn-banner-warn-bg:  #FFF8E1;  /* 米黄 · 警示/提示框 */
+  --qn-banner-warn-bd:  #FFE082;  /* 对应边框 */
+  --qn-banner-bad-bg:   #FFF8F0;  /* 淡红 · 告警/相克 */
+  --qn-banner-card-bg:  #fff;     /* 引导弹窗卡片底 → --qn-surface 也行，这里专门留 */
+  --qn-banner-report-bg-start: #fff;     /* 报告卡片渐变起点 */
+  --qn-banner-report-bg-end:   #f0f7f5;  /* 报告卡片渐变终点（极浅青） */
+
+  /* ═══════════════════════════════════
+     动效
+     ═══════════════════════════════════ */
+  --qn-ease: cubic-bezier(.4, 0, .2, 1);
+  --qn-dur: 200ms;
+
+  /* ═══════════════════════════════════
+     响应式断点（唯一允许的断点，写进 base.css 注释里约定）
+     ═══════════════════════════════════ */
+  --qn-bp-sm: 480px;
+  --qn-bp-md: 720px;
+  --qn-bp-lg: 1024px;
+  --qn-bp-xl: 1280px;
+
+  /* ═══════════════════════════════════
+     ── 兼容别名层（逐页替换完成后可删除） ──
+     App.vue 原变量名 → --qn-* 新名
+     ═══════════════════════════════════ */
+  --qingnang-emerald:       var(--qn-emerald);
+  --qingnang-emerald-dark:  var(--qn-emerald-dark);
+  --qingnang-emerald-light: var(--qn-emerald-light);
+  --qingnang-spirit:        var(--qn-cinnabar);
+  --qingnang-spirit-soft:   var(--qn-cinnabar-soft);
+  --qingnang-paper:         var(--qn-bg-light);
+  --qingnang-paper-deep:    var(--qn-bg-paper);
+  --qingnang-card:          var(--qn-surface);
+  --accent:                 var(--qn-cinnabar);
+
+  --ink-primary:   var(--qn-ink);
+  --ink-secondary: var(--qn-ink-2);
+  --ink-tertiary:  var(--qn-ink-3);
+  --ink-line:      var(--qn-line);
+
+  --wuxing-wood:  var(--qn-wood);
+  --wuxing-fire:  var(--qn-fire);
+  --wuxing-earth: var(--qn-earth);
+  --wuxing-metal: var(--qn-metal);
+  --wuxing-water: var(--qn-water);
+
+  --trend-up:   var(--qn-trend-up);
+  --trend-down: var(--qn-trend-down);
+
+  --font-title: var(--qn-font-title);
+  --font-body:  var(--qn-font-body);
+  --font-mono:  var(--qn-font-mono);
+  --fs-scale:   var(--qn-fs-scale);
+
+  --radius-sm:   var(--qn-r-sm);
+  --radius-md:   var(--qn-r-md);
+  --radius-lg:   var(--qn-r-lg);
+  --radius-pill: var(--qn-r-pill);
+
+  --shadow-card:      var(--qn-shadow-1);
+  --shadow-card-hover: var(--qn-shadow-2);
+
+  --tag-ok-bg:     var(--qn-ok-bg);
+  --tag-ok-border: var(--qn-ok-bd);
+  --tag-warn-bg:   var(--qn-warn-bg);
+  --tag-warn-border: var(--qn-warn-bd);
+  --tag-bad-bg:    var(--qn-bad-bg);
+  --tag-bad-border: var(--qn-bad-bd);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   暗色主题：覆盖同一批 --qn-* 变量，不新增变量
+   兼容别名层自动继承 --qn-* 的新值
+   ═══════════════════════════════════════════════════════════════ */
+html[data-theme="dark"] {
+  --qn-emerald:       #2E7D6A;
+  --qn-emerald-rgb:   46, 125, 106;
+  --qn-emerald-dark:  #1E5A4E;
+  --qn-emerald-dark-rgb: 30, 90, 78;
+  --qn-emerald-light: #4FA08C;
+  --qn-emerald-light-rgb: 79, 160, 140;
+  --qn-emerald-accent:#5CC4B2;
+  --qn-emerald-accent-rgb: 92, 196, 178;
+  --qn-cinnabar:      #D85A42;
+  --qn-cinnabar-rgb:  216, 90, 66;
+  --qn-cinnabar-soft: #E87A5C;
+
+  --qn-bg-light:  #1A1E1C;
+  --qn-bg-paper:  #121514;
+  --qn-surface:   #242826;
+  --qn-ink:       #E8E5DD;
+  --qn-ink-2:     #B0ACA0;
+  --qn-ink-3:     #6E6A5F;
+  --qn-line:      #323834;
+
+  /* 标签底色透明度上调，暗底上 0.08 几乎不可见 */
+  --qn-ok-bg:   rgba(67,160,71,.15);
+  --qn-warn-bg: rgba(212,160,23,.15);
+  --qn-bad-bg:  rgba(216,67,21,.15);
+
+  /* 提示框实色底 → 深色调整（降低饱和度 + 提升明度，在暗底上不刺眼） */
+  --qn-banner-warn-bg:  #3a3322;    /* 暗黄底 */
+  --qn-banner-warn-bd:  #5a4e2c;
+  --qn-banner-bad-bg:   #3a1e1a;    /* 暗红底 */
+  --qn-banner-card-bg:  #242826;    /* 与 --qn-surface 一致 */
+  --qn-banner-report-bg-start: #242826;
+  --qn-banner-report-bg-end:   #1d2a26;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   字号缩放（改 --qn-fs-scale 让全站 font-size: calc(Npx * var(--qn-fs-scale)) 联动）
+   ═══════════════════════════════════════════════════════════════ */
+html[data-font="small"]  { --qn-fs-scale: .9; }
+html[data-font="medium"] { --qn-fs-scale: 1; }
+html[data-font="large"]  { --qn-fs-scale: 1.2; }
+
+/* 老年关怀模式：更激进的字号 + 按钮高度补偿 */
+html.elder-mode { --qn-fs-scale: 1.35; }
+html.elder-mode .btn { padding: 14px 28px; font-size: calc(16px * var(--qn-fs-scale)); }
+html.elder-mode .btn-ghost { padding: 14px 28px; }
+html.elder-mode input,
+html.elder-mode select,
+html.elder-mode textarea { font-size: calc(16px * var(--qn-fs-scale)); padding: 10px 14px; }
+html.elder-mode .nav-item,
+html.elder-mode .tab { padding: 12px 18px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   减少动画（prefers-reduced-motion 或用户设置）
+   ═══════════════════════════════════════════════════════════════ */
+html.reduce-motion *,
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+/* 用户显式开启 reduce_motion 时生效（双保险） */
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+  animation-duration: .01ms !important;
+  transition-duration: .01ms !important;
+}

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="page">
     <h1>报告查看</h1>
     <p class="page__desc">历次推演报告 + 趋势观察提示（非医疗措辞）</p>
@@ -33,8 +33,8 @@ onMounted(async () => {
 
 <style scoped>
 .list { display: grid; gap: 14px; margin-top: 16px; }
-.report-card { background: #fff; border: 1px solid #e4e8ee; border-radius: 8px; padding: 16px; }
-.meta { font-size: 12px; color: #8a94a0; margin-top: 4px; }
-.notice { margin-top: 10px; font-size: 12px; color: #7a5b2e; background: #fdf3e3; padding: 8px; border-radius: 4px; }
+.report-card { background: var(--qn-surface); border: 1px solid #e4e8ee; border-radius: 8px; padding: 16px; }
+.meta { font-size: calc(12px * var(--qn-fs-scale)); color: #8a94a0; margin-top: 4px; }
+.notice { margin-top: 10px; font-size: calc(12px * var(--qn-fs-scale)); color: #7a5b2e; background: #fdf3e3; padding: 8px; border-radius: 4px; }
 .placeholder { margin-top: 16px; color: #98a2b3; }
 </style>

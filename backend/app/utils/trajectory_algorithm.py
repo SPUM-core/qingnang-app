@@ -55,6 +55,10 @@ HEALTH_POLYTOPE = {
 }
 
 # 健康凸多面体中心 H_centroid
+# ⚠️ 注意：此 50.0 与 v_innate center=20 (cases.py) 是两个不同量纲体系
+# - v_innate: 藏干概率分布，Σ=100，每维数学期望=20
+# - HEALTH_CENTROID: 多面体健康标量空间，各维独立 50±range，是大运推演的健康基准
+# 两者不要统一 — 曾菊心/曾银鸾大运曲线依赖此 50 值
 HEALTH_CENTROID = {
     'wood': 50.0,
     'fire': 50.0,
