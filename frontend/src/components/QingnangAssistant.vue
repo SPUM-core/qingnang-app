@@ -126,12 +126,19 @@
                   <span></span><span></span><span></span>
                 </div>
                 <template v-else>
-                  <!-- XSS 安全：不用 v-html，用文本节点 + 分段渲染 -->
+                  <!-- XSS 安全：不用 v-html，用文本节点 + 语义分段渲染 -->
                   <div class="msg-text">
                     <template v-for="(seg, si) in m.segments" :key="si">
-                      <strong v-if="seg.bold">{{ seg.text }}</strong>
+                      <!-- 小标题：【当前基线】【先天基底】等 -->
+                      <div v-if="seg.type === 'heading'" class="seg-heading">{{ seg.text }}</div>
+                      <!-- 数据行：木:26 火:0 等五行向量 -->
+                      <div v-else-if="seg.type === 'data'" class="seg-data">{{ seg.text }}</div>
+                      <!-- 加粗 -->
+                      <strong v-else-if="seg.type === 'bold'">{{ seg.text }}</strong>
+                      <!-- 换行 -->
+                      <br v-else-if="seg.type === 'newline'" />
+                      <!-- 普通正文 -->
                       <template v-else>{{ seg.text }}</template>
-                      <br v-if="si < m.segments.length - 1" />
                     </template>
                   </div>
                   <div v-if="m.suggestions?.length" class="suggest-row">
@@ -705,32 +712,43 @@ const nowTime = () => {
  * 将 AI 回复文本解析为 segments 数组，安全渲染（替代 v-html）
  * - 先用 DOM API 对原始文本做 HTML escape（防 XSS）
  * - 再按 **bold** 和换行拆分，标记 bold 段
+ * - 升级：识别语义类型 — heading（【xxx】）/ data（五行数字行）/ bold / text
  */
 function safeParseSegments(raw) {
-  if (!raw) return [{ text: '', bold: false }]
+  if (!raw) return [{ text: '', type: 'text' }]
   // HTML escape — 防 XSS 的核心步骤
   const div = document.createElement('div')
   div.textContent = raw
-  const escaped = div.innerHTML  // 纯文本已被 escape
-  // 但我们直接用原始文本（Vue template 会 escape 文本插值），
-  // 所以只做语义分段，交给 Vue 的 {{ }} 自动 escape
+  // 直接用原始文本（Vue template 会 escape 文本插值），只做语义分段
   const lines = raw.split('\n')
   const segs = []
   for (const line of lines) {
-    // **bold** → 分割为 bold/普通段
-    const parts = line.split(/(\*\*[^*]+\*\*)/)
-    for (const part of parts) {
-      if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-        segs.push({ text: part.slice(2, -2), bold: true })
-      } else if (part) {
-        segs.push({ text: part, bold: false })
+    // 整行判断：heading 还是 data？
+    const trimmed = line.trim()
+    let lineType = 'text'
+    if (/^【.+】/.test(trimmed)) {
+      lineType = 'heading'
+    } else if (/[木火土金水]:\d+\s*/.test(trimmed) && trimmed.length < 60) {
+      lineType = 'data'
+    }
+    if (lineType === 'heading' || lineType === 'data') {
+      segs.push({ text: trimmed, type: lineType })
+    } else {
+      // text 行内处理 **bold**
+      const parts = line.split(/(\*\*[^*]+\*\*)/)
+      for (const part of parts) {
+        if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+          segs.push({ text: part.slice(2, -2), type: 'bold' })
+        } else if (part) {
+          segs.push({ text: part, type: 'text' })
+        }
       }
     }
-    segs.push({ text: '\n', bold: false, _newline: true })
+    segs.push({ text: '\n', type: 'newline' })
   }
   // 去掉末尾多余换行
-  while (segs.length && segs[segs.length - 1]._newline) segs.pop()
-  if (!segs.length) segs.push({ text: '', bold: false })
+  while (segs.length && segs[segs.length - 1].type === 'newline') segs.pop()
+  if (!segs.length) segs.push({ text: '', type: 'text' })
   return segs
 }
 
@@ -1166,44 +1184,6 @@ function showToast(text) {
   color: var(--qn-emerald);
   box-shadow: 0 4px 20px rgba(var(--qn-emerald-rgb),0.15);
 }
-.head-info { flex: 1; }
-.head-info h3 { margin: 0; font-size: calc(15px * var(--qn-fs-scale)); font-weight: 600; }
-.head-sub { margin: 2px 0 0; font-size: calc(11px * var(--qn-fs-scale)); color: rgba(255,255,255,0.65); }
-.head-btn {
-  width: 32px; height: 32px; border-radius: 50%;
-  border: none; background: rgba(255,255,255,0.15);
-  color: #fff; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-  transition: background 0.15s, transform 0.15s;
-}
-.head-btn:hover { background: rgba(255,255,255,0.25); }
-.head-btn:active { transform: scale(.92); }
-/* 图标按钮的键盘焦点环（青囊绿在深绿底上看不见，用白色半透明） */
-.head-btn:focus-visible {
-  outline: 2px solid rgba(255,255,255,.7);
-  outline-offset: 2px;
-}
-
-/* 状态条 */
-.ctx-bar {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  padding: 8px 16px;
-  background: var(--qn-paper); border-bottom: 1px solid var(--qn-line);
-  font-size: calc(11px * var(--qn-fs-scale)); flex-shrink: 0;
-}
-.ctx-item { color: var(--qn-ink-2); font-weight: 500; }
-.ctx-sep { color: var(--qn-ink-3); opacity: 0.4; }
-.ctx-warn { color: var(--qn-emerald); font-weight: 600; }
-
-/* 消息区 */
-.msg-area {
-  flex: 1; min-height: 0; overflow-y: auto; padding: 16px;
-  background: var(--qn-paper);
-  scroll-behavior: smooth;
-}
-.msg-area::-webkit-scrollbar { width: 4px; }
-.msg-area::-webkit-scrollbar-thumb { background: var(--qn-line); border-radius: 2px; }
 
 /* 欢迎态 */
 .welcome { text-align: center; padding: 20px 10px; }
@@ -1242,33 +1222,103 @@ function showToast(text) {
   transform: translateY(-1px);
 }
 
+.head-info { flex: 1; }
+.head-info h3 { margin: 0; font-size: calc(15px * var(--qn-fs-scale)); font-weight: 600; }
+.head-sub { margin: 2px 0 0; font-size: calc(11px * var(--qn-fs-scale)); color: rgba(255,255,255,0.65); }
+.head-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: none; background: rgba(255,255,255,0.15);
+  color: #fff; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, transform 0.15s;
+}
+.head-btn:hover { background: rgba(255,255,255,0.25); }
+.head-btn:active { transform: scale(.92); }
+/* 图标按钮的键盘焦点环（青囊绿在深绿底上看不见，用白色半透明） */
+.head-btn:focus-visible {
+  outline: 2px solid rgba(255,255,255,.7);
+  outline-offset: 2px;
+}
+
+/* 状态条 */
+.ctx-bar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 8px 16px;
+  background: var(--qn-paper); border-bottom: 1px solid var(--qn-line);
+  font-size: calc(11px * var(--qn-fs-scale)); flex-shrink: 0;
+}
+.ctx-item { color: var(--qn-ink-2); font-weight: 500; }
+.ctx-sep { color: var(--qn-ink-3); opacity: 0.4; }
+.ctx-warn { color: var(--qn-emerald); font-weight: 600; }
+
+/* 消息区 — DeepSeek 亮白风 */
+.msg-area {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px;
+  background: #FAFAF7;  /* 亮白偏米，不刺眼 */
+  scroll-behavior: smooth;
+}
+.msg-area::-webkit-scrollbar { width: 4px; }
+.msg-area::-webkit-scrollbar-thumb { background: var(--qn-line); border-radius: 2px; }
+
 /* 消息行 —— DeepSeek 平铺风格 */
-.msg-row { display: flex; gap: 12px; margin-bottom: 20px; align-items: flex-start; }
+.msg-row { display: flex; gap: 14px; margin-bottom: 22px; align-items: flex-start; }
 .msg-row.ai { flex-direction: row; }
 .msg-row.user { flex-direction: row-reverse; }
 .msg-row .msg-avatar {
-  width: 28px; height: 28px; border-radius: 50%;
+  width: 30px; height: 30px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
-  font-size: calc(12px * var(--qn-fs-scale));
+  font-size: calc(13px * var(--qn-fs-scale));
 }
 .msg-row.ai .msg-avatar { background: linear-gradient(135deg, var(--qn-emerald), var(--qn-emerald-dark)); color: #fff; }
-.msg-row.user .msg-avatar { background: rgba(var(--qn-ink-3), 0.15); color: var(--qn-ink-2); }
+.msg-row.user .msg-avatar { background: #E8E5DD; color: var(--qn-ink-3); }
 
 /* DeepSeek 风格：扁平无边框无气泡 */
 .msg-bubble {
   max-width: 100%; padding: 0; border-radius: 0;
-  font-size: calc(14px * var(--qn-fs-scale)); line-height: 1.7; position: relative;
+  font-size: calc(14.5px * var(--qn-fs-scale)); line-height: 1.75;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
 }
-.msg-row.user .msg-bubble {
-  color: var(--qn-ink);
-  text-align: right;
+.msg-row.ai .msg-bubble { color: var(--qn-ink); }
+.msg-row.user .msg-bubble { color: var(--qn-ink); text-align: right; }
+
+/* 用户消息 — DeepSeek 右对齐灰色气泡 */
+.msg-row.user .msg-text {
+  display: inline-block; text-align: left;  /* 文本内容保持左对齐，整体右对齐由父 flex 做 */
+  padding: 10px 14px; border-radius: 14px 14px 4px 14px;
+  background: #E8E5DD;  /* 浅烟灰 */
+  margin-right: 2px;
 }
-.msg-text strong { color: var(--qn-emerald); }
-.msg-row.user .msg-text strong { color: #fff; }
+.msg-row.user .msg-bubble { text-align: right; }
+.msg-row.user .msg-bubble > * { display: inline-block; }
+
+/* 语义分段样式 */
+.msg-text strong { color: var(--qn-emerald); font-weight: 600; }
+.msg-row.user .msg-text strong { color: var(--qn-ink); }
+
+/* 小标题：【当前基线】等 — 左竖条 + 粗体 + 主色 */
+.seg-heading {
+  margin: 14px 0 6px; padding: 4px 0 4px 10px;
+  border-left: 3px solid var(--qn-emerald);
+  font-size: calc(13px * var(--qn-fs-scale));
+  font-weight: 600;
+  color: var(--qn-emerald);
+  letter-spacing: 0.3px;
+}
+/* 数据行：木:26 火:0 等 — 等宽字体 + 灰调 + 独立块 */
+.seg-data {
+  margin: 4px 0 8px; padding: 8px 12px;
+  background: rgba(var(--qn-emerald-rgb), 0.04);
+  border-radius: 6px;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: calc(12.5px * var(--qn-fs-scale));
+  color: var(--qn-ink-2);
+  letter-spacing: 0.5px;
+}
+.msg-row.user .seg-heading, .msg-row.user .seg-data { display: inline-block; }
 
 .typing-dots { display: flex; gap: 4px; padding: 4px 0; }
 .typing-dots span {
@@ -1399,20 +1449,21 @@ function showToast(text) {
 }
 .msg-row.user .msg-time { text-align: right; }
 
-/* 输入区 */
+/* 输入区 — 跟亮白消息区协调 */
 .input-area {
   display: flex; align-items: flex-end; gap: 8px;
-  padding: 12px 14px; background: var(--qn-surface); border-top: 1px solid var(--qn-line);
+  padding: 12px 14px; background: #FFFFFF;
+  border-top: 1px solid #EDEAE2;
   flex-shrink: 0;
 }
 .input-area textarea {
-  flex: 1; resize: none; border: 1px solid var(--qn-line); border-radius: 20px;
+  flex: 1; resize: none; border: 1px solid #EDEAE2; border-radius: 20px;
   padding: 9px 16px; font-size: calc(13px * var(--qn-fs-scale)); font-family: inherit;
-  background: var(--qn-paper); color: var(--qn-ink);
+  background: #FAFAF7; color: var(--qn-ink);
   max-height: 120px; line-height: 1.5; outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background 0.15s;
 }
-.input-area textarea:focus { border-color: var(--qn-emerald); background: var(--qn-surface); }
+.input-area textarea:focus { border-color: var(--qn-emerald); background: #FFFFFF; }
 .send-btn {
   width: 36px; height: 36px; border-radius: 50%;
   background: var(--qn-emerald); border: none; color: #fff;

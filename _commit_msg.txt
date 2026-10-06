@@ -1,23 +1,30 @@
-refactor: 引导话术 + 卡片推送逻辑全面 SPUM 对齐
+feat: 聊天界面亮白化 + 语义分段渲染
 
-前端 (QingnangAssistant.vue):
-  快捷问题从 Stage 分层 (枷锁) -> SPUM 认知维度 (身体)
-  去掉 STAGE_QUICK_QUESTIONS 硬编码 Stage1-4 分层
-  换成 SPUM_QUICK_QUESTIONS: 拓扑健康/时间调制/边界整合/抉择引导/身体邀请
-  所有用户一视同仁 -- LLM 有 SPUM 世界观后自己判断该引导什么
+整体视觉 (QingnangAssistant.vue):
+  - msg-area 背景: --qn-paper(#E5E1D6 米灰) -> #FAFAF7 亮白偏米 (DeepSeek 风)
+  - input-area 背景: var(--qn-surface) -> #FFFFFF 纯白, 边框 -> #EDEAE2 浅灰
+  - textarea 背景: var(--qn-paper) -> #FAFAF7, focus 时 -> #FFFFFF
+  - 消息字号: 14px -> 14.5px, line-height: 1.7 -> 1.75
+  - 消息间距: 16px -> 20px 24px (更多呼吸感)
 
-后端 schema 描述 (ai_response.py):
-  PathologyFill.description 从 "病理标签" -> "拓扑状态 (不是病, 是关系网络状态)"
-  SuggestionFill.category 从功能性 -> SPUM 操作语义:
-    diet=边界整合饮食 / exercise=边界整合运动 / sleep=帧间恢复
-    lifestyle=时辰调制 / avoid=拓扑防护 / herb=深层调平
-  SuggestionFill.title 描述强调 "具体可执行 + 对应哪个五形相位/时辰窗口"
-  BriefCardFill -> "今日拓扑窗口" 语义 (S(t) = S_base + delta_S_节气 + delta_S_日干支)
+用户消息视觉:
+  - 右对齐 + 浅烟灰气泡 (#E8E5DD, 圆角 14px 14px 4px 14px)
+  - 之前用户消息跟 AI 完全一样, 只有右对齐
 
-后端 build_response_schema_prompt:
-  从 "可用 JSON 格式" -> "结构化输出说明 + SPUM 对齐的卡片语义"
-  每个槽位都写清楚 "什么时候填、填什么、SPUM 里的意义"
-  suggested_actions 明确: 一次最多 1-2 个, 只在用户主动触发时出现
-  完整 example JSON 全部换成 SPUM 语言 (S_火偏强 0.30 / sigma 场 / V+ 密度态...)
+safeParseSegments 升级:
+  - 从 {text, bold:boolean} -> {text, type: heading|data|bold|text|newline}
+  - heading: 整行匹配 /^【.+】/ 的行 (【当前基线】【先天基底】等)
+  - data: 匹配五行数字模式 [木火土金水]:\d+ 且长度 <60 的行
+  - bold: 行内 **xxx**
+  - text: 普通正文
+  - newline: 换行 (统一处理, 不再用 si 判断)
 
-保留: JSON 解析技术层、白名单机制 -- 这些是系统管道, 不是枷锁.
+template 升级:
+  - 用 v-if/v-else-if 按 seg.type 渲染
+  - heading -> div.seg-heading, data -> div.seg-data
+  - 不再靠 si 判断 <br>
+
+新增 CSS 类:
+  - .seg-heading: 左侧 3px 主色竖条 + 粗体 + 主色 + 上方 14px margin
+  - .seg-data: 等宽字体 (SF Mono/Menlo/Consolas) + 浅绿底 + 灰调文字 + 圆角
+  - 用户消息气泡: .msg-row.user .msg-text 加圆角气泡 + 浅烟灰底
