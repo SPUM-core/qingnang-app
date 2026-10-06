@@ -1,0 +1,23 @@
+refactor: 引导话术 + 卡片推送逻辑全面 SPUM 对齐
+
+前端 (QingnangAssistant.vue):
+  快捷问题从 Stage 分层 (枷锁) -> SPUM 认知维度 (身体)
+  去掉 STAGE_QUICK_QUESTIONS 硬编码 Stage1-4 分层
+  换成 SPUM_QUICK_QUESTIONS: 拓扑健康/时间调制/边界整合/抉择引导/身体邀请
+  所有用户一视同仁 -- LLM 有 SPUM 世界观后自己判断该引导什么
+
+后端 schema 描述 (ai_response.py):
+  PathologyFill.description 从 "病理标签" -> "拓扑状态 (不是病, 是关系网络状态)"
+  SuggestionFill.category 从功能性 -> SPUM 操作语义:
+    diet=边界整合饮食 / exercise=边界整合运动 / sleep=帧间恢复
+    lifestyle=时辰调制 / avoid=拓扑防护 / herb=深层调平
+  SuggestionFill.title 描述强调 "具体可执行 + 对应哪个五形相位/时辰窗口"
+  BriefCardFill -> "今日拓扑窗口" 语义 (S(t) = S_base + delta_S_节气 + delta_S_日干支)
+
+后端 build_response_schema_prompt:
+  从 "可用 JSON 格式" -> "结构化输出说明 + SPUM 对齐的卡片语义"
+  每个槽位都写清楚 "什么时候填、填什么、SPUM 里的意义"
+  suggested_actions 明确: 一次最多 1-2 个, 只在用户主动触发时出现
+  完整 example JSON 全部换成 SPUM 语言 (S_火偏强 0.30 / sigma 场 / V+ 密度态...)
+
+保留: JSON 解析技术层、白名单机制 -- 这些是系统管道, 不是枷锁.

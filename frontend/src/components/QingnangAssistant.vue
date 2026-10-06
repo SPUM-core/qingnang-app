@@ -581,17 +581,22 @@ const stageBadge = computed(() => {
   }
 })
 
-// ═══ 快捷问题（按成熟度阶段动态生成）═══
-const STAGE_QUICK_QUESTIONS = {
-  1: ['今天天气怎么样？', '最近有什么节日？', '推荐一首放松的音乐', '讲讲四季养生常识'],
-  2: ['我今天该吃什么？', '推荐什么颜色适合我？', '简单的食疗建议', '这个季节该注意什么？'],
-  3: ['我的体质适合几点睡？', '适合我的穿衣颜色', '今天饮食宜忌', '家居方位有什么建议？', '做什么运动合适？'],
-  4: ['我的深层调理方案', '方剂方案调整建议', '长期体质调平计划'],
-}
-const quickQuestions = computed(() => {
-  const stage = userStore.maturity?.stage || 1
-  return STAGE_QUICK_QUESTIONS[stage] || STAGE_QUICK_QUESTIONS[1]
-})
+// ═══ 快捷问题（SPUM 本体论对齐，不再 Stage 分层）═══
+// 设计原则：每个快捷问题对应 SPUM 的一个认知维度
+//  · 拓扑健康：ΔV 偏离、五形状态
+//  · 时间调制：节气/时辰/日干支对当前 S 向量的影响
+//  · 边界整合：饮食/作息/运动如何作为"外来边集"被 G_body 整合
+//  · 抉择引导：今天的精力适合做什么决策
+//  · 身体邀请：主动采集脉搏/舌苔——补全数字模型缺口
+const SPUM_QUICK_QUESTIONS = [
+  "我的五形向量现在怎么样？ΔV 偏到哪里了？",
+  "今天节气和时辰对我的拓扑调平有什么建议？",
+  "我这种体质适合吃什么？为什么？",
+  "今天精力适合做什么决策？需要注意什么边界冲突？",
+  "帮我摸个脉（采集 PPG 观测）",
+  "最近睡眠/情绪反映了什么拓扑状态？",
+]
+const quickQuestions = computed(() => SPUM_QUICK_QUESTIONS)
 
 const placeholder = computed(() =>
   thinking.value ? '青囊管家正在思考…' : '问问青囊管家…（Enter 发送）'

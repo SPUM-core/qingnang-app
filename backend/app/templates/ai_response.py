@@ -90,23 +90,23 @@ class BriefCardFill(BaseModel):
 
 
 class PathologyFill(BaseModel):
-    """AI 从对话反推的病理标签（可选）"""
-    label: str = Field(..., description="病理标签，如'寒湿凝结'")
-    base: Optional[str] = Field(None, description="病理依据，如'腰膝酸冷痛+阴雨天加重'")
+    """AI 从 S 向量和对话读出来的拓扑状态（不是"病"，是关系网络状态）"""
+    label: str = Field(..., description="拓扑状态标签，如'S_火偏强 0.30（梯度场活跃）'")
+    base: Optional[str] = Field(None, description="依据：对应哪个 S 向量偏移或对话细节")
 
 
 class SuggestionFill(BaseModel):
-    """AI 给的调理建议（可选）"""
-    category: str = Field(..., description="diet/lifestyle/exercise/sleep/avoid/herb")
-    title: str = Field(..., description="建议标题，如'戌时泡脚'")
-    detail: Optional[str] = Field(None, description="具体做法，如'40℃ 15分钟'")
-    priority: Optional[str] = Field(None, description="high/medium/low")
+    """AI 给的拓扑调平建议"""
+    category: str = Field(..., description="diet(边界整合饮食)/exercise(边界整合运动)/sleep(帧间恢复)/lifestyle(时辰调制)/avoid(拓扑防护)/herb(深层调平)")
+    title: str = Field(..., description="具体可执行的标题，如'戌时泡脚 40℃ 15分钟'")
+    detail: Optional[str] = Field(None, description="怎么做 + 为什么（对应哪个五形相位/时辰窗口）")
+    priority: Optional[str] = Field(None, description="high=直接纠正 ΔV 主偏移方向 / medium / low")
 
 
 class SignalFill(BaseModel):
-    """AI 从用户自述抽取的生活信号（可选）"""
+    """AI 从用户自述抽取的边界信号（生活细节 → 未来映射到 G_body 的节点）"""
     tag: str = Field(..., description="sleep/appetite/bowel/mood/energy...")
-    label: str = Field(..., description="信号标签，如'入睡困难'")
+    label: str = Field(..., description="信号标签，如'入睡困难'、'下午3点后疲惫'")
     confidence: Optional[float] = Field(None, description="0.0-1.0")
 
 
@@ -135,11 +135,11 @@ def build_response_schema_prompt(whitelist: dict | None = None) -> str:
         但不带 stage_min 提示。
     """
     example = AIResponseTemplate(
-        reply="今晚早点睡吧——你的火形偏弱，睡眠是补火最直接的方式。睡前1小时放下手机...",
+        reply="你的火形梯度偏强（能量流有点急），睡眠是补水形链的最好方式——水形链通了，火形的急就能被缓冲下来。今晚早点睡吧，睡前1小时放下手机让 σ 场降下来...",
         brief_card=BriefCardFill(
             show=True,
-            anchor_note="今天乙亥日，木旺土弱",
-            food_highlight="小米粥最适合你，温养土形",
+            anchor_note="今天乙亥日，木旺土弱——土形储备被木形环挤压，饮食上适合引入低冲突的土性外来边",
+            food_highlight="小米粥最适合你——它的五形属性是土+水，温养储备池同时疏通传输链",
         ),
         suggested_actions=[
             ActionSuggestion(
@@ -150,19 +150,20 @@ def build_response_schema_prompt(whitelist: dict | None = None) -> str:
             ActionSuggestion(
                 action_id="mark_life_signal",
                 params={"tag": "sleep", "label": "入睡困难"},
-                label="标记「入睡困难」到我的数字模型",
+                label="把入睡困难标记到我的数字模型",
             ),
         ],
-        # ── P2: 让 LLM 一次输出所有结构化数据 ──
         pathologies=[
-            PathologyFill(label="火形偏弱", base="脉搏采集 fire:32 低于健康区间"),
+            PathologyFill(label="S_火偏强 0.30（梯度场活跃，能量流偏急）", base="脉搏采集 fire:32 高于健康区间"),
         ],
         suggestions=[
-            SuggestionFill(category="lifestyle", title="戌时泡脚", detail="40℃ 15分钟", priority="high"),
+            SuggestionFill(category="lifestyle", title="戌时泡脚 40℃ 15分钟", detail="顺应戌时心包经开阖窗口，帮助火形梯度降下来", priority="high"),
+            SuggestionFill(category="sleep", title="今晚22:30前入睡", detail="让水形链在低 V⁺ 密度态下自主扩展", priority="high"),
         ],
-        chief_complaint="入睡困难 + 易疲乏",
+        chief_complaint="入睡困难 + 下午3点后疲惫",
         signals=[
             SignalFill(tag="sleep", label="入睡困难", confidence=0.9),
+            SignalFill(tag="energy", label="下午3点后疲惫", confidence=0.85),
         ],
     ).model_dump()
 
@@ -193,21 +194,60 @@ def build_response_schema_prompt(whitelist: dict | None = None) -> str:
         )
 
     return f"""
-═══ 可用结构化输出格式 ═══
-
-除了自然语言回复，你还可以填写以下可选槽位（不确定就省略或留 null）：
+═══ 结构化输出说明（填你觉得对用户有价值的槽位，不确定就省略）═══
 
 ```json
 {json.dumps(example, ensure_ascii=False, indent=2)}
 ```
+
+SPUM 对齐的卡片语义（帮你判断什么时候填什么）：
+
+【pathologies — 状态梳理】
+  从用户的 S 向量和对话里读出来的拓扑状态。
+  说的是关系网络的状态，不是"病"。例：
+    "S_火 偏强 0.30（梯度场活跃，能量流偏急）"
+    "S_土 储备偏低（可动员的低度节点池不足）"
+    "基线→当前漂移 S_水 +0.20（传输链在延伸，但关键边可能还在）"
+
+【suggestions — 拓扑调平建议】
+  纠正 ΔV 偏移的具体操作。category 可选值对应 SPUM 操作语义：
+    diet      = 边界整合：给 G_body 引入正确 ΔS 方向的外来边（饮食）
+    exercise  = 边界整合：发起 V⁺/V⁻ 事件改变局部 σ 地形（运动）
+    sleep     = 帧间恢复：让 G_body 在正确时辰进入低 V⁺ 密度态（睡眠）
+    lifestyle = 时辰调制：顺应子午流注在正确时辰执行正确动作
+    avoid     = 拓扑防护：避免触发特定 ΔS 方向的边界冲突
+    herb      = 深层调平（方剂级，需会员 Stage 4+）
+  title 要具体可执行（"戌时泡脚 40℃ 15分钟"，不是"注意养生"）
+  detail 补充怎么做、为什么（对应哪个五形相位、哪个时辰窗口）
+  priority 高优先 = 直接纠正 ΔV 主偏移方向的动作
+
+【brief_card — 今日拓扑窗口】
+  当用户问今日宜忌、节气影响、天时建议时填。
+  anchor_note  = 今日干支/节气对五形的调制（SPUM 时间帧：S(t) = S_base + ΔS_节气 + ΔS_日干支）
+  food_highlight = 今日边界整合最优窗口对应的饮食方向
+
+【suggested_actions — 可执行操作按钮】
+  把一段对话里最重要的那个下一步变成可点击按钮。一次最多 1-2 个。
+  什么时候出现：
+    · 用户主动问 "我该怎么帮你收集数据？" → 引导采集（navigate collect）
+    · 用户自己说了症状 → 标记到数字模型（mark_life_signal）
+    · 用户明确说"我最近睡不好" → 创建生活提醒（add_reminder）
+    · 用户给了主诉 → 回填 chief_complaint
+  什么时候不要：用户只是闲聊或提问时，不要强行推。
 
 可用的 action_id 列表：
 {action_list_text}
 
 tag 可选值（mark_life_signal 用）：sleep / appetite / bowel / mood / energy / thirst / sweat / skin / breath / other
 
-请根据对话内容和用户数据，决定哪些槽位值得填写。
-注意：reply 是自由文本，brief_card 和 suggested_actions 是结构化槽位。
+【signals — 自动抽取的生活信号】
+  用户对话里提到的生活细节。例：
+    tag=sleep label="入睡困难"
+    tag=energy label="下午3点后疲惫"
+    tag=appetite label="午饭后犯困"
+  confidence 是你对这个信号准确性的信心（0.0-1.0）。
+
+请根据对话内容和用户数据，决定哪些槽位值得填写。reply 是自由文本。
 """
 
 
