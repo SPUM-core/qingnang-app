@@ -846,27 +846,113 @@ async def reset_my_case(db: Session = Depends(get_db),
 @router.get("/today-todos")
 async def get_today_todos(db: Session = Depends(get_db),
                           current: User = Depends(get_current_user)):
-    """今日生活建议 Todo 聚合端点。
+    """今日生活建议 Todo 聚合端点 — 时间空间 × 分类 × 人性化约束版。
 
-    合并三个数据源 → 统一格式 Todo 卡片：
-      1. qingmeng-engine LLM lifestyle 推理（food_good + home_reminders）
-      2. 最近 assistant 消息的 analysis.suggestions（AI 从对话中给出的建议）
-      3. LifeSignal 最近标签（给前端做"你聊过这些"提示）
+    核心原则：一个人的时间是有限的 → 建议卡片在时间空间里占位，
+    同类同时间槽最多 2 条，新建议只能替换占位而不是无限追加。
 
-    返回结构:
-      todos: [{id, title, desc, icon, priority, source, route?}]
-      chief_complaint: str  # 自动回填到 Case 的主诉
-      recent_signals: [{tag, label, count}]  # 30 天聚合
+    约束规则：
+    ┌─────────────────────────────────────────────────┐
+    │ 每个 (时间槽, 分类) 组合最多 2 条                 │
+    │   早餐 × 饮食 → 最多 2 种                         │
+    │   早晨 × 运动 → 最多 2 种（且互斥：只选一种执行）  │
+    │   全天 × 穿衣 → 最多 2 套                          │
+    │   全天 × 住家 → 最多 3 条                          │
+    │ 总量 ≤ 12 条                                       │
+    │ 同类关键词归并（"泡脚"/"足浴"/"睡前泡脚" → 一类）   │
+    └─────────────────────────────────────────────────┘
     """
     import json as _json
     from datetime import datetime, timedelta
+    from collections import defaultdict
     from ...models import ChatMessage, LifeSignal
     from ...utils.maturity import compute_maturity
 
-    case = db.query(Case).filter(Case.user_id == current.id).first()
-    todos = []
+    # ═══════════════════════════════════════════════════════
+    # 🎯 约束常量（人性化天花板）
+    # ═══════════════════════════════════════════════════════
 
-    # ═══ 2026-10-04: 按 maturity stage 过滤 todo 类别 ═══
+    # 每个分类的硬上限（不管时间槽）
+    _PER_CATEGORY_LIMIT = {
+        "diet": 4,        # 饮食建议每天最多 4 条
+        "cloth": 2,       # 穿衣最多 2 套（一套推荐一套备选）
+        "exercise": 3,    # 运动最多 3 条（早晨/午后/晚上各一种）
+        "sleep": 2,       # 睡眠最多 2 条
+        "home": 3,        # 住家最多 3 条
+        "avoid": 3,       # 避忌最多 3 条（警示类）
+        "herb": 2,        # 方药最多 2 条
+        "lifestyle": 3,   # 生活方式最多 3 条
+    }
+    # 每个 (时间槽, 分类) 组合的子上限
+    _PER_SLOT_CAT_LIMIT = 2
+    # 总量天花板
+    _TOTAL_CAP = 12
+
+    # 同类关键词归并表 → 归一化 key（模糊去重 + 时间槽推断）
+    _CATEGORY_KEYWORDS = {
+        "diet": ["早餐", "早餐", "午餐", "晚餐", "夜宵", "吃", "食", "粥", "汤", "菜", "茶", "饮", "饭", "面", "羹"],
+        "cloth": ["穿衣", "穿搭", "衣服", "着", "戴", "围巾", "外套", "鞋", "袜"],
+        "exercise": ["运动", "跑步", "走", "练", "八段锦", "太极", "瑜伽", "健身", "晨练", "散步", "动"],
+        "sleep": ["睡", "眠", "卧", "躺", "早休", "午歇", "子时"],
+        "home": ["住", "房", "家", "居", "室", "通风", "打扫", "整理"],
+        "avoid": ["忌", "禁", "避免", "勿", "慎", "别"],
+        "herb": ["药", "汤", "方", "丸", "散", "膏", "饮", "泡", "煮"],
+        "lifestyle": ["泡脚", "足浴", "按", "灸", "浴", "洗", "护", "养", "调"],
+    }
+
+    # 时间槽关键词 → 推断标题属于哪个时间空间
+    _SLOT_KEYWORDS = {
+        "morning": ["早", "晨", "卯", "辰", "朝霞", "清晨"],
+        "noon": ["午", "中", "未", "日中", "白天"],
+        "evening": ["晚", "傍", "申", "酉", "黄昏", "入夜"],
+        "night": ["夜", "深", "戌", "亥", "子", "丑", "寅", "眠", "睡"],
+    }
+
+    def _infer_category(title: str, hint: str = "") -> str:
+        """从标题推断分类（AI suggestions 里可能没 category 字段）"""
+        t = title + hint
+        for cat, kws in _CATEGORY_KEYWORDS.items():
+            for kw in kws:
+                if kw in t:
+                    return cat
+        return "lifestyle"
+
+    def _infer_time_slot(title: str) -> str:
+        """从标题推断时间槽 → morning/noon/evening/night/全天"""
+        for slot, kws in _SLOT_KEYWORDS.items():
+            for kw in kws:
+                if kw in title:
+                    return slot
+        return "any"  # 全天适用的
+
+    def _normalize(title: str) -> str:
+        """归一化关键词 → 模糊去重 key"""
+        t = title.lower().replace(" ", "")
+        # 核心归并：不同表述 → 同一 key
+        merges = {
+            "泡脚": "足浴", "足浴": "足浴", "洗脚": "足浴", "沐足": "足浴",
+            "跑步": "跑步/运动", "晨跑": "跑步/运动",
+            "八段锦": "八段锦", "八段": "八段锦",
+            "散步": "散步", "快走": "散步", "走路": "散步",
+            "早餐": "早餐", "早饭": "早餐", "早点": "早餐",
+            "午餐": "午餐", "午饭": "午餐",
+            "晚餐": "晚餐", "晚饭": "晚餐",
+            "早睡": "早睡", "早卧": "早睡", "子时": "早睡",
+            "通风": "通风/住家", "开窗": "通风/住家",
+        }
+        for k, v in merges.items():
+            if k in t:
+                return v
+        return title.strip()[:8]  # 兜底取前 8 字
+
+    # ═══════════════════════════════════════════════════════
+    # 聚合主流程开始
+    # ═══════════════════════════════════════════════════════
+
+    case = db.query(Case).filter(Case.user_id == current.id).first()
+    todos_raw = []  # 所有原始候选（带 category/time_slot/norm_key）
+
+    # ═══ maturity stage 过滤 ═══
     mat = compute_maturity(current, db)
     stage = mat["stage"]
     _ALLOW_CATS_BY_STAGE = {
@@ -877,8 +963,7 @@ async def get_today_todos(db: Session = Depends(get_db),
     }
     allowed_cats = _ALLOW_CATS_BY_STAGE.get(stage, _ALLOW_CATS_BY_STAGE[1])
 
-    # ═══ 数据源 1：qingmeng-engine LLM lifestyle 推理 ═══
-    # 2026-10-05 重构：从硬编码规则引擎 → LLM 驱动
+    # ═══ 数据源 1：qingmeng-engine lifestyle（food_good + home_reminders）═══
     try:
         from .notifications import _call_qingmeng_lifestyle, build_user_meta
         v = (case.v_baseline if case else None) or current.v_base or {}
@@ -887,43 +972,55 @@ async def get_today_todos(db: Session = Depends(get_db),
                 v_base=v,
                 v_current=(case.v_current if case else None),
                 qingnang_id=current.qingnang_id or f"user_{current.id}",
-                user_meta=build_user_meta(current, case),  # ⭐ 2026-10-06 医学个性化
+                user_meta=build_user_meta(current, case),
             )
-            # food_good → todo（带 detail/reason/source 给前端展开）
+            # food_good → diet category
             if "diet" in allowed_cats:
                 for i, f in enumerate(llm_data.get("food_good", [])):
-                    todos.append({
+                    title = f.get("title", "")
+                    todos_raw.append({
                         "id": f"food-good-{i}",
-                        "title": f.get("title", ""),
-                        "desc": f.get("desc", ""),
-                        "detail": f.get("detail", ""),
-                        "reason": f.get("reason", ""),
-                        "source": f.get("source", ""),
-                        "icon": "🍜",
-                        "priority": "medium",
-                        "source_type": "lifestyle",
+                        "title": title, "desc": f.get("desc", ""),
+                        "detail": f.get("detail", ""), "reason": f.get("reason", ""),
+                        "source": f.get("source", ""), "icon": "🍜",
+                        "priority": "medium", "source_type": "lifestyle",
                         "route": "/notifications",
+                        "category": "diet",
+                        "time_slot": _infer_time_slot(title),
+                        "norm_key": _normalize(title),
                     })
-            # home_reminders → todo（qingmeng-engine 字段名是 home_reminders）
+            # cloth_reminders（如果有） → cloth
+            if "cloth" in allowed_cats:
+                for i, c in enumerate(llm_data.get("cloth_reminders", [])[:3]):
+                    title = c.get("title", "")
+                    todos_raw.append({
+                        "id": f"cloth-{i}",
+                        "title": title, "desc": c.get("desc", ""),
+                        "icon": "👔", "priority": "medium", "source_type": "lifestyle",
+                        "route": "/notifications",
+                        "category": "cloth",
+                        "time_slot": _infer_time_slot(title),
+                        "norm_key": _normalize(title),
+                    })
+            # home_reminders → home（最多 3 条）
             if "home" in allowed_cats:
                 for i, h in enumerate(llm_data.get("home_reminders", [])[:3]):
-                    todos.append({
+                    title = h.get("title", "")
+                    todos_raw.append({
                         "id": f"home-{i}",
-                        "title": h.get("title", ""),
-                        "desc": h.get("desc", ""),
-                        "detail": h.get("detail", ""),
-                        "reason": h.get("reason", ""),
-                        "source": h.get("source", ""),
-                        "icon": "🏠",
-                        "priority": "high" if h.get("urgent") else "medium",
-                        "source_type": "lifestyle",
-                        "route": "/notifications",
+                        "title": title, "desc": h.get("desc", ""),
+                        "detail": h.get("detail", ""), "reason": h.get("reason", ""),
+                        "icon": "🏠", "priority": "high" if h.get("urgent") else "medium",
+                        "source_type": "lifestyle", "route": "/notifications",
+                        "category": "home",
+                        "time_slot": _infer_time_slot(title),
+                        "norm_key": _normalize(title),
                     })
     except Exception as e:
         logger.info(f"[today-todos] qingmeng LLM 源跳过: {e}")
 
-    # ═══ 数据源 2：AI 对话的 analysis.suggestions ═══
-    # 找最近 24h 的 assistant 消息，signals 里有 suggestions
+    # ═══ 数据源 2：AI 对话 suggestions（**per-category limit 2**）═══
+    # 关键改动：不再无限拉，每个 category 最多取 2 条
     cutoff = datetime.utcnow() - timedelta(hours=48)
     recent_ai_msgs = db.query(ChatMessage).filter(
         ChatMessage.user_id == current.id,
@@ -932,42 +1029,47 @@ async def get_today_todos(db: Session = Depends(get_db),
         ChatMessage.signals.isnot(None),
     ).order_by(ChatMessage.created_at.desc()).all()
 
-    seen_titles = set()
+    # per-category 计数器 → 达到 limit 就跳过
+    _ai_cat_count: dict[str, int] = defaultdict(int)
+
     for m in recent_ai_msgs:
         signals = m.signals if isinstance(m.signals, dict) else {}
         suggestions = signals.get("suggestions", [])
         chief_complaint = signals.get("chief_complaint", "")
 
-        # 自动回填 chief_complaint
         if chief_complaint and case and not case.chief_complaint:
             case.chief_complaint = chief_complaint
-            try:
-                db.commit()
-            except Exception:
-                db.rollback()
+            try: db.commit()
+            except: db.rollback()
 
         for s in suggestions:
             title = s.get("title", "")
-            if not title or title in seen_titles:
+            if not title:
                 continue
-            cat = s.get("category", "lifestyle")
-            # 2026-10-04: 按 maturity stage 过滤 AI suggestions 类别
+            cat = s.get("category") or _infer_category(title)
             if cat not in allowed_cats:
                 continue
-            seen_titles.add(title)
+            # 🎯 每个 category 最多 2 条 AI 建议（关键 limit！）
+            if _ai_cat_count[cat] >= 2:
+                continue
+            _ai_cat_count[cat] += 1
+
             icon_map = {"diet": "🍜", "herb": "🌿", "exercise": "🏃",
-                        "avoid": "⚠️", "lifestyle": "💡", "sleep": "🌙"}
-            todos.append({
-                "id": f"ai-{m.id}-{len(seen_titles)}",
-                "title": title,
-                "desc": s.get("detail", ""),
+                        "avoid": "⚠️", "lifestyle": "💡", "sleep": "🌙",
+                        "cloth": "👔", "home": "🏠"}
+            todos_raw.append({
+                "id": f"ai-{m.id}-{_ai_cat_count[cat]}",
+                "title": title, "desc": s.get("detail", ""),
                 "icon": icon_map.get(cat, "💡"),
                 "priority": s.get("priority", "medium"),
                 "source": f"ai·{cat}",
                 "route": "/shop" if cat in ("diet", "herb") else "/discover",
+                "category": cat,
+                "time_slot": _infer_time_slot(title),
+                "norm_key": _normalize(title),
             })
 
-    # ═══ 数据源 3：LifeSignal 最近 30 天聚合 ═══
+    # ═══ 数据源 3：LifeSignal（仅聚合标签，不做 todos）═══
     recent_signals = []
     try:
         cutoff30 = datetime.utcnow() - timedelta(days=30)
@@ -980,7 +1082,6 @@ async def get_today_todos(db: Session = Depends(get_db),
         ).group_by(LifeSignal.tag, LifeSignal.label).order_by(
             func.count(LifeSignal.id).desc()
         ).limit(15).all()
-        # 聚合成 tag→count 摘要
         tag_counts = {}
         for tag, label, cnt in sigs:
             tag_counts[tag] = tag_counts.get(tag, 0) + cnt
@@ -988,23 +1089,65 @@ async def get_today_todos(db: Session = Depends(get_db),
     except Exception as e:
         logger.info(f"[today-todos] signals 源跳过: {e}")
 
-    # 去重 todos（按 title）
+    # ═══════════════════════════════════════════════════════
+    # 🎯 人性化约束层：按 (time_slot, category) 分组 → 每组最多 2 条
+    # ═══════════════════════════════════════════════════════
+
+    # 阶段 1：同类关键词归并去重（norm_key 相同只留 priority 最高的）
+    by_norm: dict[str, list] = defaultdict(list)
+    for t in todos_raw:
+        by_norm[t["norm_key"]].append(t)
+
     deduped = []
-    seen = set()
     priority_order = {"high": 0, "medium": 1, "low": 2}
-    for t in sorted(todos, key=lambda x: priority_order.get(x["priority"], 9)):
-        if t["title"] not in seen:
-            seen.add(t["title"])
-            deduped.append(t)
+    for nk, group in by_norm.items():
+        group.sort(key=lambda x: priority_order.get(x["priority"], 9))
+        deduped.append(group[0])  # 每组留 priority 最高的那条
+
+    # 阶段 2：按 (time_slot, category) 分组 → 每组 2 条上限
+    by_slot_cat: dict[tuple, list] = defaultdict(list)
+    for t in deduped:
+        by_slot_cat[(t["time_slot"], t["category"])].append(t)
+
+    slot_limited = []
+    for (slot, cat), group in by_slot_cat.items():
+        group.sort(key=lambda x: priority_order.get(x["priority"], 9))
+        slot_limited.extend(group[:_PER_SLOT_CAT_LIMIT])
+
+    # 阶段 3：per-category 硬上限
+    by_cat: dict[str, list] = defaultdict(list)
+    for t in slot_limited:
+        by_cat[t["category"]].append(t)
+
+    cat_limited = []
+    for cat, group in by_cat.items():
+        lim = _PER_CATEGORY_LIMIT.get(cat, 4)
+        group.sort(key=lambda x: priority_order.get(x["priority"], 9))
+        cat_limited.extend(group[:lim])
+
+    # 阶段 4：总量排序 → 按 priority + 分源（AI vs lifestyle 平衡）→ 截 12
+    def _score(t):
+        p = priority_order.get(t["priority"], 9)
+        src_bonus = 0 if t.get("source_type") == "lifestyle" else 1
+        return (p, src_bonus)
+
+    cat_limited.sort(key=_score)
+    final_todos = cat_limited[:_TOTAL_CAP]
+
+    # 清理聚合字段（前端不需要这些内部字段）
+    for t in final_todos:
+        t.pop("category", None)
+        t.pop("time_slot", None)
+        t.pop("norm_key", None)
 
     return {
-        "todos": deduped[:12],  # 最多 12 条
-        "total": len(deduped),
+        "todos": final_todos,
+        "total": len(final_todos),
         "chief_complaint": case.chief_complaint if case else "",
         "recent_signals": recent_signals,
         "sources": {
-            "lifestyle": len([t for t in deduped if t["source"] == "lifestyle"]),
-            "ai": len([t for t in deduped if t["source"].startswith("ai")]),
+            "lifestyle": len([t for t in final_todos if t.get("source_type") == "lifestyle"]),
+            "ai": len([t for t in final_todos if str(t.get("source", "")).startswith("ai")]),
         },
     }
 

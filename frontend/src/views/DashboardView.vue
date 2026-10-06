@@ -1,5 +1,29 @@
 <template>
-  <section class="page home">
+  <section class="page home"
+           @touchstart="onPullStart"
+           @touchmove="onPullMove"
+           @touchend="onPullEnd">
+    <!-- ══ 下拉刷新指示器 ══ -->
+    <div class="pull-refresh"
+         :style="{ height: pullDistance + 'px', opacity: pullDistance > 0 ? 1 : 0 }">
+      <!-- 下拉阶段：箭头 + 阻尼拉伸 -->
+      <template v-if="!pullRefreshing">
+        <div class="pr-arrow" :class="{ spin: pullDistance > 80 }">↓</div>
+      </template>
+      <!-- 刷新阶段：青囊主题加载动画 -->
+      <template v-else>
+        <div class="pr-loader">
+          <div class="pr-ring pr-ring-outer"></div>
+          <div class="pr-ring pr-ring-inner"></div>
+          <div class="pr-dots">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      </template>
+      <span class="pr-text">
+        {{ pullRefreshing ? '青囊正在更新…' : (pullDistance > 80 ? '释放刷新' : '下拉刷新') }}
+      </span>
+    </div>
     <!-- 问候头部 -->
     <div class="home-header">
       <div>
@@ -989,6 +1013,60 @@ function _invalidateAndReload() {
   return _onBoard()
 }
 
+// ═══════════════════════════════════════════════════════════
+// 📱 移动端下拉刷新（纯手写 Touch 事件，零依赖）
+// ═══════════════════════════════════════════════════════════
+const PULL_THRESHOLD = 80       // 释放触发刷新的阈值（px）
+const PULL_MAX = 140            // 下拉最大高度
+const PULL_BACK_DAMPING = 0.5   // 回弹阻尼系数
+
+const pullDistance = ref(0)
+const pullRefreshing = ref(false)
+let _pullStartY = 0
+let _pullActive = false
+
+function onPullStart(e) {
+  if (pullRefreshing.value) return
+  // 只有滚动条在最顶端才激活下拉
+  if ((window.scrollY || document.documentElement.scrollTop) > 0) return
+  _pullStartY = e.touches[0].clientY
+  _pullActive = true
+}
+
+function onPullMove(e) {
+  if (!_pullActive || pullRefreshing.value) return
+  const dy = e.touches[0].clientY - _pullStartY
+  if (dy > 0) {
+    // 带阻尼的下拉：越往下越难拉
+    const damped = Math.min(PULL_MAX, dy * PULL_BACK_DAMPING)
+    pullDistance.value = damped
+    // 阻止浏览器橡皮筋/滚动
+    if (e.cancelable) e.preventDefault()
+  } else {
+    pullDistance.value = 0
+  }
+}
+
+async function onPullEnd() {
+  if (!_pullActive) return
+  _pullActive = false
+
+  if (pullDistance.value >= PULL_THRESHOLD && !pullRefreshing.value) {
+    // 🎯 触发刷新
+    pullRefreshing.value = true
+    pullDistance.value = 60   // 固定在刷新指示器高度
+    try {
+      await _invalidateAndReload()
+    } finally {
+      pullRefreshing.value = false
+      pullDistance.value = 0
+    }
+  } else {
+    // 未达阈值 → 回弹
+    pullDistance.value = 0
+  }
+}
+
 // ── 缓存键：按天（同一天干支一样，LLM 结果可复用）──
 function _lifestyleCacheKey() {
   const d = new Date()
@@ -1095,6 +1173,100 @@ function _applyLifestyleResult(d) {
 
 <style scoped>
 /* max-width 由全局 .page 统一管理（1200px） */
+
+/* ═══════════════════════════════════════════════════════════
+   📱 下拉刷新指示器 — 青囊主题
+   ═══════════════════════════════════════════════════════════ */
+.pull-refresh {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+  overflow: hidden;
+  transition: height 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+              opacity 0.2s ease;
+  pointer-events: none;
+  z-index: 10;
+}
+.pr-arrow {
+  font-size: 22px;
+  color: var(--qn-emerald);
+  line-height: 1;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.pr-arrow.spin {
+  transform: rotate(180deg);
+}
+
+/* ── 青囊主题加载器（刷新中）── */
+.pr-loader {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 外环：青色顺时针旋转 */
+.pr-ring {
+  position: absolute;
+  border-radius: 50%;
+  border-style: solid;
+}
+.pr-ring-outer {
+  width: 44px; height: 44px;
+  border-width: 2.5px;
+  border-color: rgba(var(--qn-emerald-rgb), 0.15);
+  border-top-color: var(--qn-emerald);
+  animation: pr-rotate 1.2s linear infinite;
+}
+/* 内环：深色逆时针旋转 + 脉冲 */
+.pr-ring-inner {
+  width: 26px; height: 26px;
+  border-width: 2px;
+  border-color: transparent;
+  border-top-color: var(--qn-emerald-dark);
+  border-right-color: rgba(var(--qn-emerald-rgb), 0.5);
+  animation: pr-rotate-rev 0.9s linear infinite, pr-pulse 1.8s ease-in-out infinite;
+}
+@keyframes pr-rotate {
+  to { transform: rotate(360deg); }
+}
+@keyframes pr-rotate-rev {
+  to { transform: rotate(-360deg); }
+}
+@keyframes pr-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* 三个脉冲点（青囊精神象征） */
+.pr-dots {
+  position: absolute;
+  display: flex;
+  gap: 3px;
+}
+.pr-dots span {
+  width: 4px; height: 4px;
+  background: var(--qn-emerald);
+  border-radius: 50%;
+  animation: pr-dot-bounce 1.4s ease-in-out infinite;
+}
+.pr-dots span:nth-child(2) { animation-delay: 0.15s; background: var(--qn-emerald-dark); }
+.pr-dots span:nth-child(3) { animation-delay: 0.3s; background: rgba(var(--qn-emerald-rgb), 0.7); }
+@keyframes pr-dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.6; }
+  40% { transform: translateY(-5px); opacity: 1; }
+}
+
+.pr-text {
+  font-size: 12px;
+  color: var(--qn-ink-3);
+  letter-spacing: 1px;
+  font-weight: 500;
+}
 
 /* ── 问候头部 ── */
 .home-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; }
