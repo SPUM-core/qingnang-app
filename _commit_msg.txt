@@ -1,30 +1,42 @@
-feat: 聊天界面亮白化 + 语义分段渲染
+fix: Batch 1 — 用户信任硬伤修复 (CSS + template)
 
-整体视觉 (QingnangAssistant.vue):
-  - msg-area 背景: --qn-paper(#E5E1D6 米灰) -> #FAFAF7 亮白偏米 (DeepSeek 风)
-  - input-area 背景: var(--qn-surface) -> #FFFFFF 纯白, 边框 -> #EDEAE2 浅灰
-  - textarea 背景: var(--qn-paper) -> #FAFAF7, focus 时 -> #FFFFFF
-  - 消息字号: 14px -> 14.5px, line-height: 1.7 -> 1.75
-  - 消息间距: 16px -> 20px 24px (更多呼吸感)
+修复用户反馈的 4 个 P0 硬伤 + 色彩/层级问题:
 
-用户消息视觉:
-  - 右对齐 + 浅烟灰气泡 (#E8E5DD, 圆角 14px 14px 4px 14px)
-  - 之前用户消息跟 AI 完全一样, 只有右对齐
+1. 免责声明切掉 + 星号
+   - 删掉前面的 * 号
+   - disclaimer 背景从 --qn-paper 米灰 -> #FAFAF7 亮白
+   - 背景色跟 msg-area 统一, 加 z-index:1 防切断
+   - 字号 10px -> 10.5px, 对比度从 #8A9A94(原 --qn-ink-3) 提升
 
-safeParseSegments 升级:
-  - 从 {text, bold:boolean} -> {text, type: heading|data|bold|text|newline}
-  - heading: 整行匹配 /^【.+】/ 的行 (【当前基线】【先天基底】等)
-  - data: 匹配五行数字模式 [木火土金水]:\d+ 且长度 <60 的行
-  - bold: 行内 **xxx**
-  - text: 普通正文
-  - newline: 换行 (统一处理, 不再用 si 判断)
+2. DeepSeek · 6779ms 工程自嗨
+   - footnote 不再显示模型名 + 延迟毫秒
+   - 统一为 "仅供参考, 不作为医疗诊断"
+   - local_fallback 保留 "本地规则回复 (当前模型不可达)"
 
-template 升级:
-  - 用 v-if/v-else-if 按 seg.type 渲染
-  - heading -> div.seg-heading, data -> div.seg-data
-  - 不再靠 si 判断 <br>
+3. Enter 发送从 placeholder 移出
+   - placeholder 删掉 "(Enter 发送)"
+   - 在 input-area 和 disclaimer 之间加常驻微提示 ".input-hint"
+   - "Enter 发送 · Shift+Enter 换行"
 
-新增 CSS 类:
-  - .seg-heading: 左侧 3px 主色竖条 + 粗体 + 主色 + 上方 14px margin
-  - .seg-data: 等宽字体 (SF Mono/Menlo/Consolas) + 浅绿底 + 灰调文字 + 圆角
-  - 用户消息气泡: .msg-row.user .msg-text 加圆角气泡 + 浅烟灰底
+4. 红色误用 (UI红=危险, 不要乱给推荐)
+   - .action-btn.high 从 var(--qn-fire) 红 -> var(--qn-emerald) 绿
+   - .ana-path 从红 -> 绿
+   - .ana-sugg.high 从红 -> 绿
+   - .analysis-card 金色渐变 -> 全绿渐变 (统一色彩逻辑)
+   - .brief-item.bad 的红保留 (明确"忌"项的警示语义)
+
+5. 麦克风降权
+   - 36x36 + 1.5px 描边 -> 30x30 + 无边框
+   - 颜色 var(--qn-ink-3) -> #B0ACA0 (更淡)
+   - 跟发送按钮视觉权重拉开
+
+6. 发送按钮禁用态
+   - opacity:0.4 (看不清) -> background:#CBD5E0 灰色背景, 保持 opacity:1
+
+7. 三重强调简化 (绿竖线+方括号+绿色加粗)
+   - safeParseSegments 的 heading 处理剥掉【】方括号
+   - 只留左侧绿竖线 + 绿色加粗 (单一强调)
+
+8. 段落间距收紧
+   - .msg-row margin-bottom: 22px -> 16px
+   - .seg-heading margin-top: 14px -> 16px (标题上留更多空间)

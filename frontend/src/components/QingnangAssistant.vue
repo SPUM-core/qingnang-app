@@ -259,7 +259,8 @@
             </svg>
           </button>
         </div>
-        <p class="disclaimer">* 青囊管家基于你的数字模型给出生活参考，不构成医疗建议</p>
+        <p class="input-hint">Enter 发送 · Shift+Enter 换行</p>
+        <p class="disclaimer">青囊管家基于你的数字模型给出生活参考，不构成医疗建议</p>
         </div><!-- /drawer-main -->
       </div>
     </transition>
@@ -606,7 +607,7 @@ const SPUM_QUICK_QUESTIONS = [
 const quickQuestions = computed(() => SPUM_QUICK_QUESTIONS)
 
 const placeholder = computed(() =>
-  thinking.value ? '青囊管家正在思考…' : '问问青囊管家…（Enter 发送）'
+  thinking.value ? '青囊管家正在思考…' : '问问青囊管家…'
 )
 
 // ═══ 从 userStore + case 派生的上下文展示（动态，不再硬编码） ═══
@@ -732,7 +733,9 @@ function safeParseSegments(raw) {
       lineType = 'data'
     }
     if (lineType === 'heading' || lineType === 'data') {
-      segs.push({ text: trimmed, type: lineType })
+      // heading: 剥掉【】方括号 — 已经用绿竖线表达强调，方括号多余
+      const cleaned = lineType === 'heading' ? trimmed.replace(/^【|】$/g, '') : trimmed
+      segs.push({ text: cleaned, type: lineType })
     } else {
       // text 行内处理 **bold**
       const parts = line.split(/(\*\*[^*]+\*\*)/)
@@ -870,16 +873,13 @@ const send = async (text, voiceData = null) => {
     if (r.data?.maturity) {
       userStore.updateMaturityFromChat(r.data.maturity)
     }
-    // engine 标签：反映实际 provider + 是否在线
+    // engine 标签：对用户有意义的信息（不暴露模型名/延迟）
     const eng = r.data?.engine
-    const prov = r.data?.provider || provider
-    const ms = r.data?.latency_ms || 0
     if (eng === 'local_fallback') {
-      footnote = '本地规则回复（模型不可达）'
-    } else if (prov === 'deepseek') {
-      footnote = `DeepSeek · ${ms}ms`
+      footnote = '本地规则回复（当前模型不可达）'
     } else {
-      footnote = `SPUM 本地模型 · ${ms}ms`
+      // 统一用 "仅供参考" — 医疗场景下暴露底层模型合规风险高
+      footnote = '仅供参考，不作为医疗诊断'
     }
   } catch (e) {
     const code = e.response?.status
@@ -888,7 +888,7 @@ const send = async (text, voiceData = null) => {
     } else {
       replyText = '青囊管家暂时无法连接，请稍后再试。'
     }
-    footnote = '· 连接失败'
+    footnote = '仅供参考，不作为医疗诊断'
   }
 
   // 提取建议（从回复的短行里猜）
@@ -1262,7 +1262,7 @@ function showToast(text) {
 .msg-area::-webkit-scrollbar-thumb { background: var(--qn-line); border-radius: 2px; }
 
 /* 消息行 —— DeepSeek 平铺风格 */
-.msg-row { display: flex; gap: 14px; margin-bottom: 22px; align-items: flex-start; }
+.msg-row { display: flex; gap: 14px; margin-bottom: 16px; align-items: flex-start; }
 .msg-row.ai { flex-direction: row; }
 .msg-row.user { flex-direction: row-reverse; }
 .msg-row .msg-avatar {
@@ -1299,9 +1299,9 @@ function showToast(text) {
 .msg-text strong { color: var(--qn-emerald); font-weight: 600; }
 .msg-row.user .msg-text strong { color: var(--qn-ink); }
 
-/* 小标题：【当前基线】等 — 左竖条 + 粗体 + 主色 */
+/* 小标题：【当前基线】等 — 只留左侧绿竖条 + 粗体（三重强调→单一强调） */
 .seg-heading {
-  margin: 14px 0 6px; padding: 4px 0 4px 10px;
+  margin: 16px 0 6px; padding: 4px 0 4px 10px;
   border-left: 3px solid var(--qn-emerald);
   font-size: calc(13px * var(--qn-fs-scale));
   font-weight: 600;
@@ -1359,15 +1359,15 @@ function showToast(text) {
   border-color: var(--qn-emerald);
   transform: translateX(2px);
 }
-.action-btn.high { border-color: var(--qn-fire); color: var(--qn-fire); background: linear-gradient(135deg, rgba(216,67,21,0.08), var(--qn-surface)); }
-.action-btn.high:hover { background: linear-gradient(135deg, rgba(216,67,21,0.12), var(--qn-surface)); }
+.action-btn.high { border-color: var(--qn-emerald); color: var(--qn-emerald); background: linear-gradient(135deg, rgba(var(--qn-emerald-rgb),0.12), var(--qn-surface)); }
+.action-btn.high:hover { background: linear-gradient(135deg, rgba(var(--qn-emerald-rgb),0.2), var(--qn-surface)); }
 .action-icon { font-size: calc(14px * var(--qn-fs-scale)); }
 .action-arrow { margin-left: auto; opacity: 0.5; font-size: calc(11px * var(--qn-fs-scale)); }
 
 /* 📊 AI 深度解析摘要卡 */
 .analysis-card {
   margin-top: 10px; padding: 10px 12px;
-  background: linear-gradient(135deg, rgba(var(--qn-emerald-rgb),0.05), rgba(212,160,23,0.04));
+  background: linear-gradient(135deg, rgba(var(--qn-emerald-rgb),0.05), rgba(var(--qn-emerald-rgb),0.02));
   border: 1px solid rgba(var(--qn-emerald-rgb),0.12);
   border-radius: 10px; font-size: calc(11px * var(--qn-fs-scale)); line-height: 1.6;
 }
@@ -1379,7 +1379,7 @@ function showToast(text) {
 }
 .ana-path {
   display: inline-block; margin: 0 3px;
-  background: rgba(216,67,21,0.08); color: var(--qn-fire);
+  background: rgba(var(--qn-emerald-rgb),0.1); color: var(--qn-emerald);
   padding: 1px 7px; border-radius: 4px; font-weight: 500;
 }
 .ana-base { color: var(--qn-ink-3); font-size: calc(10px * var(--qn-fs-scale)); font-weight: 400; }
@@ -1388,7 +1388,7 @@ function showToast(text) {
   background: rgba(var(--qn-emerald-rgb),0.08); color: var(--qn-emerald);
   padding: 1px 7px; border-radius: 4px;
 }
-.ana-sugg.high { background: rgba(216,67,21,0.1); color: var(--qn-fire); font-weight: 500; }
+.ana-sugg.high { background: rgba(var(--qn-emerald-rgb),0.15); color: var(--qn-emerald); font-weight: 500; }
 .ana-sugg.low { opacity: 0.7; }
 
 /* 📅 今日宜忌/饮食/穿搭卡片（AI 真实输出 APP 数据） */
@@ -1471,20 +1471,20 @@ function showToast(text) {
   cursor: pointer; flex-shrink: 0; transition: all 0.15s;
 }
 .send-btn:hover:not(:disabled) { background: var(--qn-emerald-light); transform: scale(1.05); }
-.send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.send-btn:disabled { background: #CBD5E0; cursor: not-allowed; opacity: 1; }
 
-/* 🎤 语音按钮 */
+/* 🎤 语音按钮 — 降权（更小、无边框、淡灰） */
 .voice-btn {
-  width: 36px; height: 36px; flex-shrink: 0;
-  background: transparent; border: 1.5px solid var(--qn-line);
+  width: 30px; height: 30px; flex-shrink: 0;
+  background: transparent; border: none;
   border-radius: 50%; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  color: var(--qn-ink-3); transition: all 0.15s;
+  color: #B0ACA0; transition: all 0.15s;
 }
-.voice-btn:hover:not(:disabled) { border-color: var(--qn-emerald); color: var(--qn-emerald); }
-.voice-btn.recording { background: #d33; border-color: #d33; color: #fff; animation: pulse-rec 1.2s ease-in-out infinite; }
+.voice-btn:hover:not(:disabled) { color: var(--qn-emerald); background: rgba(var(--qn-emerald-rgb),0.06); }
+.voice-btn.recording { background: #d33; color: #fff; animation: pulse-rec 1.2s ease-in-out infinite; }
 @keyframes pulse-rec { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
-.voice-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.voice-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* 录音状态条 */
 .recording-bar {
@@ -1498,11 +1498,18 @@ function showToast(text) {
 .rec-time { font-weight: 600; font-variant-numeric: tabular-nums; }
 .rec-hint { color: #aaa; }
 
+.input-hint {
+  margin: 0; padding: 4px 16px 0;
+  font-size: calc(10px * var(--qn-fs-scale)); color: #B0ACA0; text-align: center;
+  line-height: 1.3;
+}
 .disclaimer {
   margin: 0; padding: 6px 16px;
-  background: var(--qn-paper); border-top: 1px solid var(--qn-line);
-  font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-3); text-align: center; flex-shrink: 0;
-  line-height: 1.4;
+  background: #FAFAF7;  /* 跟 msg-area 一致的亮白 */
+  border-top: 1px solid #EDEAE2;
+  font-size: calc(10.5px * var(--qn-fs-scale)); color: #8A9A94; text-align: center;
+  flex-shrink: 0; line-height: 1.4;
+  position: relative; z-index: 1;
 }
 
 /* 注：旧的 520px media query 已合并入上面 720px 规则 —— 手机端抽屉始终全屏铺满 */
