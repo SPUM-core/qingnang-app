@@ -343,6 +343,8 @@
         :key="todo.id"
         :todo="todo"
         :feedbacks="getFeedbacks(todo.id)"
+        :is-expanded="expandedTodoId === todo.id"
+        @toggle="toggleTodoExpand(todo.id)"
         @open-punch="openPunchModal"
       />
       <div v-if="!filteredTodos.length" class="todo-empty">
@@ -769,6 +771,12 @@ const fmt = (v) => v == null ? '—' : Number(v).toFixed(1)
 
 const activeFilter = ref('pending')  // 默认落在「待处理」，对齐设计稿
 
+// 🎯 手风琴：当前唯一展开的卡片 id（null = 都关着）
+const expandedTodoId = ref(null)
+function toggleTodoExpand(id) {
+  expandedTodoId.value = expandedTodoId.value === id ? null : id
+}
+
 function buildTodayTodos() {
   // 空列表——待办由后端 /cases/today-todos 动态聚合
   // （1）notifications 生活提醒 （2）AI 对话的 analysis.suggestions
@@ -789,8 +797,17 @@ function mapBackendTodo(t) {
   const looksLikeSourceTag = rawSource.startsWith('ai·') || rawSource === 'lifestyle' || rawSource.startsWith('ai')
   const source_ref = t.source_ref || (isLifestyle && !looksLikeSourceTag ? rawSource : '')
 
+  // 🎯 双保险：保证每个 todo 有唯一 id
+  // 服务器旧版可能用 category（"diet"/"ai"）当 id → 全部重复
+  // 用 source_type + source + title hash 出唯一 key
+  const rawId = t.id || ''
+  const needsFix = !rawId || /^[a-z]+$/.test(rawId)  // 只有单词（diet/ai）→ 太泛
+  const uniqueId = needsFix
+    ? `${t.source_type || 'x'}|${rawSource || ''}|${t.title || ''}`
+    : rawId
+
   return {
-    id: t.id,
+    id: uniqueId,
     title: t.title,
     remind: t.desc || '',
     priority: mapPriority(t.priority),
@@ -1100,6 +1117,7 @@ async function _onBoard() {
     // 否则 reset 后后端返回空时，localStorage 残留的旧 todos 不会被清掉
     todos.value = todosFromBackend
     saveToday()
+    expandedTodoId.value = null  // 刷新后重置展开状态
     console.log(`[Dashboard] ✅ 今日待办来自后端聚合：${todosFromBackend.length} 条`)
     // 也存一下 chief_complaint 方便青囊聊天读
     if (r.data?.chief_complaint) {

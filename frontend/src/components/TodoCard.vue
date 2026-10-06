@@ -18,22 +18,24 @@
     </div>
 
     <!-- ⭐ 展开详情面板（detail / reason / source） -->
-    <div v-if="expanded && hasDetail" class="todo-detail">
-      <div v-if="renderDetail" class="detail-block">
-        <span class="detail-label">📋 做法</span>
-        <p class="detail-text">{{ renderDetail }}</p>
+    <transition name="todo-expand">
+      <div v-if="expanded && hasDetail" class="todo-detail">
+        <div v-if="renderDetail" class="detail-block">
+          <span class="detail-label">📋 做法</span>
+          <p class="detail-text">{{ renderDetail }}</p>
+        </div>
+        <div v-if="todo.reason || hasDefaultReason" class="detail-block">
+          <span class="detail-label">💡 推荐原因</span>
+          <p class="detail-text">{{ todo.reason || defaultReason }}</p>
+        </div>
+        <div v-if="todo.source_ref" class="detail-block">
+          <span class="detail-label">📚 出处</span>
+          <p class="detail-text source-text">{{ todo.source_ref }}</p>
+        </div>
+        <!-- ⭐ 问问青囊 -->
+        <button class="todo-qa-btn" @click.stop="askQA">💬 问问青囊管家</button>
       </div>
-      <div v-if="todo.reason || hasDefaultReason" class="detail-block">
-        <span class="detail-label">💡 推荐原因</span>
-        <p class="detail-text">{{ todo.reason || defaultReason }}</p>
-      </div>
-      <div v-if="todo.source_ref" class="detail-block">
-        <span class="detail-label">📚 出处</span>
-        <p class="detail-text source-text">{{ todo.source_ref }}</p>
-      </div>
-      <!-- ⭐ 问问青囊 -->
-      <button class="todo-qa-btn" @click.stop="askQA">💬 问问青囊管家</button>
-    </div>
+    </transition>
 
     <!-- 底部按钮 -->
     <div class="todo-foot" @click.stop>
@@ -49,12 +51,15 @@ import QIcon from './ui/QIcon.vue'
 
 const props = defineProps({
   todo: { type: Object, required: true },
-  feedbacks: { type: Array, default: () => [] }
+  feedbacks: { type: Array, default: () => [] },
+  // 🎯 受控展开：父组件管理哪个卡片展开（手风琴模式）
+  isExpanded: { type: Boolean, default: false }
 })
 
-defineEmits(['open-punch'])
+const emit = defineEmits(['open-punch', 'toggle'])
 
-const expanded = ref(false)
+// 展开状态 = 父组件传入的受控值
+const expanded = computed(() => props.isExpanded)
 
 const feedbackCount = computed(() => props.feedbacks?.length || 0)
 
@@ -67,10 +72,10 @@ const _detail = computed(() => {
   return t.detail
 })
 
-// 只有真正有差异的 detail/reason/source 才算有详情可展开
+// 详情面板展开 = 有 detail / reason / source / 兜底 reason
 const hasDetail = computed(() => {
   const t = props.todo
-  return !!(_detail.value || t.reason || t.source_ref)
+  return !!(_detail.value || t.reason || t.source_ref || hasDefaultReason.value)
 })
 
 // 渲染的做法文本（带兜底：没 detail 但有 reason → 从 title 生成默认做法）
@@ -99,7 +104,7 @@ const defaultReason = computed(() => {
 
 function toggleExpand() {
   if (hasDetail.value) {
-    expanded.value = !expanded.value
+    emit('toggle')
   }
 }
 
@@ -288,5 +293,27 @@ function askQA() {
   .todo-head { flex-wrap: wrap; gap: 4px; }
   .todo-detail { margin: 6px 0 2px; padding: 10px 12px; gap: 8px; }
   .detail-text { font-size: calc(12px * var(--qn-fs-scale)); }
+}
+
+/* ── 展开/收起动画（手风琴滑入） ── */
+.todo-expand-enter-active,
+.todo-expand-leave-active {
+  transition: all 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+}
+.todo-expand-enter-from,
+.todo-expand-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scaleY(0.92);
+  max-height: 0;
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.todo-expand-enter-to,
+.todo-expand-leave-from {
+  opacity: 1;
+  transform: translateY(0) scaleY(1);
+  max-height: 400px;
 }
 </style>
