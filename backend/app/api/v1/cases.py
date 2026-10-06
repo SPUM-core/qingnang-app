@@ -1059,10 +1059,14 @@ async def get_today_todos(db: Session = Depends(get_db),
                         "cloth": "👔", "home": "🏠"}
             todos_raw.append({
                 "id": f"ai-{m.id}-{_ai_cat_count[cat]}",
-                "title": title, "desc": s.get("detail", ""),
+                "title": title,
+                "desc": s.get("detail", ""),          # 短描述
+                "detail": s.get("detail", ""),        # 🎯 做法详情
+                "reason": s.get("reason", "") or s.get("note", ""),  # 🎯 推荐原因
+                "source_ref": s.get("source", ""),     # 🎯 LLM 给的经典出处
                 "icon": icon_map.get(cat, "💡"),
                 "priority": s.get("priority", "medium"),
-                "source": f"ai·{cat}",
+                "source_type": "ai",                    # 🎯 明确来源类型
                 "route": "/shop" if cat in ("diet", "herb") else "/discover",
                 "category": cat,
                 "time_slot": _infer_time_slot(title),

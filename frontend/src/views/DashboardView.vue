@@ -782,19 +782,26 @@ function mapPriority(p) {
 
 // 后端 todos → TodoCard 格式
 function mapBackendTodo(t) {
+  // 🎯 source_ref 只显示真正的经典出处（如《本草纲目》）
+  // 不再把 "ai·diet" / "lifestyle" 这种来源标识当成出处
+  const isLifestyle = t.source_type === 'lifestyle'
+  const rawSource = t.source || ''
+  const looksLikeSourceTag = rawSource.startsWith('ai·') || rawSource === 'lifestyle' || rawSource.startsWith('ai')
+  const source_ref = t.source_ref || (isLifestyle && !looksLikeSourceTag ? rawSource : '')
+
   return {
     id: t.id,
     title: t.title,
     remind: t.desc || '',
     priority: mapPriority(t.priority),
     done: false,
-    source: t.source_type || t.source,
+    source: t.source_type || '',   // 纯来源标识，不显示给用户
     route: t.route,
     icon: t.icon,
-    // ⭐ 2026-10-05 LLM 详情字段：点击展开时显示
+    // LLM 详情字段：点击展开时显示
     detail: t.detail || '',
     reason: t.reason || '',
-    source_ref: t.source || '',  // LLM 给的经典出处（如《本草纲目》）
+    source_ref,  // 经典出处（如《本草纲目》），空就不显示
   }
 }
 
