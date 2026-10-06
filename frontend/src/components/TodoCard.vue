@@ -19,13 +19,13 @@
 
     <!-- ⭐ 展开详情面板（detail / reason / source） -->
     <div v-if="expanded && hasDetail" class="todo-detail">
-      <div v-if="todo.detail" class="detail-block">
+      <div v-if="renderDetail" class="detail-block">
         <span class="detail-label">📋 做法</span>
-        <p class="detail-text">{{ todo.detail }}</p>
+        <p class="detail-text">{{ renderDetail }}</p>
       </div>
-      <div v-if="todo.reason" class="detail-block">
+      <div v-if="todo.reason || hasDefaultReason" class="detail-block">
         <span class="detail-label">💡 推荐原因</span>
-        <p class="detail-text">{{ todo.reason }}</p>
+        <p class="detail-text">{{ todo.reason || defaultReason }}</p>
       </div>
       <div v-if="todo.source_ref" class="detail-block">
         <span class="detail-label">📚 出处</span>
@@ -58,10 +58,43 @@ const expanded = ref(false)
 
 const feedbackCount = computed(() => props.feedbacks?.length || 0)
 
-// 只有 lifestyle 来源且有 detail/reason/source 才算有详情
+// 去重：detail 和 remind 一样的话不显示 detail（避免"做法"和短描述重复）
+const _detail = computed(() => {
+  const t = props.todo
+  if (!t.detail) return ''
+  // 如果 detail 和 remind（短描述）内容一样 → 不显示
+  if (t.detail.trim() === (t.remind || '').trim()) return ''
+  return t.detail
+})
+
+// 只有真正有差异的 detail/reason/source 才算有详情可展开
 const hasDetail = computed(() => {
   const t = props.todo
-  return !!(t.detail || t.reason || t.source_ref)
+  return !!(_detail.value || t.reason || t.source_ref)
+})
+
+// 渲染的做法文本（带兜底：没 detail 但有 reason → 从 title 生成默认做法）
+const renderDetail = computed(() => {
+  if (_detail.value) return _detail.value
+  return ''  // 没 detail 就不显示做法块
+})
+
+// 没 reason 时的默认文案（从 category + title 生成）
+const hasDefaultReason = computed(() => {
+  const t = props.todo
+  // 有 title 且无 reason → 生成默认推荐原因
+  return !!(t.title && !t.reason)
+})
+const defaultReason = computed(() => {
+  const t = props.todo
+  const cat = t.source_type || 'lifestyle'
+  const catMap = {
+    diet: '饮食', exercise: '运动', sleep: '睡眠',
+    cloth: '穿衣', home: '住家', avoid: '避忌',
+    herb: '方药', lifestyle: '生活方式', ai: 'AI 建议',
+  }
+  const catName = catMap[cat] || cat
+  return `青囊根据你的当前体质和今日节律，在${catName}方面推荐你「${t.title}」。点下面的💬和青囊管家深入聊聊吧。`
 })
 
 function toggleExpand() {
