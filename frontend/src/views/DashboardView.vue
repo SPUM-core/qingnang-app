@@ -343,8 +343,7 @@
         :key="todo.id"
         :todo="todo"
         :feedbacks="getFeedbacks(todo.id)"
-        :is-expanded="expandedTodoId === todo.id"
-        @toggle="toggleTodoExpand(todo.id)"
+        @open-detail="openDetailModal"
         @open-punch="openPunchModal"
       />
       <div v-if="!filteredTodos.length" class="todo-empty">
@@ -425,6 +424,44 @@
                 <span v-if="punchModal.submitting">提交中…</span>
                 <span v-else>提交</span>
               </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ════ 详情弹窗（替代手风琴展开） ════ -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="detailModal" class="punch-modal-backdrop" @click.self="closeDetailModal">
+          <div class="punch-modal">
+            <div class="pm-head">
+              <div class="pm-title-wrap">
+                <span class="pm-tag">今日建议</span>
+                <h3 class="pm-title">{{ detailModal.title }}</h3>
+                <p v-if="detailModal.remind" class="pm-desc">{{ detailModal.remind }}</p>
+              </div>
+              <button class="pm-close" @click="closeDetailModal" aria-label="关闭">✕</button>
+            </div>
+
+            <div v-if="dmDetail" class="pm-section">
+              <label class="pm-label">📋 做法</label>
+              <p class="pm-text">{{ dmDetail }}</p>
+            </div>
+
+            <div class="pm-section">
+              <label class="pm-label">💡 推荐原因</label>
+              <p class="pm-text">{{ dmReason }}</p>
+            </div>
+
+            <div v-if="detailModal.source_ref" class="pm-section">
+              <label class="pm-label">📚 出处</label>
+              <p class="pm-text source-text">{{ detailModal.source_ref }}</p>
+            </div>
+
+            <div class="pm-foot">
+              <button class="pm-cancel" @click="closeDetailModal">关闭</button>
+              <button class="pm-submit" @click="askDetailQA">💬 问问青囊管家</button>
             </div>
           </div>
         </div>
@@ -771,11 +808,10 @@ const fmt = (v) => v == null ? '—' : Number(v).toFixed(1)
 
 const activeFilter = ref('pending')  // 默认落在「待处理」，对齐设计稿
 
-// 🎯 手风琴：当前唯一展开的卡片 id（null = 都关着）
-const expandedTodoId = ref(null)
-function toggleTodoExpand(id) {
-  expandedTodoId.value = expandedTodoId.value === id ? null : id
-}
+// 🎯 详情弹窗（替代手风琴展开）
+const detailModal = ref(null)
+function openDetailModal(todo) { detailModal.value = todo }
+function closeDetailModal() { detailModal.value = null }
 
 function buildTodayTodos() {
   // 空列表——待办由后端 /cases/today-todos 动态聚合
@@ -952,6 +988,47 @@ const filteredTodos = computed(() => {
   return t
 })
 
+// 🎯 详情弹窗内容：去重 + 兜底推荐原因
+const dmDetail = computed(() => {
+  const t = detailModal.value
+  if (!t?.detail) return ''
+  return t.detail.trim() === (t.remind || '').trim() ? '' : t.detail
+})
+const dmReason = computed(() => {
+  const t = detailModal.value
+  if (!t) return ''
+  if (t.reason) return t.reason
+  const catMap = {
+    diet: '饮食', exercise: '运动', sleep: '睡眠',
+    cloth: '穿衣', home: '住家', avoid: '避忌',
+    herb: '方药', lifestyle: '生活方式', ai: 'AI 建议',
+  }
+  const catName = catMap[t.source_type] || t.source_type || '生活方式'
+  return `青囊根据你的当前体质和今日节律，在${catName}方面推荐你「${t.title}」。`
+})
+
+// 问问青囊
+function askDetailQA() {
+  const t = detailModal.value
+  if (!t) return
+  const parts = [`【${t.title}】`]
+  if (t.remind) parts.push(`提醒：${t.remind}`)
+  if (dmDetail.value) parts.push(`做法：${dmDetail.value}`)
+  parts.push(`推荐原因：${dmReason.value}`)
+  if (t.source_ref) parts.push(`出处：${t.source_ref}`)
+
+  const assistant = window.__qingnangAssistant
+  if (!assistant?.openWithContext) {
+    alert('青囊管家还在初始化，请稍后再试')
+    return
+  }
+  assistant.openWithContext({
+    anchor: { topic: '今日待办', title: t.title },
+    explain: parts.join('\n\n'),
+    followup: `关于「${t.title}」，我想深入聊聊 —— 比如这个建议适合我现在的体质吗？`,
+  })
+}
+
 // 分段器：待处理 / 全部 / 归档（设计稿三段式）
 const segTabs = computed(() => [
   { key: 'pending', label: `待处理 ${pendingCount.value}` },
@@ -1117,7 +1194,6 @@ async function _onBoard() {
     // 否则 reset 后后端返回空时，localStorage 残留的旧 todos 不会被清掉
     todos.value = todosFromBackend
     saveToday()
-    expandedTodoId.value = null  // 刷新后重置展开状态
     console.log(`[Dashboard] ✅ 今日待办来自后端聚合：${todosFromBackend.length} 条`)
     // 也存一下 chief_complaint 方便青囊聊天读
     if (r.data?.chief_complaint) {
@@ -1934,6 +2010,23 @@ function _applyLifestyleResult(d) {
 }
 .pm-submit:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(var(--qn-emerald-rgb), 0.3); }
 .pm-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 详情弹窗文本 */
+.pm-desc {
+  font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink-3);
+  margin: 4px 0 0; line-height: 1.55;
+}
+.pm-text {
+  font-size: calc(14px * var(--qn-fs-scale)); color: var(--qn-ink-2);
+  line-height: 1.7; margin: 0;
+}
+.pm-text.source-text {
+  font-family: 'STKaiti', 'KaiTi', '楷体', serif;
+  color: var(--qn-cinnabar);
+  border-left: 2px solid #B8392A;
+  padding-left: 10px;
+  font-size: calc(13px * var(--qn-fs-scale));
+}
 
 /* Transition */
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
