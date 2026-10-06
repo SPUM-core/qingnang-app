@@ -35,6 +35,9 @@ class User(Base):
     # 五形先天基底 S_0^0（出生时推导）
     v_base        = Column(JSON)             # {"wood": 70, "fire": 55, ...}
 
+    # ⭐ 引导完成标记（前端 GuidesSeenPatch 持久化）
+    guides_seen    = Column(JSON, default=dict, server_default='{}')
+
     # ⭐ 健康标签（onboarding / 问诊 / AI 自动提取）
     # {
     #   "chronic": ["hypertension", "diabetes", "hyperlipidemia"],  // 三高
