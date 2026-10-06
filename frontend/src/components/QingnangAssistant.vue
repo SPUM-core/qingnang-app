@@ -25,70 +25,59 @@
 
     <!-- 对话抽屉 -->
     <transition name="drawer">
-      <div v-if="isOpen" ref="drawerRef" :class="['drawer', { fullscreen: isFullscreen }]">
-        <!-- 📜 全屏模式专属：历史左栏 -->
-        <aside v-if="isFullscreen && !sidebarCollapsed" class="history-sidebar">
-          <div class="hs-head">
-            <span class="hs-title">
-              <QIcon name="history" :size="14" />对话历史
-            </span>
-            <button class="hs-btn" @click="clearChat" title="新对话" aria-label="新对话">
-              <QIcon name="plus" :size="15" />
-            </button>
-          </div>
-          <div class="hs-list">
-            <!-- 今日 -->
-            <div class="hs-group">
-              <div class="hs-group-title">今日</div>
-              <div v-for="(g, gi) in historyToday" :key="'t'+gi" class="hs-item"
-                   @click="loadHistory(g.id)">
-                <span class="hs-time">{{ g.time }}</span>
-                <span class="hs-preview">{{ g.preview }}</span>
+      <div v-if="isOpen" ref="drawerRef" class="drawer">
+        <!-- 📜 历史侧栏 —— 左上按钮触发的 slide-in overlay -->
+        <transition name="sidebar-slide">
+          <aside v-if="historyOpen" class="history-sidebar-overlay" @click.self="historyOpen = false">
+            <div class="history-sidebar">
+              <div class="hs-head">
+                <span class="hs-title">
+                  <QIcon name="history" :size="14" />对话历史
+                </span>
+                <button class="hs-btn" @click="clearChat" title="新对话" aria-label="新对话">
+                  <QIcon name="plus" :size="15" />
+                </button>
+              </div>
+              <div class="hs-list">
+                <div class="hs-group">
+                  <div class="hs-group-title">今日</div>
+                  <div v-for="(g, gi) in historyToday" :key="'t'+gi" class="hs-item"
+                       @click="loadHistory(g.id); historyOpen = false">
+                    <span class="hs-time">{{ g.time }}</span>
+                    <span class="hs-preview">{{ g.preview }}</span>
+                  </div>
+                </div>
+                <div v-if="historyEarlier.length" class="hs-group">
+                  <div class="hs-group-title">更早</div>
+                  <div v-for="(g, gi) in historyEarlier" :key="'e'+gi" class="hs-item"
+                       @click="loadHistory(g.id); historyOpen = false">
+                    <span class="hs-date">{{ g.date }}</span>
+                    <span class="hs-preview">{{ g.preview }}</span>
+                  </div>
+                </div>
+                <div v-if="historyToday.length === 0 && historyEarlier.length === 0" class="hs-empty">
+                  <p>暂无历史</p>
+                  <p class="hs-empty-hint">开始第一段对话吧～</p>
+                </div>
               </div>
             </div>
-            <!-- 更早 -->
-            <div v-if="historyEarlier.length" class="hs-group">
-              <div class="hs-group-title">更早</div>
-              <div v-for="(g, gi) in historyEarlier" :key="'e'+gi" class="hs-item"
-                   @click="loadHistory(g.id)">
-                <span class="hs-date">{{ g.date }}</span>
-                <span class="hs-preview">{{ g.preview }}</span>
-              </div>
-            </div>
-            <!-- 空态 -->
-            <div v-if="historyToday.length === 0 && historyEarlier.length === 0" class="hs-empty">
-              <p>暂无历史</p>
-              <p class="hs-empty-hint">开始第一段对话吧～</p>
-            </div>
-          </div>
-        </aside>
-        <!-- 侧栏收起时的悬浮展开按钮 -->
-        <button v-if="isFullscreen && sidebarCollapsed"
-                class="sidebar-toggle expand" @click="sidebarCollapsed = false"
-                title="展开历史记录" aria-label="展开历史记录">
-          <QIcon name="history" :size="16" />
-        </button>
-        <!-- 侧栏展开时的收起按钮（贴在右边缘） -->
-        <button v-if="isFullscreen && !sidebarCollapsed"
-                class="sidebar-toggle collapse" @click="sidebarCollapsed = true"
-                title="收起历史记录" aria-label="收起历史记录">
-          <QIcon name="chevron-left" :size="16" />
-        </button>
+          </aside>
+        </transition>
 
         <!-- 💬 对话主区 -->
         <div class="drawer-main">
         <!-- 头部 -->
         <div class="drawer-head">
+          <!-- 🆕 左上：历史对话按钮 -->
+          <button class="head-btn history-toggle" @click="toggleHistory"
+                  title="对话历史" aria-label="对话历史">
+            <QIcon name="history" :size="16" />
+          </button>
           <div class="avatar"><QIcon name="sprout" :size="20" /></div>
           <div class="head-info">
             <h3>青囊管家</h3>
             <p class="head-sub">SPUM · 你的专属健康生活顾问</p>
           </div>
-          <button class="head-btn" @click="toggleFullscreen"
-                  :title="isFullscreen ? '退出全屏' : '全屏模式'"
-                  :aria-label="isFullscreen ? '退出全屏' : '全屏模式'">
-            <QIcon :name="isFullscreen ? 'collapse' : 'expand'" :size="16" />
-          </button>
           <button class="head-btn" @click="clearChat" title="新对话" aria-label="新对话">
             <QIcon name="refresh" :size="16" />
           </button>
@@ -283,7 +272,7 @@ const router = useRouter()
 
 // ═══ 状态 ═══
 const isOpen = ref(false)
-const sidebarCollapsed = ref(false)   // 全屏模式下历史侧栏是否收起
+const historyOpen = ref(false)   // 历史侧栏 overlay 是否打开
 const messages = ref([])
 const input = ref('')
 const thinking = ref(false)
@@ -677,13 +666,15 @@ const clearChat = () => {
   if (messages.value.length === 0) return
   if (confirm('开始新的对话？')) messages.value = []
 }
-const toggleFullscreen = async () => {
-  isFullscreen.value = !isFullscreen.value
-  // 进入全屏时拉一次历史（如果还没拉过）
-  if (isFullscreen.value && !historyLoaded.value) {
+// 🆕 历史侧栏 toggle：按需打开，自动收回
+async function toggleHistory() {
+  historyOpen.value = !historyOpen.value
+  if (historyOpen.value && !historyLoaded.value) {
     await loadHistoryList()
   }
 }
+// toggleFullscreen 保留兼容但不再切换 UI（默认就全屏）
+const toggleFullscreen = async () => {}
 
 // ═══ 发送消息（通过青囊后端代理，不再直连 8000） ═══
 const onKeydown = (e) => {
@@ -1040,103 +1031,58 @@ function showToast(text) {
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
-/* 抽屉 */
+/* 抽屉 —— 所有视口统一全屏（DeepSeek 风格） */
 .drawer {
-  position: fixed; right: 24px; bottom: 24px;
-  width: 420px; height: 620px;
-  background: var(--qn-surface); border-radius: 16px;
-  box-shadow: 0 12px 48px rgba(var(--qn-emerald-rgb),0.18), 0 2px 8px rgba(0,0,0,0.06);
+  position: fixed; right: 0; bottom: 0; left: 0; top: 0;
+  width: 100vw; height: 100dvh;
+  background: var(--qn-paper); border-radius: 0;
   display: flex; flex-direction: column; overflow: hidden;
-  border: 1px solid var(--qn-line);
-  z-index: 1001;
-  transition: width .25s ease, height .25s ease, right .25s ease, bottom .25s ease, border-radius .25s ease;
-}
-.drawer.fullscreen {
-  right: 0; bottom: 0; left: 0; top: 0;
-  width: 100vw; height: 100dvh;  /* 用 dvh 避免 iOS Safari 地址栏 bug */
-  border-radius: 0;
   z-index: 2000;
-  flex-direction: row;
-  padding-bottom: env(safe-area-inset-bottom);
+  transition: opacity 0.2s;
 }
+/* 电脑端不再需要 fullscreen 类 —— 默认就是全屏 */
+.drawer.fullscreen { /* 兼容老类名，已在上层覆盖 */ }
 
 /* ═══ 移动端适配 ═══ */
-/* 手机屏幕小，抽屉始终全屏铺满 —— 没有"悬浮小窗"和"全屏"两个状态 */
+/* 安全区适配 */
 @media (max-width: 720px) {
-  .drawer,
-  .drawer.fullscreen {
-    position: fixed;
-    right: 0; bottom: 0; left: 0; top: 0;
-    width: 100vw;
-    height: 100dvh;
-    border-radius: 0;
-    box-sizing: border-box;
-    border: none;
-    flex-direction: column;
-    z-index: 2000;
-  }
-  /* 手机端禁用 Vue transition 的 scale+slide 动画 —— 只保留淡出淡入 */
-  .drawer-enter-active,
-  .drawer-leave-active {
-    transition: opacity 0.18s ease !important;
-  }
-  .drawer-enter-from,
-  .drawer-leave-to {
-    opacity: 0;
-    transform: none !important;
-  }
-  /* 手机端不需要"全屏/退出全屏"按钮 —— 抽屉本来就铺满 */
-  .drawer .fs-btn {
-    display: none;
-  }
-  /* 历史侧栏：桌面全屏专属，手机隐藏 */
-  .drawer .history-sidebar {
-    display: none;
-  }
-  /* 安全区适配 */
   .drawer-head { padding-top: calc(14px + env(safe-area-inset-top)); }
   .input-area { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
   .disclaimer { padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
 }
 
-/* 📜 历史侧栏（全屏专属） */
+/* 📜 历史侧栏 overlay —— 左上按钮触发，slide-in */
+.history-sidebar-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.3);
+  z-index: 2100;
+  display: flex;
+}
+.history-sidebar-overlay .history-sidebar {
+  width: 280px; height: 100%;
+  display: flex; flex-direction: column;
+}
+.sidebar-slide-enter-active,
+.sidebar-slide-leave-active {
+  transition: opacity 0.2s ease;
+}
+.sidebar-slide-enter-from,
+.sidebar-slide-leave-to {
+  opacity: 0;
+}
+.sidebar-slide-enter-active .history-sidebar,
+.sidebar-slide-leave-active .history-sidebar {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.sidebar-slide-enter-from .history-sidebar,
+.sidebar-slide-leave-to .history-sidebar {
+  transform: translateX(-100%);
+}
+/* history-sidebar 本体（被 overlay 嵌套时自动继承 280px 宽） */
 .history-sidebar {
-  width: 260px; flex-shrink: 0;
   background: linear-gradient(180deg, #faf9f5, #f3f1ea);
   border-right: 1px solid var(--qn-line);
-  display: flex; flex-direction: column;
   overflow: hidden;
-  transition: width 0.25s ease, opacity 0.2s;
-}
-
-/* 侧栏收/展切换按钮 */
-.sidebar-toggle {
-  position: absolute;
-  z-index: 5;
-  width: 24px; height: 48px;
-  border: 1px solid var(--qn-line);
-  border-radius: 0 8px 8px 0;
-  background: var(--qn-surface);
-  color: var(--qn-emerald);
-  line-height: 1;
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.15s;
-  box-shadow: 2px 0 6px rgba(0,0,0,0.05);
-}
-.sidebar-toggle.collapse {
-  left: 260px; top: 50%;
-  transform: translateY(-50%);
-  border-left: none;
-}
-.sidebar-toggle.expand {
-  left: 0; top: 50%;
-  transform: translateY(-50%);
-  border-radius: 0 8px 8px 0;
-}
-.sidebar-toggle:hover {
-  background: var(--qn-emerald); color: #fff;
-  box-shadow: 3px 0 8px rgba(var(--qn-emerald-rgb),0.2);
 }
 .hs-head {
   padding: 14px 16px;
@@ -1291,32 +1237,30 @@ function showToast(text) {
   transform: translateY(-1px);
 }
 
-/* 消息行 */
-.msg-row { display: flex; gap: 8px; margin-bottom: 12px; }
+/* 消息行 —— DeepSeek 平铺风格 */
+.msg-row { display: flex; gap: 12px; margin-bottom: 20px; align-items: flex-start; }
 .msg-row.ai { flex-direction: row; }
 .msg-row.user { flex-direction: row-reverse; }
 .msg-row .msg-avatar {
-  width: 30px; height: 30px; border-radius: 50%;
+  width: 28px; height: 28px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
-  background: rgba(var(--qn-emerald-rgb),0.08);
-  color: var(--qn-emerald);
+  font-size: calc(12px * var(--qn-fs-scale));
 }
-.msg-row.ai .msg-avatar { background: rgba(var(--qn-emerald-rgb),0.1); }
-.msg-row.user .msg-avatar { background: rgba(var(--qn-emerald-light-rgb),0.2); color: var(--qn-emerald-dark); }
+.msg-row.ai .msg-avatar { background: linear-gradient(135deg, var(--qn-emerald), var(--qn-emerald-dark)); color: #fff; }
+.msg-row.user .msg-avatar { background: rgba(var(--qn-ink-3), 0.15); color: var(--qn-ink-2); }
 
+/* DeepSeek 风格：扁平无边框无气泡 */
 .msg-bubble {
-  max-width: 82%; padding: 10px 14px; border-radius: 12px;
-  font-size: calc(13px * var(--qn-fs-scale)); line-height: 1.6; position: relative;
-}
-.msg-row.ai .msg-bubble {
-  background: var(--qn-surface); color: var(--qn-ink);
-  border: 1px solid var(--qn-line); border-top-left-radius: 4px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  max-width: 100%; padding: 0; border-radius: 0;
+  font-size: calc(14px * var(--qn-fs-scale)); line-height: 1.7; position: relative;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 .msg-row.user .msg-bubble {
-  background: linear-gradient(135deg, var(--qn-emerald) 0%, var(--qn-emerald-light) 100%);
-  color: #fff; border-top-right-radius: 4px;
+  color: var(--qn-ink);
+  text-align: right;
 }
 .msg-text strong { color: var(--qn-emerald); }
 .msg-row.user .msg-text strong { color: #fff; }
