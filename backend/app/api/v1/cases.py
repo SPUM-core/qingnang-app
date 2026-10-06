@@ -1138,9 +1138,20 @@ async def get_today_todos(db: Session = Depends(get_db),
     cat_limited.sort(key=_score)
     final_todos = cat_limited[:_TOTAL_CAP]
 
-    # 🎯 拆分：avoid 类 → 放到 avoidances（顶部提醒），可执行 → 留在 todos（打卡卡）
-    avoidances = [t for t in final_todos if t.get("category") == "avoid"]
-    actionable = [t for t in final_todos if t.get("category") != "avoid"]
+    # 🎯 拆分：禁忌类 → 放到 avoidances（顶部提醒，不可打卡）；可执行 → 留在 todos
+    # 双重判定：category=="avoid" OR title 以禁忌词开头（兜底 keyword 分类不准的情况）
+    import re as _re
+    _AVOID_PREFIX = _re.compile(r'^(避免|勿|忌|禁|严禁|不得|不可|不宜|少|不要|别)')
+    def _is_avoid(t):
+        if t.get("category") == "avoid": return True
+        title = t.get("title", "")
+        if _AVOID_PREFIX.search(title): return True
+        desc = t.get("desc", "") or ""
+        if _AVOID_PREFIX.search(desc[:10]): return True
+        return False
+
+    avoidances = [t for t in final_todos if _is_avoid(t)]
+    actionable = [t for t in final_todos if not _is_avoid(t)]
 
     # 清理聚合字段（前端不需要这些内部字段）
     for t in actionable + avoidances:
