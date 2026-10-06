@@ -10,7 +10,7 @@ import time
 
 from ...database import get_db
 from ...models import User, Case, Observation, TreatmentPlan, ChatMessage, LifeSignal
-from ...config import settings
+from ...config import settings, resolve_default_provider
 from ..deps import get_current_user
 from ...utils.life_signal_extractor import extract_signals, signals_to_dict_list
 from ...utils.conversation_analyzer import analyze_conversation
@@ -113,7 +113,7 @@ def compliance_filter(text: str, stage: int = 3) -> str:
 class ChatIn(BaseModel):
     message: str = Field("", max_length=2000)
     history: list[dict] = Field(default_factory=list)  # [{role, content}] 最近 N 轮
-    provider: str = "spum"  # "spum"=青檬引擎(本地), "deepseek"=云端, 未来可扩展
+    provider: str | None = None  # None = 走后端默认（生产环境 = deepseek）
 
     # ── 语音输入（可选）──
     voice_base64: str | None = None      # base64 编码的音频数据
@@ -1241,7 +1241,7 @@ async def chat(body: ChatIn,
     latency_ms = 0
     reply_text = ""
     parsed_template: AIResponseTemplate | None = None  # LLM 填的槽位
-    provider_used = body.provider or "spum"
+    provider_used = body.provider or resolve_default_provider()
 
     if provider_used == "deepseek":
         # ── DeepSeek 云端：用 response_format: json_object ──
@@ -2170,7 +2170,7 @@ async def health():
                 "url": settings.DEEPSEEK_BASE_URL,
             },
         },
-        "default_provider": "spum",
+        "default_provider": resolve_default_provider(),
     }
 
 
@@ -3158,7 +3158,7 @@ async def inquiry_start(
     from ...models import InquirySession
 
     # 1. 注入用户上下文（含身高体重 + LLM provider）
-    provider = (body.get("provider") if body else None) or "spum"
+    provider = (body.get("provider") if body else None) or resolve_default_provider()
     case = db.query(Case).filter(Case.user_id == current.id).first()
     v_base = case.v_baseline if case else _DEFAULT_V_INNATE
     v_innate = case.v_innate if case else _DEFAULT_V_INNATE
@@ -3405,7 +3405,7 @@ async def _generate_stage_questions(
 
     # 调 LLM（尊重 user_context 里的 llm_provider）
     raw_text = None
-    provider = user_context.get("llm_provider", "spum")
+    provider = user_context.get("llm_provider") or resolve_default_provider()
     if provider == "deepseek" and settings.DEEPSEEK_API_KEY:
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
@@ -3516,7 +3516,7 @@ async def _generate_summary(
     ]
 
     raw_text = None
-    provider = user_context.get("llm_provider", "spum")
+    provider = user_context.get("llm_provider") or resolve_default_provider()
     if provider == "deepseek" and settings.DEEPSEEK_API_KEY:
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:

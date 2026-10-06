@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
     DEEPSEEK_MODEL: str = "deepseek-chat"
 
+    # 默认 LLM provider：production 推荐 deepseek（无需本地青檬引擎）
+    # 可选值: "spum"(青檬引擎), "deepseek"(云端), "auto"(自动：有API_KEY用deepseek)
+    DEFAULT_PROVIDER: str = "auto"
+
     # CORS 白名单（JSON 数组字符串，从环境变量注入）
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
@@ -38,3 +42,14 @@ class Settings(BaseSettings):
     AUTO_SEED: bool = False
 
 settings = Settings()
+
+def resolve_default_provider() -> str:
+    """解析默认 provider：auto → 有 DEEPSEEK_API_KEY 就走 deepseek，否则 spum"""
+    dp = settings.DEFAULT_PROVIDER.lower()
+    if dp in ("spum", "deepseek", "ollama"):
+        return dp
+    if settings.DEEPSEEK_API_KEY:
+        return "deepseek"
+    return "spum"
+
+settings.DEFAULT_PROVIDER_RESOLVED = resolve_default_provider()
