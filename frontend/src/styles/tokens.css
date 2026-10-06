@@ -147,6 +147,18 @@
   --qn-s8: 32px;
   --qn-s10: 40px;
   --qn-s12: 48px;
+  /* v2 alias — 语义化命名，CHANGES-v2.css 引用 */
+  --qn-space-1: var(--qn-s1);
+  --qn-space-2: var(--qn-s2);
+  --qn-space-3: var(--qn-s3);
+  --qn-space-4: var(--qn-s4);
+  --qn-space-5: var(--qn-s5);
+  --qn-space-6: var(--qn-s6);
+  --qn-font-xs: calc(11px * var(--qn-fs-scale));
+  --qn-font-sm: calc(13px * var(--qn-fs-scale));
+  --qn-font-md: calc(15px * var(--qn-fs-scale));
+  --qn-font-lg: calc(17px * var(--qn-fs-scale));
+  --qn-lh-normal: 1.5;
   --qn-page-x: 20px;          /* 移动端页边距 */
 
   /* ═══════════════════════════════════

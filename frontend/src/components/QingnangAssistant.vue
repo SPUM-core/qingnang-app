@@ -100,8 +100,9 @@
           </template>
         </div>
 
-        <!-- 消息区 -->
+        <!-- 消息区 — v2 底部对齐：inner wrapper flex-end -->
         <div class="msg-area" ref="msgAreaRef" @scroll="onScroll">
+          <div class="msg-area-inner">
           <!-- 欢迎态 -->
           <div v-if="messages.length === 0" class="welcome">
             <div class="welcome-avatar"><QIcon name="sprout" :size="30" /></div>
@@ -128,8 +129,16 @@
                 <QIcon :name="m.role === 'ai' ? 'sprout' : 'user'" :size="16" />
               </div>
               <div class="msg-bubble">
-                <div v-if="m.role === 'ai' && m.typing" class="typing-dots">
-                  <span></span><span></span><span></span>
+                <div v-if="m.role === 'ai' && m.typing" class="thinking">
+                  <div class="thinking__avatar"><QIcon name="sprout" :size="16" /></div>
+                  <div class="thinking__body">
+                    <span class="thinking__label">青囊管家正在思考…</span>
+                    <div class="skeleton">
+                      <div class="skeleton__line"></div>
+                      <div class="skeleton__line"></div>
+                      <div class="skeleton__line"></div>
+                    </div>
+                  </div>
                 </div>
                 <template v-else>
                   <!-- XSS 安全：不用 v-html，用文本节点 + 语义分段渲染 -->
@@ -229,9 +238,8 @@
               <div class="msg-time">{{ m.time }}</div>
             </div>
           </template>
-        </div>
-
-        <!-- 输入区 -->
+          </div>  <!-- /.msg-area-inner -->
+        </div>  <!-- /.msg-area -->
         <div class="input-area">
           <!-- 🎤 语音按钮 -->
           <button class="voice-btn" :class="{ recording: recording }"
@@ -622,9 +630,7 @@ const SPUM_QUICK_QUESTIONS = [
 ]
 const quickQuestions = computed(() => SPUM_QUICK_QUESTIONS)
 
-const placeholder = computed(() =>
-  thinking.value ? '青囊管家正在思考…' : '问问青囊管家…'
-)
+const placeholder = '问问青囊管家…'
 
 // ═══ 档案切换器信息 + 弱形标签（动态，不再硬编码 emoji）═══
 const archiveInfo = computed(() => {
@@ -1313,6 +1319,16 @@ function showToast(text) {
 .msg-area::-webkit-scrollbar { width: 4px; }
 .msg-area::-webkit-scrollbar-thumb { background: var(--qn-border-subtle); border-radius: 2px; }
 
+/* v2 — 底部对齐：inner flex-end，内容贴输入栏上方，空白转移到顶部 */
+.msg-area-inner {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--qn-space-4);
+  padding-block: var(--qn-space-4);
+}
+
 /* 消息行 —— DeepSeek 平铺风格 */
 .msg-row { display: flex; gap: 14px; margin-bottom: 16px; align-items: flex-start; }
 .msg-row.ai { flex-direction: row; }
@@ -1328,7 +1344,8 @@ function showToast(text) {
 
 /* DeepSeek 风格：扁平无边框无气泡 */
 .msg-bubble {
-  max-width: 34em; padding: 0; border-radius: 0;
+  /* v2 撤回 max-width: 34em — 移动端容器本身就窄，设了无意义 */
+  padding: 0; border-radius: 0;
   font-size: calc(15px * var(--qn-fs-scale)); line-height: 1.85;
   background: transparent !important;
   border: none !important;
@@ -1372,17 +1389,44 @@ function showToast(text) {
 }
 .msg-row.user .seg-heading, .msg-row.user .seg-data { display: inline-block; }
 
-.typing-dots { display: flex; gap: 4px; padding: 4px 0; }
-.typing-dots span {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--qn-emerald); opacity: 0.4;
-  animation: bounce 1.4s infinite ease-in-out both;
+/* v2 — 思考态移回消息流 + 骨架屏（3 行占位防跳变） */
+.thinking {
+  display: flex;
+  gap: var(--qn-space-3);
+  align-items: flex-start;
+  animation: qn-fade-in 200ms ease;
 }
-.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
-.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
-@keyframes bounce {
-  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-  40% { transform: scale(1); opacity: 1; }
+.thinking__avatar {
+  width: 32px; height: 32px; flex: 0 0 32px;
+  border-radius: 50%;
+  background: var(--qn-brand-800);
+  display: grid; place-items: center;
+  color: var(--qn-text-on-brand);
+}
+.thinking__body { flex: 1; padding-top: var(--qn-space-1); min-width: 0; }
+.thinking__label {
+  display: block;
+  font-size: var(--qn-font-sm);
+  color: var(--qn-text-secondary);
+  margin-bottom: var(--qn-space-2);
+}
+.skeleton {
+  display: flex; flex-direction: column; gap: var(--qn-space-2);
+}
+.skeleton__line {
+  height: 10px; border-radius: 5px;
+  background: linear-gradient(90deg, var(--qn-brand-050) 0%, var(--qn-brand-100) 50%, var(--qn-brand-050) 100%);
+  background-size: 200% 100%;
+  animation: qn-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton__line:nth-child(1) { width: 92%; }
+.skeleton__line:nth-child(2) { width: 78%; }
+.skeleton__line:nth-child(3) { width: 85%; }
+@keyframes qn-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes qn-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton__line { animation: none; }
+  .thinking { animation: none; }
 }
 
 .suggest-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -1501,7 +1545,7 @@ function showToast(text) {
   font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-text-secondary);
   align-self: flex-end; margin-left: 4px; flex-shrink: 0;
 }
-.msg-row.user .msg-time { margin-left: 0; margin-right: 4px; }
+.msg-row.user .msg-time { display: none; }   /* v2 — 用户侧去重，只留 AI 侧 */
 
 /* AI 消息级操作栏 — hover 显示 */
 .msg-actions {
@@ -1583,10 +1627,15 @@ function showToast(text) {
 .rec-time { font-weight: 600; font-variant-numeric: tabular-nums; }
 .rec-hint { color: #aaa; }
 
+/* v2 — 移动端隐藏（纯噪音，点发送按钮不需要快捷键提示） */
 .input-hint {
+  display: none;
   margin: 0; padding: 4px 16px 0;
   font-size: var(--qn-font-xs); color: var(--qn-text-secondary); text-align: right;
   line-height: 1.3;
+}
+@media (min-width: 768px) {
+  .input-hint { display: block; }
 }
 .disclaimer {
   margin: 0; padding: 8px 16px;
