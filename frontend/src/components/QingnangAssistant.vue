@@ -87,10 +87,16 @@
         </div>
 
         <!-- 状态条（从 userStore 动态取，不再硬编码胡运涛） -->
-        <div v-if="ctxItems.length" class="ctx-bar">
-          <template v-for="(it, i) in ctxItems" :key="i">
-            <span :class="['ctx-item', it.cls]">{{ it.icon }} {{ it.text }}</span>
-            <span class="ctx-sep" v-if="i < ctxItems.length - 1">·</span>
+        <!-- 档案切换器 + 上下文 -->
+        <div class="ctx-bar" v-if="archiveInfo.name || ctxWeakLabels.length">
+          <button v-if="archiveInfo.name" class="archive-switcher" @click="onArchiveClick" :title="'切换档案'">
+            <span class="as-name">{{ archiveInfo.name }}</span>
+            <span v-if="archiveInfo.age" class="as-age">· {{ archiveInfo.age }}岁</span>
+            <svg class="as-chevron" viewBox="0 0 20 20" width="12" height="12" fill="currentColor"><path d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"/></svg>
+          </button>
+          <template v-if="ctxWeakLabels.length">
+            <span class="ctx-sep">·</span>
+            <span class="ctx-warn">{{ ctxWeakLabels.join('·') }}</span>
           </template>
         </div>
 
@@ -211,8 +217,16 @@
                   </div>
                   <div v-if="m.footnote" class="msg-footnote">{{ m.footnote }}</div>
                 </template>
-                <div class="msg-time">{{ m.time }}</div>
+                <!-- 消息级操作栏：AI 消息 hover 显示复制 -->
+                <div v-if="m.role === 'ai' && !m.typing" class="msg-actions">
+                  <button class="msg-act-btn" @click="copyMessage(m)" title="复制回复">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    <span>复制</span>
+                  </button>
+                </div>
               </div>
+              <!-- 时间戳：统一在 msg-row 最外侧右下角 -->
+              <div class="msg-time">{{ m.time }}</div>
             </div>
           </template>
         </div>
@@ -271,11 +285,13 @@
 import { ref, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
+import { useVectorStore } from '../stores/vector'
 import * as storage from '../utils/storage'
 import { api } from '../api/client'
 import QIcon from './ui/QIcon.vue'
 
 const userStore = useUserStore()
+const vectorStore = useVectorStore()
 const router = useRouter()
 
 // ═══ 状态 ═══
@@ -610,23 +626,44 @@ const placeholder = computed(() =>
   thinking.value ? '青囊管家正在思考…' : '问问青囊管家…'
 )
 
-// ═══ 从 userStore + case 派生的上下文展示（动态，不再硬编码） ═══
-const ctxItems = computed(() => {
-  const items = []
-  if (userStore.displayName) {
-    items.push({ icon: '🆔', text: userStore.displayName.substring(0, 10), cls: '' })
+// ═══ 档案切换器信息 + 弱形标签（动态，不再硬编码 emoji）═══
+const archiveInfo = computed(() => {
+  const cp = vectorStore.casePatient || {}
+  return {
+    name: userStore.displayName || cp.name || '',
+    age: cp.age || '',
   }
+})
+const ctxWeakLabels = computed(() => {
   const v = userStore.caseData?.v_current || userStore.caseData?.v_baseline || {}
   const labels = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
   const weak = []
   for (const [k, val] of Object.entries(v)) {
     if (typeof val === 'number' && val < 45) weak.push(labels[k] + '弱')
   }
-  if (weak.length) {
-    items.push({ icon: '⚠️', text: weak.slice(0, 2).join('·'), cls: 'ctx-warn' })
-  }
-  return items
+  return weak.slice(0, 2)
 })
+
+function onArchiveClick() {
+  // TODO: 多档案切换器入口 — 当前先跳 case 页
+  router.push('/case')
+}
+
+// 复制 AI 回复到剪贴板
+async function copyMessage(m) {
+  try {
+    const text = m.segments?.map(s => s.text).join('') || m.content || ''
+    await navigator.clipboard.writeText(text)
+  } catch (e) {
+    // fallback
+    const ta = document.createElement('textarea')
+    ta.value = m.content || ''
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+  }
+}
 
 const ctxSummary = computed(() => {
   const v = userStore.caseData?.v_current || userStore.caseData?.v_baseline
@@ -1242,10 +1279,24 @@ function showToast(text) {
 }
 
 /* 状态条 */
+/* 档案切换器 — 等宽字体 + 可点击暗示 */
+.archive-switcher {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 3px 8px 3px 0;
+  background: none; border: none; cursor: pointer;
+  font-size: calc(13px * var(--qn-fs-scale)); font-weight: 600;
+  color: var(--qn-ink); font-variant-numeric: tabular-nums;
+  transition: color 0.15s;
+}
+.archive-switcher:hover { color: var(--qn-emerald); }
+.archive-switcher:hover .as-chevron { transform: translateY(1px); }
+.as-name { font-weight: 600; }
+.as-age { font-weight: 400; color: var(--qn-ink-2); }
+.as-chevron { opacity: 0.5; transition: transform 0.15s; }
 .ctx-bar {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   padding: 8px 16px;
-  background: var(--qn-paper); border-bottom: 1px solid var(--qn-line);
+  background: #FAFAF7; border-bottom: 1px solid #EDEAE2;
   font-size: calc(11px * var(--qn-fs-scale)); flex-shrink: 0;
 }
 .ctx-item { color: var(--qn-ink-2); font-weight: 500; }
@@ -1444,10 +1495,28 @@ function showToast(text) {
 }
 .msg-row.user .msg-footnote { display: none; }
 
+/* 时间戳：统一在 msg-row 右下侧（不再在 msg-bubble 内部） */
 .msg-time {
-  font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin-top: 4px; opacity: 0.6;
+  font-size: calc(10px * var(--qn-fs-scale)); color: #B0ACA0;
+  align-self: flex-end; margin-left: 4px; flex-shrink: 0;
 }
-.msg-row.user .msg-time { text-align: right; }
+.msg-row.user .msg-time { margin-left: 0; margin-right: 4px; }
+
+/* AI 消息级操作栏 — hover 显示 */
+.msg-actions {
+  display: none; margin-top: 8px; gap: 4px;
+}
+.msg-row.ai:hover .msg-actions { display: flex; }
+.msg-act-btn {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: calc(10.5px * var(--qn-fs-scale)); padding: 2px 6px;
+  background: none; border: 1px solid #EDEAE2; border-radius: 10px;
+  color: var(--qn-ink-3); cursor: pointer;
+  transition: all 0.15s;
+}
+.msg-act-btn:hover {
+  border-color: var(--qn-emerald); color: var(--qn-emerald); background: rgba(var(--qn-emerald-rgb),0.06);
+}
 
 /* 输入区 — 跟亮白消息区协调 */
 .input-area {

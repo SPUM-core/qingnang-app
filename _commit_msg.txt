@@ -1,42 +1,28 @@
-fix: Batch 1 — 用户信任硬伤修复 (CSS + template)
+feat: Batch 2 — 档案切换器 + 消息级复制 + 时间戳统一
 
-修复用户反馈的 4 个 P0 硬伤 + 色彩/层级问题:
+1. 档案切换器 (替换原 ctx-bar emoji breadcrumb)
+   - 引入 vectorStore, 从 casePatient.name/age 取档案信息
+   - 模板改: 从 v-for ctxItems emoji -> 单独 button.archive-switcher
+   - "晴晴 · 8岁" + ⌄ chevron (SVG, 不是 emoji)
+   - 等宽字体 tabular-nums + hover 变主色 + chevron 微动
+   - 点击先 router.push('/case') (TODO: 多档案切换器)
+   - ctx-bar 背景也从 var(--qn-paper) -> #FAFAF7 亮白统一
 
-1. 免责声明切掉 + 星号
-   - 删掉前面的 * 号
-   - disclaimer 背景从 --qn-paper 米灰 -> #FAFAF7 亮白
-   - 背景色跟 msg-area 统一, 加 z-index:1 防切断
-   - 字号 10px -> 10.5px, 对比度从 #8A9A94(原 --qn-ink-3) 提升
+2. AI 消息级复制按钮
+   - 每条 AI 消息底部加 .msg-actions 操作栏
+   - 默认 display:none, hover .msg-row.ai 时显示
+   - 第一个操作 = 复制 (clipboard.writeText + execCommand fallback)
+   - 线性 SVG 图标 + 品牌绿 hover
 
-2. DeepSeek · 6779ms 工程自嗨
-   - footnote 不再显示模型名 + 延迟毫秒
-   - 统一为 "仅供参考, 不作为医疗诊断"
-   - local_fallback 保留 "本地规则回复 (当前模型不可达)"
+3. 时间戳统一位置
+   - 原位置: msg-bubble 内部, 在所有卡片下方, 尴尬
+   - 新位置: msg-row flex 最外侧 (跟 avatar 同层级, align-self:flex-end)
+   - 颜色 var(--qn-ink-3) -> #B0ACA0 (对比度提升)
+   - 用户消息: margin-left:0, margin-right:4px
+   - AI 消息: margin-left:4px
 
-3. Enter 发送从 placeholder 移出
-   - placeholder 删掉 "(Enter 发送)"
-   - 在 input-area 和 disclaimer 之间加常驻微提示 ".input-hint"
-   - "Enter 发送 · Shift+Enter 换行"
+4. emoji 移除 (Batch 2 范围)
+   - ctx-bar 里 emoji -> SVG chevron
+   - ctxItems computed 整个删除 (archiveInfo + ctxWeakLabels 替代)
 
-4. 红色误用 (UI红=危险, 不要乱给推荐)
-   - .action-btn.high 从 var(--qn-fire) 红 -> var(--qn-emerald) 绿
-   - .ana-path 从红 -> 绿
-   - .ana-sugg.high 从红 -> 绿
-   - .analysis-card 金色渐变 -> 全绿渐变 (统一色彩逻辑)
-   - .brief-item.bad 的红保留 (明确"忌"项的警示语义)
-
-5. 麦克风降权
-   - 36x36 + 1.5px 描边 -> 30x30 + 无边框
-   - 颜色 var(--qn-ink-3) -> #B0ACA0 (更淡)
-   - 跟发送按钮视觉权重拉开
-
-6. 发送按钮禁用态
-   - opacity:0.4 (看不清) -> background:#CBD5E0 灰色背景, 保持 opacity:1
-
-7. 三重强调简化 (绿竖线+方括号+绿色加粗)
-   - safeParseSegments 的 heading 处理剥掉【】方括号
-   - 只留左侧绿竖线 + 绿色加粗 (单一强调)
-
-8. 段落间距收紧
-   - .msg-row margin-bottom: 22px -> 16px
-   - .seg-heading margin-top: 14px -> 16px (标题上留更多空间)
+Batch 3 TODO (延后): emoji 全面替换 SVG + 拍照/附件入口 + AI 依据标注 (需后端 schema)
