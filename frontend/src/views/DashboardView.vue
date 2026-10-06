@@ -1007,10 +1007,13 @@ const dmReason = computed(() => {
   return `青囊根据你的当前体质和今日节律，在${catName}方面推荐你「${t.title}」。`
 })
 
-// 问问青囊
+// 问问青囊管家
 function askDetailQA() {
   const t = detailModal.value
   if (!t) return
+  // 🎯 先关详情弹窗，再开管家（确保层级顺序正确）
+  closeDetailModal()
+
   const parts = [`【${t.title}】`]
   if (t.remind) parts.push(`提醒：${t.remind}`)
   if (dmDetail.value) parts.push(`做法：${dmDetail.value}`)
@@ -1022,10 +1025,13 @@ function askDetailQA() {
     alert('青囊管家还在初始化，请稍后再试')
     return
   }
-  assistant.openWithContext({
-    anchor: { topic: '今日待办', title: t.title },
-    explain: parts.join('\n\n'),
-    followup: `关于「${t.title}」，我想深入聊聊 —— 比如这个建议适合我现在的体质吗？`,
+  // 延迟一帧确保弹窗关闭动画完成后再开管家
+  requestAnimationFrame(() => {
+    assistant.openWithContext({
+      anchor: { topic: '今日待办', title: t.title },
+      explain: parts.join('\n\n'),
+      followup: `关于「${t.title}」，我想深入聊聊 —— 比如这个建议适合我现在的体质吗？`,
+    })
   })
 }
 
