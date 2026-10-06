@@ -159,6 +159,13 @@
             </div>
           </div>
         </div>
+        <!-- 🎯 后端 AI 推断的禁忌提醒（不可执行，只做警示） -->
+        <div v-if="avoidanceNotes.length" class="avoid-notes">
+          <div v-for="(a, i) in avoidanceNotes" :key="i" class="avoid-item">
+            <span class="avoid-dot">·</span>
+            <span class="avoid-t">{{ a.title }}</span>
+          </div>
+        </div>
         <p class="hero-yi-more" @click="openReminders">展开全部宜忌 →</p>
       </div>
     </div>
@@ -918,6 +925,9 @@ function getFeedbacks(todoId) { return feedbacks.value[todoId] || [] }
 const todos = ref(loadToday())
 watch(todos, saveToday, { deep: true })
 
+// ⚠️ 后端聚合返回的禁忌（不可执行，只做顶部提醒）
+const avoidanceNotes = ref([])
+
 function toggleTodo(id) {
   const t = todos.value.find(x => x.id === id)
   if (t) { t.done = !t.done }
@@ -1199,8 +1209,10 @@ async function _onBoard() {
     // ⚠️ 2026-10-05 修复：无条件覆盖 todos，不要用 length > 0 判断
     // 否则 reset 后后端返回空时，localStorage 残留的旧 todos 不会被清掉
     todos.value = todosFromBackend
+    // 🎯 禁忌单独存（不进 todos，进顶部提醒栏）
+    avoidanceNotes.value = r.data?.avoidances || []
     saveToday()
-    console.log(`[Dashboard] ✅ 今日待办来自后端聚合：${todosFromBackend.length} 条`)
+    console.log(`[Dashboard] ✅ 今日待办来自后端聚合：${todosFromBackend.length} 条，禁忌 ${avoidanceNotes.value.length} 条`)
     // 也存一下 chief_complaint 方便青囊聊天读
     if (r.data?.chief_complaint) {
       storage.set('qingnang_chief_complaint', r.data.chief_complaint)
@@ -1577,6 +1589,21 @@ function _applyLifestyleResult(d) {
   letter-spacing: 1px; text-align: right;
 }
 .hero-yi-more:hover { color: rgba(242,239,231,0.85); }
+
+/* AI 禁忌提醒条（不可执行，只读警示） */
+.avoid-notes {
+  margin-top: 12px; padding: 10px 12px;
+  background: rgba(208,138,110,0.15);
+  border: 1px solid rgba(208,138,110,0.35);
+  border-radius: 8px;
+}
+.avoid-item {
+  font-size: calc(12px * var(--qn-fs-scale));
+  color: rgba(242,239,231,0.88);
+  line-height: 1.7;
+  display: flex; align-items: flex-start; gap: 4px;
+}
+.avoid-dot { color: #D08A6E; font-weight: 700; flex-shrink: 0; }
 
 /* ── 卡头（体质调理曲线 / 时空锚点共用）── */
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--qn-line); }

@@ -1138,20 +1138,25 @@ async def get_today_todos(db: Session = Depends(get_db),
     cat_limited.sort(key=_score)
     final_todos = cat_limited[:_TOTAL_CAP]
 
+    # 🎯 拆分：avoid 类 → 放到 avoidances（顶部提醒），可执行 → 留在 todos（打卡卡）
+    avoidances = [t for t in final_todos if t.get("category") == "avoid"]
+    actionable = [t for t in final_todos if t.get("category") != "avoid"]
+
     # 清理聚合字段（前端不需要这些内部字段）
-    for t in final_todos:
+    for t in actionable + avoidances:
         t.pop("category", None)
         t.pop("time_slot", None)
         t.pop("norm_key", None)
 
     return {
-        "todos": final_todos,
-        "total": len(final_todos),
+        "todos": actionable,
+        "avoidances": [{"title": t["title"], "desc": t.get("desc", "")} for t in avoidances],
+        "total": len(actionable),
         "chief_complaint": case.chief_complaint if case else "",
         "recent_signals": recent_signals,
         "sources": {
-            "lifestyle": len([t for t in final_todos if t.get("source_type") == "lifestyle"]),
-            "ai": len([t for t in final_todos if str(t.get("source", "")).startswith("ai")]),
+            "lifestyle": len([t for t in actionable if t.get("source_type") == "lifestyle"]),
+            "ai": len([t for t in actionable if str(t.get("source", "")).startswith("ai")]),
         },
     }
 
