@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from ...database import get_db
 from ...models import User, Case
+from ...utils.trajectory_algorithm import DIMS as _WU, get_wu_thresholds as _get_wu_thresholds
 from ..deps import get_current_user
 
 router = APIRouter()
@@ -54,8 +55,10 @@ def list_knowledge(db: Session = Depends(get_db),
         v = case.v_baseline
 
     label = {"wood": "木", "fire": "火", "earth": "土", "metal": "金", "water": "水"}
-    weak = [label[k] for k, val in v.items() if isinstance(val, (int, float)) and val < 45]
-    strong = [label[k] for k, val in v.items() if isinstance(val, (int, float)) and val > 65]
+    # ⚠️ 显式五形白名单(P0-2) + 动态量纲阈值(P0-1)
+    _wt, _st = _get_wu_thresholds(v)
+    weak = [label[k] for k in _WU if isinstance(v.get(k), (int, float)) and v.get(k) < _wt]
+    strong = [label[k] for k in _WU if isinstance(v.get(k), (int, float)) and v.get(k) > _st]
 
     for it in items:
         it["personalized"] = any(

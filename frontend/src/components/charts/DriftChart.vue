@@ -284,7 +284,7 @@ function renderYinYang () {
   const n = elems.length
 
   let yangLine, yinLine, driftData, diseaseModes, rawYangMax, rawYinMax,
-    dominantColor, dominantLabel, dominant
+    dominantColor, dominantLabel, dominant, stateFlags, spikeUp, spikeDown
 
   // ═══ v2 新增字段加载（后端并行返回）═══
   const slice = arr => (arr || []).slice(0, n)
@@ -307,6 +307,11 @@ function renderYinYang () {
     yangLine    = slice(traj.yangBot)                   // 直接用（负值）
     yinLine     = slice(traj.yinTop)                    // 直接用（正值）
     diseaseModes = slice(traj.diseaseModes)
+
+    // v2: 后端已返回三态 + 尖峰（坐标系与后端一致，无需翻转）
+    stateFlags  = slice(traj.stateFlags)
+    spikeUp     = slice(traj.spikeUp)      // 后端撞 yinTop（正）→ 前端正方向
+    spikeDown   = slice(traj.spikeDown)    // 后端撞 yangBot（负）→ 前端负方向
 
     // 先天主色：偏离 50 最远的那个五行
     dominant = 'wood'; let maxDev = 0
@@ -420,21 +425,46 @@ function renderYinYang () {
         h += `<strong>体质偏移:</strong> <span style="font-size:${fs(14)}px;">${hs?.toFixed(1) ?? '—'}</span> `
         if (hs > 0) h += `<span style="color:#DA6C57;font-size:${fs(10)}px;">↑阳(+${Math.abs(hs).toFixed(1)})</span>`
         else h += `<span style="color:#4C90AF;font-size:${fs(10)}px;">↓阴(${Math.abs(hs).toFixed(1)})</span>`
-        const zoneTag = inZone
-          ? `<span style="color:#7BC4A9;margin-left:6px;">健康区间内</span>`
-          : `<span style="color:#E57373;margin-left:6px;">超出区间 ⚠️</span>`
+
+        // ═══ 三态判定（stateFlags 优先，fallback 到 inZone）═══
+        const st = stateFlags?.[idx]
+        let zoneTag = ''
+        if (st === 'disease') {
+          zoneTag = `<span style="color:#E57373;margin-left:6px;">⚠️ 已穿出有效边界（疾病态）</span>`
+        } else if (st === 'subhealthy') {
+          zoneTag = `<span style="color:#FFA726;margin-left:6px;">⚠️ 反复尖峰触边（亚健康态）</span>`
+        } else if (st === 'healthy') {
+          zoneTag = `<span style="color:#7BC4A9;margin-left:6px;">健康区间内（健康态）</span>`
+        } else if (inZone) {
+          zoneTag = `<span style="color:#7BC4A9;margin-left:6px;">健康区间内</span>`
+        } else {
+          zoneTag = `<span style="color:#E57373;margin-left:6px;">超出区间 ⚠️</span>`
+        }
         h += zoneTag + `<span style="font-size:${fs(11)}px;opacity:0.7;margin-left:4px;">区间 [${yu.toFixed(0)}, ${yl.toFixed(0)}]</span>`
         h += `</div>`
 
-        // 疾病模式
-        const dm = diseaseModes[idx]
-        if (dm === 'acuteDeviation') {
-          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(229,57,53,0.18);border-left:3px solid #E53935;border-radius:3px;font-size:${fs(11)}px;color:#E57373;">⚠️ 急性偏离：突发冲出阴阳交合区</div>`
-        } else if (dm === 'subtleDeviation') {
-          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(255,171,64,0.15);border-left:3px solid #FFAB40;border-radius:3px;font-size:${fs(11)}px;color:#FFAB40;">⚠️ 亚临床偏离：凸多面体触碰边界</div>`
-        } else if (dm === 'chronicBoundary') {
-          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(249,168,37,0.15);border-left:3px solid #F9A825;border-radius:3px;font-size:${fs(11)}px;color:#FFD54F;">⚠️ 慢性贴边：长期游离于边界</div>`
+        // ═══ 尖峰触边细节（健康态本帧是尖峰也标记）═══
+        const isSpike = spikeUp?.[idx] || spikeDown?.[idx]
+        if (isSpike) {
+          const spikeDir = spikeUp?.[idx]
+            ? `<span style="color:#DA6C57;">上撞阴界</span>`
+            : `<span style="color:#4C90AF;">下撞阳界</span>`
+          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(249,168,37,0.15);border-left:3px solid #F9A825;border-radius:3px;font-size:${fs(11)}px;color:#FFD54F;">⚡ ${spikeDir}·快冲→触边→弹回（2D投影，耦合信息已丢失）</div>`
+        } else if (st === 'subhealthy') {
+          let upHit = 0, dnHit = 0
+          const wh = 2  // 窗口半宽（老算法路径 fallback）
+          const wl = Math.max(0, idx - (adaptiveParams?.windowHalf ?? wh))
+          const whh = Math.min(n - 1, idx + (adaptiveParams?.windowHalf ?? wh))
+          for (let j = wl; j <= whh; j++) {
+            if (spikeUp?.[j]) upHit++
+            if (spikeDown?.[j]) dnHit++
+          }
+          const dirLabel = upHit >= dnHit ? `上撞阴界${upHit}次` : `下撞阳界${dnHit}次`
+          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(249,168,37,0.15);border-left:3px solid #F9A825;border-radius:3px;font-size:${fs(11)}px;color:#FFD54F;">反复撞边弹回·${dirLabel}·金形弹性持续紧张（2D投影）</div>`
         }
+
+        // ── L1 投影层标注 ──
+        h += `<div style="font-size:${fs(10)}px;opacity:0.5;margin-top:2px;">[L1投影] 五形本体耦合信息已丢失，判定对应体质曲线形态</div>`
 
         // ═══ v2 SPUM 理论数据段 ═══
         if (isSpumV2 && sigmaTrend.length) {
@@ -598,29 +628,47 @@ function renderYinYang () {
         markPoint: {
           symbol: 'circle',
           symbolSize: (idx) => {
-            const m = diseaseModes[idx]
-            if (m === 'acuteDeviation') return 14
-            if (m === 'subtleDeviation') return 12
-            if (m === 'chronicBoundary') return 12
-            // v2: polytope ON/OUT 也显示小标记
+            const dm = diseaseModes[idx]
+            const st = stateFlags?.[idx]
+            const isSpike = spikeUp?.[idx] || spikeDown?.[idx]
+            // 疾病态最大
+            if (st === 'disease' || dm === 'acuteDeviation') return 14
+            if (dm === 'subtleDeviation') return 12
+            // 尖峰标记
+            if (isSpike) return 12
+            if (st === 'subhealthy') return 12
+            if (dm === 'chronicBoundary') return 12
+            // v2: polytope ON/OUT
             if (isSpumV2 && polytopeStatuses[idx] === 'OUT') return 10
             return 0
           },
           itemStyle: (params) => {
-            const m = diseaseModes[params.dataIndex]
-            if (m === 'acuteDeviation') return { color: C.fire, borderColor: WHITE, borderWidth: 2 }
-            if (m === 'subtleDeviation') return { color: rgba('--qn-earth-rgb', 0.9), borderColor: WHITE, borderWidth: 2 }
-            if (m === 'chronicBoundary') return { color: C.earth, borderColor: WHITE, borderWidth: 2 }
-            // v2: polytope OUT 用深红
+            const dm = diseaseModes[params.dataIndex]
+            const st = stateFlags?.[params.dataIndex]
+            const isSpike = spikeUp?.[params.dataIndex] || spikeDown?.[params.dataIndex]
+            // 尖峰标记用橙色三角
+            if (isSpike && st !== 'disease') {
+              return { color: '#FFD54F', borderColor: '#F9A825', borderWidth: 2 }
+            }
+            if (st === 'disease' || dm === 'acuteDeviation') {
+              return { color: C.fire, borderColor: WHITE, borderWidth: 2 }
+            }
+            if (dm === 'subtleDeviation' || st === 'subhealthy') {
+              return { color: rgba('--qn-earth-rgb', 0.9), borderColor: WHITE, borderWidth: 2 }
+            }
+            if (dm === 'chronicBoundary') return { color: C.earth, borderColor: WHITE, borderWidth: 2 }
             if (isSpumV2 && polytopeStatuses[params.dataIndex] === 'OUT')
               return { color: C.fire, borderColor: WHITE, borderWidth: 1.5 }
             return { color: 'transparent' }
           },
           label: { show: false },
           data: diseaseModes.map((m, i) => {
-            if (m) return { coord: [i, driftData[i]] }
+            const st = stateFlags?.[i]
+            const isSpike = spikeUp?.[i] || spikeDown?.[i]
+            if (st === 'disease' || m === 'acuteDeviation' || m === 'subtleDeviation' || m === 'chronicBoundary' || isSpike)
+              return { coord: [i, driftData[i]] }
             // v2: polytope OUT 也标
-            if (isSpumV2 && polytopeStatuses[i] === 'OUT' && !diseaseModes[i])
+            if (isSpumV2 && polytopeStatuses[i] === 'OUT')
               return { coord: [i, driftData[i]] }
             return null
           }).filter(Boolean)

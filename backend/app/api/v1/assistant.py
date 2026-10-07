@@ -15,6 +15,9 @@ from ..deps import get_current_user
 from ...utils.life_signal_extractor import extract_signals, signals_to_dict_list
 from ...utils.conversation_analyzer import analyze_conversation
 from ...utils.maturity import compute_maturity, STAGE_DEFS
+from ...utils.trajectory_algorithm import (
+    DIMS as _WU, detect_vector_scale as _detect_vector_scale, get_wu_thresholds as _get_wu_thresholds,
+)
 
 router = APIRouter()
 
@@ -281,10 +284,16 @@ S(t) = S_base(birth) + ΔS_节气 + ΔS_日干支 + ΔS_时辰 + ΔS_观测漂�
             parts.append("")
             parts.append("【最近 PPG 脉诊观测】")
             for i, ob in enumerate(obs_list):
-                parts.append(f"{i+1}. SQI={ob.sqi} 五形ΔF: " +
-                            f"木{ob.delta_f.get('wood',0):+.2f} 火{ob.delta_f.get('fire',0):+.2f} "
-                            f"土{ob.delta_f.get('earth',0):+.2f} 金{ob.delta_f.get('metal',0):+.2f} "
-                            f"水{ob.delta_f.get('water',0):+.2f}")
+                # ⚠️ delta_f 是 nullable JSON 列 —— ppg.py 失败路径先 commit 后改 status，
+                # 这些行的 delta_f 永远是 None。历史 bug：None.get() → AttributeError → /chat 500
+                df = ob.delta_f if isinstance(ob.delta_f, dict) else {}
+                if df:
+                    parts.append(f"{i+1}. SQI={ob.sqi} 五形ΔF: " +
+                                f"木{df.get('wood',0):+.2f} 火{df.get('fire',0):+.2f} "
+                                f"土{df.get('earth',0):+.2f} 金{df.get('metal',0):+.2f} "
+                                f"水{df.get('water',0):+.2f}")
+                else:
+                    parts.append(f"{i+1}. SQI={ob.sqi} 五形ΔF: （观测数据不完整，待补充）")
                 if ob.syndrome_hint:
                     parts.append(f"   诊断提示：{ob.syndrome_hint}")
 
@@ -366,10 +375,15 @@ S(t) = S_base(birth) + ΔS_节气 + ΔS_日干支 + ΔS_时辰 + ΔS_观测漂�
     vb = (case.v_baseline or {}) if case else {}
     wuxing_labels = {"wood": "木", "fire": "火", "earth": "土", "metal": "金", "water": "水"}
 
-    weak = [w for w, val in vc.items() if isinstance(val, (int, float)) and val < 45]
-    strong = [w for w, val in vc.items() if isinstance(val, (int, float)) and val > 65]
+    # ⚠️ 双重修复：
+    # 1) 显式五形白名单（P0-2）— vc 可能含 sigma/tau，不能全字典遍历
+    # 2) 动态量纲阈值（P0-1）— vc 可能是 v_innate(center=20) 或健康标量(center=50)，
+    #    之前硬编码 45/65 把 center=20 的 earth:43（土壅！）判为偏弱 → 方向完全相反
+    _wt, _st = _get_wu_thresholds(vc)
+    weak = [k for k in _WU if isinstance(vc.get(k), (int, float)) and vc.get(k) < _wt]
+    strong = [k for k in _WU if isinstance(vc.get(k), (int, float)) and vc.get(k) > _st]
     drift = []
-    for k in ["wood", "fire", "earth", "metal", "water"]:
+    for k in _WU:
         cv = vc.get(k); bv = vb.get(k)
         if isinstance(cv, (int, float)) and isinstance(bv, (int, float)) and cv != bv:
             drift.append(f"{wuxing_labels[k]}{cv-bv:+.0f}")
@@ -399,7 +413,9 @@ def _generate_generic_reply(user: User, db: Session, keyword: str) -> str:
     v = {}
     if case:
         v = case.v_current or case.v_baseline or {}
-    weak = [w for w, val in v.items() if isinstance(val, (int, float)) and val < 45]
+    # ⚠️ 双重修复：显式五形白名单(P0-2) + 动态量纲阈值(P0-1)
+    _wt, _ = _get_wu_thresholds(v)
+    weak = [k for k in _WU if isinstance(v.get(k), (int, float)) and v.get(k) < _wt]
     w_name = {"wood": "木", "fire": "火", "earth": "土", "metal": "金", "water": "水"}
     weak_names = [w_name[w] for w in weak] if weak else ["整体"]
 
@@ -1306,6 +1322,8 @@ async def chat(body: ChatIn,
     llm_ok = False
     latency_ms = 0
     reply_text = ""
+    raw = ""
+    json_obj = None
     parsed_template: AIResponseTemplate | None = None  # LLM 填的槽位
     provider_used = body.provider or resolve_default_provider()
 
@@ -1324,16 +1342,21 @@ async def chat(body: ChatIn,
                         json={
                             "model": settings.DEEPSEEK_MODEL,
                             "messages": messages,
-                            "max_tokens": 1200,  # 多留空间给 JSON 槽位
+                            "max_tokens": 2400,  # L2+ JSON 多槽位输出需要更多 token
                             "response_format": {"type": "json_object"},
                         }
                     )
                     latency_ms = int((time.time() - start) * 1000)
                     if r.status_code == 200:
                         raw = r.json()["choices"][0]["message"]["content"]
-                        parsed_template = normalize_parsed(extract_json(raw) or {})
-                        # 兜底：parse 失败就把 raw 当纯文本
-                        reply_text = parsed_template.reply if parsed_template else raw
+                        json_obj = extract_json(raw)
+                        parsed_template = normalize_parsed(json_obj or {})
+                        if parsed_template:
+                            reply_text = parsed_template.reply
+                        elif json_obj and isinstance(json_obj.get("reply"), str) and json_obj["reply"].strip():
+                            reply_text = json_obj["reply"]
+                        else:
+                            reply_text = raw
                         llm_ok = True
             except Exception:
                 llm_ok = False
@@ -1352,15 +1375,21 @@ async def chat(body: ChatIn,
                         json={
                             "model": settings.QINGMENG_MODEL,
                             "messages": messages,
-                            "max_tokens": 1200,
+                            "max_tokens": 2400,
                             "format": "json",  # Ollama 的 JSON mode
                         }
                     )
                     latency_ms = int((time.time() - start) * 1000)
                     if r.status_code == 200:
                         raw = r.json()["choices"][0]["message"]["content"]
-                        parsed_template = normalize_parsed(extract_json(raw) or {})
-                        reply_text = parsed_template.reply if parsed_template else raw
+                        json_obj = extract_json(raw)
+                        parsed_template = normalize_parsed(json_obj or {})
+                        if parsed_template:
+                            reply_text = parsed_template.reply
+                        elif json_obj and isinstance(json_obj.get("reply"), str) and json_obj["reply"].strip():
+                            reply_text = json_obj["reply"]
+                        else:
+                            reply_text = raw
         except Exception:
             llm_ok = False
 
@@ -1381,6 +1410,12 @@ async def chat(body: ChatIn,
         "deepseek": "deepseek" if llm_ok else "local_fallback",
         "spum": "qingmeng" if llm_ok else "local_fallback",
     }.get(provider_used, "qingmeng" if llm_ok else "local_fallback")
+
+    # 实际使用的模型名（精确版本）— 前端 footnote 显示用
+    if provider_used == "deepseek":
+        model_name = settings.DEEPSEEK_MODEL
+    else:
+        model_name = settings.QINGMENG_MODEL if llm_ok else "—（本地 fallback）"
 
     # ── 8. 持久化对话 + 抽取生活信号（青囊生活管家的数据化核心）──
     case = db.query(Case).filter(Case.user_id == current.id).first()
@@ -1606,6 +1641,7 @@ async def chat(body: ChatIn,
         "reply": reply_text,
         "engine": engine_tag + ("+template" if parsed_template else ""),
         "provider": provider_used,
+        "model_name": model_name,
         "latency_ms": latency_ms,
         "llm_online": llm_ok,
         "brief_context": brief,
@@ -2208,13 +2244,30 @@ async def get_maturity(
 
 @router.get("/health")
 async def health():
-    """检查各 provider 可用性 — 前端设置页据此显示哪些选项可用。"""
-    # SPUM 本地
+    """检查各 provider 可用性 — 前端设置页据此显示哪些选项可用。
+
+    SPUM 分支：实时探青檬引擎 health → 再探 Ollama /api/tags 拿实际模型列表。
+    """
+    # SPUM 本地：青檬引擎 + Ollama 双通道探测
     spum_online = False
+    ollama_online = False
+    ollama_models: list[str] = []
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            r = await client.get(f"{settings.QINGMENG_URL}/health")
-            spum_online = r.status_code == 200
+            h = await client.get(f"{settings.QINGMENG_URL}/health")
+            spum_online = h.status_code == 200
+            # 进一步探 Ollama 实际可达性 + 模型列表
+            try:
+                tags = await client.get(f"{settings.OLLAMA_URL}/api/tags")
+                if tags.status_code == 200:
+                    ollama_online = True
+                    ollama_models = [
+                        m.get("name", "")
+                        for m in tags.json().get("models", [])
+                        if m.get("name")
+                    ]
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -2225,9 +2278,14 @@ async def health():
         "providers": {
             "spum": {
                 "label": "SPUM 本地模型",
-                "online": spum_online,
+                "online": spum_online and ollama_online,
+                "qingmeng_online": spum_online,
+                "ollama_online": ollama_online,
                 "model": settings.QINGMENG_MODEL,
+                "available_models": ollama_models,
+                "model_available": settings.QINGMENG_MODEL in ollama_models if ollama_models else None,
                 "url": settings.QINGMENG_URL,
+                "ollama_url": settings.OLLAMA_URL,
             },
             "deepseek": {
                 "label": "DeepSeek 云端",
@@ -3622,8 +3680,9 @@ async def _generate_summary(
 
     # Fallback：从 answer_bank 推最小摘要
     v_base = user_context.get("v_base", {})
-    weak = [w for w, val in v_base.items() if isinstance(val, (int, float)) and val < 45]
-    strong = [w for w, val in v_base.items() if isinstance(val, (int, float)) and val > 65]
+    _wt, _st = _get_wu_thresholds(v_base)
+    weak = [k for k in _WU if isinstance(v_base.get(k), (int, float)) and v_base.get(k) < _wt]
+    strong = [k for k in _WU if isinstance(v_base.get(k), (int, float)) and v_base.get(k) > _st]
     w_name = {"wood": "木", "fire": "火", "earth": "土", "metal": "金", "water": "水"}
     return {
         "dominant_pattern": f"{'、'.join(w_name[w]+'形偏弱' for w in weak)}" if weak else "五形暂无明显偏失",

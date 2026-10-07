@@ -261,7 +261,8 @@ def extract_json(text: str) -> dict | None:
     LLM 可能在 JSON 外面包了解释文本，或没严格按 JSON 格式输出：
     1. 先尝试直接 json.loads
     2. 失败则找第一个 { 和最后一个 } 之间的子串再 parse
-    3. 都失败返回 None
+    3. 都失败 → 尝试从截断的 JSON 里手动提取 reply 字段（LLM max_tokens 不够时 JSON 会被截断，但 reply 通常在前半部分完整）
+    4. 都不行返回 None
     """
     if not text:
         return None
@@ -278,7 +279,13 @@ def extract_json(text: str) -> dict | None:
         try:
             return json.loads(candidate)
         except Exception:
-            return None
+            pass
+    # 最后兜底：尝试从截断 JSON 里正则提取 reply 字段
+    # reply 通常是第一个 key，值是字符串，即使后面槽位被截断，reply 值大概率完整
+    reply_match = re.search(r'"reply"\s*:\s*"(.*?)"\s*[,}]', text, re.DOTALL)
+    if reply_match:
+        reply_val = reply_match.group(1).encode('utf-8').decode('unicode_escape')
+        return {"reply": reply_val}
     return None
 
 
@@ -290,8 +297,14 @@ def normalize_parsed(data: dict) -> AIResponseTemplate | None:
     if not data or not isinstance(data, dict):
         return None
     normalized = {}
-    # reply 必须是字符串
-    normalized["reply"] = str(data.get("reply", ""))
+    # reply 必须是字符串 —— 防御：LLM 偶尔把 reply 写成 dict/list
+    raw_reply = data.get("reply", "")
+    if isinstance(raw_reply, str):
+        normalized["reply"] = raw_reply
+    elif isinstance(raw_reply, (dict, list)):
+        normalized["reply"] = json.dumps(raw_reply, ensure_ascii=False)
+    else:
+        normalized["reply"] = str(raw_reply or "")
     # brief_card：要么 dict 要么 None
     bc = data.get("brief_card")
     if isinstance(bc, dict):
@@ -302,7 +315,38 @@ def normalize_parsed(data: dict) -> AIResponseTemplate | None:
         normalized["suggested_actions"] = [
             a for a in sa if isinstance(a, dict) and a.get("action_id")
         ]
+    # pathologies：防御性修复（label 必须 str）
+    p = data.get("pathologies")
+    if isinstance(p, list):
+        normalized["pathologies"] = [
+            x for x in p
+            if isinstance(x, dict) and isinstance(x.get("label"), str) and x["label"].strip()
+        ]
+    # suggestions：防御性修复（category/title 必填 str）
+    sg = data.get("suggestions")
+    if isinstance(sg, list):
+        normalized["suggestions"] = [
+            x for x in sg
+            if isinstance(x, dict)
+            and isinstance(x.get("category"), str) and x["category"].strip()
+            and isinstance(x.get("title"), str) and x["title"].strip()
+        ]
+    # chief_complaint：可选 str
+    cc = data.get("chief_complaint")
+    if isinstance(cc, str) and cc.strip():
+        normalized["chief_complaint"] = cc
+    # signals：防御性修复
+    sig = data.get("signals")
+    if isinstance(sig, list):
+        normalized["signals"] = [
+            x for x in sig
+            if isinstance(x, dict)
+            and isinstance(x.get("tag"), str) and x["tag"].strip()
+            and isinstance(x.get("label"), str) and x["label"].strip()
+        ]
     try:
         return AIResponseTemplate(**normalized)
-    except Exception:
+    except Exception as e:
+        # Pydantic 验证失败 —— 记录日志但不抛
+        print(f"[normalize_parsed] Pydantic validation failed: {e}")
         return None

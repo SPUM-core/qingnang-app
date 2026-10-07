@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     QINGMENG_URL: str = "http://localhost:8000"
     QINGMENG_MODEL: str = "spum-v9-thinking:latest"
 
+    # Ollama 本地推理（青檬引擎底层，/api/tags 查模型列表）
+    OLLAMA_URL: str = "http://localhost:11434"
+
     # DeepSeek（云端 LLM 备选 — 用户在设置里选择）
     DEEPSEEK_API_KEY: str | None = None
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"

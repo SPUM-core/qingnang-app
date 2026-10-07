@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="page settings">
     <!-- 顶部：个人名片 -->
     <div class="profile-card">
@@ -42,7 +42,9 @@
 
           <!-- 选择 -->
           <select v-else-if="item.type === 'select'" v-model="settings[item.key]" class="select">
-            <option v-for="opt in item.options" :key="opt.value" :value="opt.value">{{ opt.label }}{{ opt.hint ? '  ' + opt.hint : '' }}</option>
+            <option v-for="opt in item.options" :key="opt.value" :value="opt.value">
+              {{ opt.label }}{{ opt.hint ? '  ' + (typeof opt.hint === 'function' ? opt.hint() : opt.hint) : '' }}
+            </option>
           </select>
 
           <!-- 只读值（动态计算） -->
@@ -113,16 +115,23 @@ const busy     = ref(null)
 const caseData = ref(null)
 const providerInfo = ref({ providers: {}, default_provider: 'spum' })
 
-// 加载后端 provider 配置（哪些可用）
-onMounted(async () => {
-  try {
-    const r = await api.get('/api/v1/cases/mine')
-    caseData.value = r.data?.case || null
-  } catch {}
+// 刷新后端 provider 可用性（实时 ping Ollama）
+async function refreshHealth() {
   try {
     const h = await api.get('/api/v1/assistant/health')
     providerInfo.value = h.data || providerInfo.value
-  } catch {}
+  } catch (e) {
+    console.warn('health check failed:', e.message)
+  }
+}
+
+// 加载后端 provider 配置（哪些可用）
+onMounted(refreshHealth)
+
+// ⭐ provider 切换 → 立即重新探活，让用户看到切换后的真实状态
+watch(() => settings.llm_provider, async (_new, old) => {
+  if (old === undefined) return
+  await refreshHealth()
 })
 
 // ── 设置 (storage 持久化 + App.vue 全局应用) ──
@@ -236,12 +245,21 @@ const groups = [
           {
             value: 'spum',
             label: 'SPUM 本地模型',
-            hint: providerInfo.value.providers?.spum?.online ? '· 在线' : '· 离线（fallback 规则引擎）'
+            hint: () => {
+              const p = providerInfo.value.providers?.spum
+              if (!p) return '· 检测中…'
+              if (p.online && p.model_available) return `· ✅ 在线（${p.available_models?.length ?? 0} 个模型可用）`
+              if (p.online && p.model_available === false) return `· ⚠️ 在线但未加载 ${p.model}`
+              if (p.ollama_online) return `· ⚠️ Ollama 可达，青檬离线`
+              return '· ❌ 离线（fallback 规则引擎）'
+            }
           },
           {
             value: 'deepseek',
             label: 'DeepSeek 云端',
-            hint: providerInfo.value.providers?.deepseek?.online ? '· 已配置' : '· 未配置 API KEY'
+            hint: () => providerInfo.value.providers?.deepseek?.online
+              ? '· ✅ 已配置 API KEY'
+              : '· ❌ 未配置 API KEY（设置 DEEPSEEK_API_KEY）'
           },
         ],
       },
@@ -249,9 +267,17 @@ const groups = [
         key: 'llm_provider_readonly', type: 'readonly', icon: 'doc',
         get value() {
           const p = providerInfo.value.providers?.[settings.llm_provider]
-          return p ? `${p.model}  @ ${p.url?.replace(/^https?:\/\//, '')}` : '--'
+          if (!p) return '--'
+          const onlineBadge = p.online ? '🟢 在线' : '🔴 离线'
+          const availBadge = settings.llm_provider === 'spum' && p.model_available === false
+            ? ` ⚠️ 模型 ${p.model} 未加载`
+            : ''
+          const url = p.url?.replace(/^https?:\/\//, '') || ''
+          return `${onlineBadge}${availBadge} · ${p.model} @ ${url}`
         },
       },
+      { key: 'llm_provider_test', type: 'button', icon: 'spark',
+        label: '测试连接状态', btnText: '重新探测', action: 'test_llm' },
     ]
   },
   {
@@ -282,6 +308,14 @@ function daysSince(iso) {
 // ── 动作处理 ──
 async function handleAction(action) {
   switch (action) {
+    case 'test_llm': {
+      busy.value = 'test_llm'
+      try {
+        await refreshHealth()
+      } finally { busy.value = null }
+      break
+    }
+
     case 'friends':
       router.push({ name: 'users' })
       break

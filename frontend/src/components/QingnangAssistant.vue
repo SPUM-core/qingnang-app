@@ -1,4 +1,4 @@
-﻿<template>
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
   <div class="assistant-root" ref="rootRef" :style="fabPosStyle">
     <!-- 悬浮触发按钮（可拖动） -->
     <button class="fab" :class="{ minimized: isOpen, dragging: isDragging }"
@@ -73,10 +73,8 @@
                   title="对话历史" aria-label="对话历史">
             <QIcon name="history" :size="16" />
           </button>
-          <div class="avatar"><QIcon name="sprout" :size="20" /></div>
           <div class="head-info">
-            <h3>青囊管家</h3>
-            <p class="head-sub">SPUM · 你的专属健康生活顾问</p>
+            <h3>晴晴·6岁</h3>
           </div>
           <button class="head-btn" @click="clearChat" title="新对话" aria-label="新对话">
             <QIcon name="refresh" :size="16" />
@@ -84,20 +82,6 @@
           <button class="head-btn close" @click="toggle" title="收起" aria-label="收起">
             <QIcon name="minimize" :size="16" />
           </button>
-        </div>
-
-        <!-- 状态条（从 userStore 动态取，不再硬编码胡运涛） -->
-        <!-- 档案切换器 + 上下文 -->
-        <div class="ctx-bar" v-if="archiveInfo.name || ctxWeakLabels.length">
-          <button v-if="archiveInfo.name" class="archive-switcher" @click="onArchiveClick" :title="'切换档案'">
-            <span class="as-name">{{ archiveInfo.name }}</span>
-            <span v-if="archiveInfo.age" class="as-age">· {{ archiveInfo.age }}岁</span>
-            <svg class="as-chevron" viewBox="0 0 20 20" width="12" height="12" fill="currentColor"><path d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"/></svg>
-          </button>
-          <template v-if="ctxWeakLabels.length">
-            <span class="ctx-sep">·</span>
-            <span class="ctx-warn">{{ ctxWeakLabels.join('·') }}</span>
-          </template>
         </div>
 
         <!-- 消息区 — v2 底部对齐：inner wrapper flex-end -->
@@ -757,6 +741,7 @@ const nowTime = () => {
  * - 先用 DOM API 对原始文本做 HTML escape（防 XSS）
  * - 再按 **bold** 和换行拆分，标记 bold 段
  * - 升级：识别语义类型 — heading（【xxx】）/ data（五行数字行）/ bold / text
+ * - 优化：合并连续空行 → 单换行，过滤首尾空段落
  */
 function safeParseSegments(raw) {
   if (!raw) return [{ text: '', type: 'text' }]
@@ -766,9 +751,20 @@ function safeParseSegments(raw) {
   // 直接用原始文本（Vue template 会 escape 文本插值），只做语义分段
   const lines = raw.split('\n')
   const segs = []
+  let prevEmpty = false
   for (const line of lines) {
-    // 整行判断：heading 还是 data？
     const trimmed = line.trim()
+    const isEmpty = trimmed.length === 0
+    if (isEmpty) {
+      // 连续空行合并 —— 只保留第一个
+      if (!prevEmpty) {
+        segs.push({ text: '\n', type: 'newline' })
+      }
+      prevEmpty = true
+      continue
+    }
+    prevEmpty = false
+    // 整行判断：heading 还是 data？
     let lineType = 'text'
     if (/^【.+】/.test(trimmed)) {
       lineType = 'heading'
@@ -794,6 +790,8 @@ function safeParseSegments(raw) {
   }
   // 去掉末尾多余换行
   while (segs.length && segs[segs.length - 1].type === 'newline') segs.pop()
+  // 去掉开头多余换行
+  while (segs.length && segs[0].type === 'newline') segs.shift()
   if (!segs.length) segs.push({ text: '', type: 'text' })
   return segs
 }
@@ -916,13 +914,27 @@ const send = async (text, voiceData = null) => {
     if (r.data?.maturity) {
       userStore.updateMaturityFromChat(r.data.maturity)
     }
-    // engine 标签：对用户有意义的信息（不暴露模型名/延迟）
+    // engine 标签 + model_name → 渲染精确模型版本 + 合规声明
     const eng = r.data?.engine
-    if (eng === 'local_fallback') {
-      footnote = '本地规则回复（当前模型不可达）'
+    const respProvider = r.data?.provider   // ← 改名下，避免遮蔽 L903 的入参 provider
+    const modelName = r.data?.model_name || ''
+
+    // engine → 人类可读 provider 标签
+    const engLabel = {
+      'deepseek': 'DeepSeek 云端模型',
+      'qingmeng': 'SPUM 本地模型',
+      'local_fallback': '本地规则引擎',
+      'engine_direct': '规则引擎（直出）',
+      'template_merge': 'SPUM 本地模型',
+    }[eng] || (respProvider === 'deepseek' ? 'DeepSeek 云端模型'
+             : respProvider === 'spum' ? 'SPUM 本地模型'
+             : '青囊推理引擎')
+
+    if (eng === 'local_fallback' || !r.data?.llm_online) {
+      footnote = `${engLabel} · 仅供参考，不作为医疗诊断`
     } else {
-      // 统一用 "仅供参考" — 医疗场景下暴露底层模型合规风险高
-      footnote = '仅供参考，不作为医疗诊断'
+      const modelTag = modelName && !modelName.includes('fallback') ? `（${modelName}）` : ''
+      footnote = `由 ${engLabel}${modelTag} 推理 · 仅供参考，不作为医疗诊断`
     }
   } catch (e) {
     const code = e.response?.status
@@ -1097,7 +1109,7 @@ function showToast(text) {
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
-/* 抽屉 —— 所有视口统一全屏（DeepSeek 风格） */
+/* 抽屉 —— 默认全屏（移动端/竖屏），桌面端为右侧面板露主页面 */
 .drawer {
   position: fixed; right: 0; bottom: 0; left: 0; top: 0;
   width: 100vw; height: 100dvh;
@@ -1106,8 +1118,20 @@ function showToast(text) {
   z-index: 2000;
   transition: opacity 0.2s;
 }
-/* 电脑端不再需要 fullscreen 类 —— 默认就是全屏 */
-.drawer.fullscreen { /* 兼容老类名，已在上层覆盖 */ }
+/* 兼容老类名 */
+.drawer.fullscreen { /* no-op */ }
+
+/* 🖥️ 桌面端（> 720px）：右侧面板 + 遮罩，露出主页面 */
+@media (min-width: 721px) {
+  .drawer {
+    left: auto; right: 24px; top: 24px; bottom: 24px;
+    width: 480px; height: calc(100dvh - 48px);
+    border-radius: 16px;
+    box-shadow: 0 24px 48px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.04);
+    overflow: hidden;
+  }
+  .drawer-enter-from, .drawer-leave-to { opacity: 0; transform: translateY(12px) scale(0.97); }
+}
 
 /* ═══ 移动端适配 ═══ */
 /* 安全区适配 */
@@ -1206,19 +1230,21 @@ function showToast(text) {
 .drawer-enter-active, .drawer-leave-active { transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .drawer-enter-from, .drawer-leave-to { opacity: 0; transform: translateY(20px) scale(0.95); }
 
-/* 头部 */
+/* 头部 — 紧凑版 */
 .drawer-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 14px 16px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
   background: linear-gradient(135deg, var(--qn-emerald) 0%, var(--qn-emerald-dark) 100%);
   color: #fff; flex-shrink: 0;
 }
 .avatar {
-  width: 36px; height: 36px; border-radius: 50%;
+  width: 30px; height: 30px; border-radius: 50%;
   background: rgba(255,255,255,0.15);
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0; color: #fff;
+  font-size: calc(18px * var(--qn-fs-scale));
 }
+.avatar-logo { width: 72%; height: 72%; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.15)); }
 .welcome-avatar {
   width: 64px; height: 64px; border-radius: 50%;
   background: linear-gradient(135deg, rgba(var(--qn-emerald-rgb),0.1), rgba(var(--qn-emerald-light-rgb),0.2));
@@ -1266,8 +1292,8 @@ function showToast(text) {
 }
 
 .head-info { flex: 1; }
-.head-info h3 { margin: 0; font-size: calc(15px * var(--qn-fs-scale)); font-weight: 600; }
-.head-sub { margin: 2px 0 0; font-size: calc(11px * var(--qn-fs-scale)); color: rgba(255,255,255,0.65); }
+.head-info h3 { margin: 0; font-size: calc(14px * var(--qn-fs-scale)); font-weight: 600; }
+.head-sub { margin: 1px 0 0; font-size: calc(10px * var(--qn-fs-scale)); color: rgba(255,255,255,0.6); letter-spacing: 0.5px; }
 .head-btn {
   width: 32px; height: 32px; border-radius: 50%;
   border: none; background: rgba(255,255,255,0.15);
@@ -1318,6 +1344,7 @@ function showToast(text) {
 }
 .msg-area::-webkit-scrollbar { width: 4px; }
 .msg-area::-webkit-scrollbar-thumb { background: var(--qn-border-subtle); border-radius: 2px; }
+/* 注：竖屏滚动条隐藏已统一在 base.css 全局媒体查询处理 */
 
 /* v2 — 底部对齐：inner flex-end，内容贴输入栏上方，空白转移到顶部 */
 .msg-area-inner {

@@ -67,6 +67,35 @@ HEALTH_CENTROID = {
     'water': 50.0,
 }
 
+# ════════════════════════════════════════════════════════════════
+# 向量量纲检测工具 — P0-1 修复
+# 同一个 v_current / v_baseline 可能属于两种口径：
+#   - 'prob':  v_innate 概率分布，center=20，Σ=100（cases.py 建档写入的先天基底）
+#   - 'scalar': 健康标量空间，center=50（trajectory_algorithm.normalize_S_effective 输出）
+# 消费端（assistant.py / knowledge.py / cases.py）之前不知道自己拿的是哪种口径，
+# 把 center=20 的数据套 center=50 的 45/65 阈值 → earth:43（土壅！）被判为偏弱
+# ════════════════════════════════════════════════════════════════
+def detect_vector_scale(v: dict) -> str:
+    """检测向量 v 的量纲口径：'prob'(center=20) 或 'scalar'(center=50)"""
+    vals = [v[k] for k in DIMS if isinstance(v.get(k), (int, float))]
+    if len(vals) < 3:
+        return 'scalar'  # 默认健康标量口径（保守：缺少数据时不做 prob 判定）
+    avg = sum(vals) / len(vals)
+    # 概率分布均值在 20 附近，健康标量均值在 50 附近 → 用 30 作分界
+    if avg < 30:
+        return 'prob'
+    return 'scalar'
+
+def get_wu_thresholds(v: dict) -> tuple:
+    """返回 (weak_threshold, strong_threshold) 基于检测到的量纲口径"""
+    if detect_vector_scale(v) == 'prob':
+        # v_innate 概率分布：体质推理用 ±25%（_V_INNATE_DEVIATION_PCT = 0.25）
+        mean = 20.0
+        return (mean * 0.65, mean * 1.35)  # <13 偏弱, >27 偏强（稍宽避免过判）
+    else:
+        # 健康标量：45/65（HEALTH_POLYTOPE 边界 35-65 内收缩）
+        return (45, 65)
+
 # dv/dt ≤ const — 健康变化率硬约束
 # 每帧（年视图）健康向量单分量最大变化量
 DV_DT_MAX = 8.0          # 单帧单分量最大变化（五行单位/帧）
@@ -844,8 +873,60 @@ def compute_health_bounds_v2(elems: list, innate: Optional[dict] = None,
     yin_top = [round(x_boundary[i] * SCALE * 10) / 10 for i in range(n)]
     yang_bot = [-round(y_boundary[i] * SCALE * 10) / 10 for i in range(n)]
 
-    # 疾病模式检测（v1 + v2 联合判定）
+    # ══════════════════════════════════════════════════
+    # Phase 2.5: 尖峰三条件判定（L1 投影层 · 2D 阴阳平面）
+    #
+    # ⚠️ 显式标注：以下尖峰判定在 L1 投影层进行。
+    #    原始五形本体是闭环耦合关系链条，塌缩为 2D（driftData）后丢失耦合细节。
+    #    判定结果对应体质曲线形态，不声称对应 L0 本体层的五形状态。
+    #
+    # 三条件全部锚定已有变量：
+    #   ① 快：|Δh| > SPIKE_BASIC_THRESH × el_factor(el[t-1])
+    #   ② 顶：触有效边界 ± TOUCH_EPS
+    #   ③ 弹：下一帧朝反方向运动
+    #
+    # viewMode 自适应（根据 elems 结构推断）：
+    #   年视图：每帧=1年，driftData 幅度 ±5~10
+    #   月视图：每帧≈几天，EMA 压缩后幅度 ±0.5~2
+    # ══════════════════════════════════════════════════
+    is_year_view = (n > 30 and all(p.get('age') is not None for p in elems))
+    SPIKE_BASIC_THRESH = 2.0 if is_year_view else 0.4
+    TOUCH_EPS = 0.5 if is_year_view else 0.1
+    WINDOW_HALF = 2 if is_year_view else 1
+
     el_factor = lambda el: 0.4 + 0.6 * el
+
+    # Phase 2.5a: 尖峰扫描
+    spike_up = [False] * n    # 撞 yinTop（上边界）
+    spike_down = [False] * n  # 撞 yangBot（下边界）
+
+    for i in range(1, n - 1):
+        h_prev = drift_data[i - 1]
+        h_cur = drift_data[i]
+        h_next = drift_data[i + 1]
+
+        el_prev = el_arr[i - 1]
+        thresh = SPIKE_BASIC_THRESH * el_factor(el_prev)
+        delta = h_cur - h_prev
+
+        if abs(delta) <= thresh:
+            continue  # 条件①不满足 → 跳过
+
+        if delta > 0:
+            # 向上冲 → 撞 yinTop（正边界）
+            eff_top = yin_top[i] * el_factor(el_arr[i])
+            if eff_top - TOUCH_EPS <= h_cur <= eff_top + TOUCH_EPS:  # 条件②
+                if h_next < h_cur:  # 条件③弹回
+                    spike_up[i] = True
+        else:
+            # 向下冲 → 撞 yangBot（负边界）
+            eff_bot = yang_bot[i] * el_factor(el_arr[i])
+            if eff_bot - TOUCH_EPS <= h_cur <= eff_bot + TOUCH_EPS:  # 条件②
+                if h_next > h_cur:  # 条件③弹回
+                    spike_down[i] = True
+
+    # Phase 2.5b: 三态 + 原有疾病模式联合判定
+    state_flags = ['healthy'] * n  # healthy / subhealthy / disease
     disease_modes = [None] * n
 
     for i in range(n):
@@ -853,7 +934,7 @@ def compute_health_bounds_v2(elems: list, innate: Optional[dict] = None,
         eff_top = yin_top[i] * el_factor(el_arr[i])
         eff_bot = yang_bot[i] * el_factor(el_arr[i])
 
-        # v2 越界判定（更精确的多维判定）
+        # v2 越界判定（保留 5D 凸多面体 OUT，更精确）
         v2_status = S_vectors[i]['margin']['status']
         v2_out = v2_status == 'OUT'
         v2_on = v2_status == 'ON'
@@ -861,32 +942,32 @@ def compute_health_bounds_v2(elems: list, innate: Optional[dict] = None,
         v2_depth = S_vectors[i]['margin']['violation_depth']
         v2_dim = S_vectors[i]['margin']['violation_dim']
 
-        # acuteDeviation: 冲边界 或 凸多面体越界
+        # ── 状态 3：疾病 ──
         if h > eff_top or h < eff_bot or v2_out:
+            state_flags[i] = 'disease'
             if v2_depth > 5 or v2_dim in ('water', 'fire'):
                 disease_modes[i] = 'acuteDeviation'
             else:
                 disease_modes[i] = 'subtleDeviation'
             continue
 
-        # subtleDeviation: ON 状态 + Touch≥2（边界反复触碰，亚健康）
+        # ── 状态 2：亚健康（窗口内同方向尖峰 ≥ 2）──
+        win_lo = max(0, i - WINDOW_HALF)
+        win_hi = min(n, i + WINDOW_HALF + 1)
+        up_spikes = sum(1 for j in range(win_lo, win_hi) if spike_up[j])
+        dn_spikes = sum(1 for j in range(win_lo, win_hi) if spike_down[j])
+
+        # 也用 v2 Touch≥2 辅助（5D 层 ON 状态反复触边）
+        if up_spikes >= 2 or dn_spikes >= 2:
+            state_flags[i] = 'subhealthy'
+            disease_modes[i] = 'chronicBoundary'
+            continue
         if v2_on and len(v2_touch) >= 2:
+            state_flags[i] = 'subhealthy'
             disease_modes[i] = 'subtleDeviation'
             continue
 
-        # 慢性贴边（v1 逻辑 + v2 Touch 集合辅助）
-        bc = 0
-        for j in range(max(0, i - 2), min(n, i + 3)):
-            hj = drift_data[j]
-            j_top = yin_top[j] * el_factor(el_arr[j])
-            j_bot = yang_bot[j] * el_factor(el_arr[j])
-            touch = S_vectors[j]['margin']['touch']
-            if ((j_top - 1 <= hj <= j_top + 1) or
-                    (j_bot - 1 <= hj <= j_bot + 1) or
-                    len(touch) >= 2):
-                bc += 1
-        if bc >= 3:
-            disease_modes[i] = 'chronicBoundary'
+        # 状态 1：健康（留在 default 初始化）
 
     # ══════════════════════════════════════════════════
     # Phase 3: v2 新增输出
@@ -953,6 +1034,16 @@ def compute_health_bounds_v2(elems: list, innate: Optional[dict] = None,
         'topological_constant_12': SPUM_TOPOLOGICAL_CONST_12,
         'health_polytope': HEALTH_POLYTOPE,
         'dv_dt_max': DV_DT_MAX,
+        # Phase 2.5 三态判定新增输出
+        'stateFlags': state_flags,        # ['healthy'|'subhealthy'|'disease'] * n
+        'spikeUp': spike_up,              # [bool] * n — 撞上边界（yinTop）尖峰
+        'spikeDown': spike_down,          # [bool] * n — 撞下边界（yangBot）尖峰
+        'adaptiveParams': {               # viewMode 自适应参数（前端调试用）
+            'isYearView': is_year_view,
+            'spikeThresh': SPIKE_BASIC_THRESH,
+            'touchEps': TOUCH_EPS,
+            'windowHalf': WINDOW_HALF,
+        },
     }
 
 

@@ -225,6 +225,25 @@ html[data-theme="dark"] body {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   📱 竖屏/移动端：隐藏滚动条（保持滚动功能，仅藏视觉）
+   
+   桌面端保留滚动条（4px 细线）；竖屏/窄屏端完全隐藏 ——
+   手指滑动滚动条的视觉干扰远大于它的指示价值。
+   WebKit + Firefox 双引擎覆盖。
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 720px), (orientation: portrait) {
+  html, body { scrollbar-width: none; }
+  html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  /* 所有组件内部滚动容器的滚动条一并隐藏 — 移动端统一视觉策略
+     ⚠️ 每个选择器都必须加 ::-webkit-scrollbar 后缀，否则会隐藏整个元素！ */
+  .msg-area::-webkit-scrollbar, .hs-list::-webkit-scrollbar, .modal-body::-webkit-scrollbar,
+  .detail-modal::-webkit-scrollbar, .doctor-modal::-webkit-scrollbar,
+  .lifestyle-preview::-webkit-scrollbar, .page::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  .msg-area, .hs-list, .modal-body, .detail-modal, .doctor-modal,
+  .lifestyle-preview, .page { scrollbar-width: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    🚧 断点约定（新增媒体查询必须用这四个之一）
    
    @media (min-width: var(--qn-bp-sm)) { }   → 480px

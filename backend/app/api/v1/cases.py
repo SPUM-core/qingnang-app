@@ -28,6 +28,7 @@ from ...utils import WUXING_LIST
 from ...utils.trajectory_algorithm import (
     compute_health_bounds, compute_health_bounds_v2,
     compute_yx, build_year_view, build_year_view_v2, norm,
+    DIMS as _WU, get_wu_thresholds as _get_wu_thresholds,
 )
 from ...utils.lunar_helper import compute_dayun
 
@@ -78,9 +79,10 @@ def get_reports(db: Session = Depends(get_db),
 
     for i, ob in enumerate(obs_list):
         v = ob.v_obs or {}
-        # 算主要偏移
-        weak = [k for k, val in v.items() if isinstance(val, (int, float)) and val < 45]
-        strong = [k for k, val in v.items() if isinstance(val, (int, float)) and val > 65]
+        # ⚠️ 双重修复：显式五形白名单(P0-2) + 动态量纲阈值(P0-1)
+        _wt, _st = _get_wu_thresholds(v)
+        weak = [k for k in _WU if isinstance(v.get(k), (int, float)) and v.get(k) < _wt]
+        strong = [k for k in _WU if isinstance(v.get(k), (int, float)) and v.get(k) > _st]
         label = {"wood": "木", "fire": "火", "earth": "土", "metal": "金", "water": "水"}
         weak_s = "、".join(label.get(w, w) for w in weak[:3])
         strong_s = "、".join(label.get(s, s) for s in strong[:3])
