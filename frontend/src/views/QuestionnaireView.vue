@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="onboarding">
     <!-- 步骤指示器 -->
     <div class="steps">
@@ -8,6 +8,12 @@
         <span class="step-label">{{ s.title }}</span>
       </div>
     </div>
+
+    <!-- 返回登录 — 仅 Step 1 显示 -->
+    <button v-if="currentStep === 1" class="back-to-login" type="button" @click="goLogin">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      <span>返回登录</span>
+    </button>
 
     <!-- ═══ Step 1: 基础信息 → 推演先天八字 → 直接进问诊 ═══ -->
     <div v-if="currentStep === 1" class="card">
@@ -232,6 +238,12 @@ import { CHINA_PROVINCES, CHINA_CITIES } from '../constants/china-cities.js'
 
 const router = useRouter()
 const userStore = useUserStore()
+
+/** 返回登录 — 清状态 + 跳路由 */
+function goLogin() {
+  userStore.logout()
+  router.replace({ name: 'login' })
+}
 
 // ── 状态 ──
 const currentStep = ref(1)           // 1: 基础信息 → 2: 体质推理报告
@@ -795,6 +807,20 @@ async function submitAll() {
 .step-label { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
 .step.active .step-label { color: var(--qn-emerald); font-weight: 500; }
 .step.done .step-label { color: var(--qn-ink-2); }
+
+/* 返回登录按钮 — 步骤条下方，卡片上方 */
+.back-to-login {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin: -8px 0 16px; padding: 6px 12px;
+  background: none; border: none;
+  color: var(--qn-emerald);
+  font-size: calc(13px * var(--qn-fs-scale)); font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, transform 0.15s, background 0.15s;
+  border-radius: 20px;
+}
+.back-to-login:hover { color: var(--qn-emerald-light); background: rgba(var(--qn-emerald-rgb),0.08); }
+.back-to-login:active { transform: translateX(-1px); }
 
 /* ⚠️ .card 基础样式已统一到 App.vue 全局
    Questionnaire 独有：步骤条卡片更宽松 padding 28px */
