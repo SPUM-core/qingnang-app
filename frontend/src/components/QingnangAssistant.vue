@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
   <div class="assistant-root" ref="rootRef" :style="fabPosStyle">
     <!-- 悬浮触发按钮（可拖动） -->
     <button class="fab" :class="{ minimized: isOpen, dragging: isDragging }"
