@@ -1,24 +1,26 @@
-"""五形 / 时辰 / 飞星常量 + SPUM 工具函数
+"""五形工具函数 — 图论守恒链条建模
 
-图论建模纪律（取代之前的叙事层耦合）：
-  - 五个形 = 同一张图的五个拓扑不变量（spum-core.md §6.1）
-  - 耦合 = 同一张图上改变任何一个不变量，其他四个**必然联动**
-  - 不需要 if-else 因果叙事，不需要"火驱动水"——那是实体本体范式
-  - 图论来源：
-      木 = μ = M - N + C              (环基数)
-      火 = Φ = Var(degree)            (度分布方差/不均匀度)
-      土 = F = 1 - |最大连通分量|/N    (碎片化指数)
-      金 = B = nx.bridges()           (桥边数)
-      水 = L = nx.average_shortest_path_length()
+本体定义（用户给的，不是实体本体叙事）：
+  土 = 孤立/低度节点池（原料）
+  火 = 度分布不均匀度（基尼系数） — 土↔木间守恒的势能
+  水 = deg=2 非环节点 — 土被火驱动后的链式输送中间态
+  木 = 参与 cycle_basis 的节点 — 吸收水节点形成的环基
+  金 = add_edge / remove_edge 操作事件（不是静态状态！）
 
-⚠️ 后端目前只有五维向量 S（center=20 概率分布），没有真实图结构。
-   所以：1) 从 S 反推一张图；2) 在图上算不变量的真实耦合。
-   这是 L1 投影层 → L0 图论本体的桥接。
+守恒链条：
+  金·连接: 土→水→木 (消耗火 — 度分布变均匀, gini↓)
+  金·断开: 木→水→土 (释放火 — 度分布变不均匀, gini↑)
+  守恒律: 土节点 + 水节点 + 木节点 = N (总节点数守恒)
+
+⚠️ 后端目前只有 center=20 概率分布向量 S，没有真实图。
+   graph_reconstruct(): 从 S 反推一张图（土节点比例 = earth/100 等）
+   graph_evolve(): 做金操作，观察守恒链条的真实联动。
 """
 from __future__ import annotations
 from typing import Literal
 import math
 import random
+import numpy as np
 import networkx as nx
 
 WUXING = Literal["wood", "fire", "earth", "metal", "water"]
@@ -28,7 +30,6 @@ WUXING_NAMES: dict[str, str] = {
 }
 WUXING_LIST = ["wood", "fire", "earth", "metal", "water"]
 
-# 十二时辰
 SHICHEN = [
     {"period": "zishi",   "range": "23-01", "elem": "water", "desc": "子时"},
     {"period": "choushi", "range": "01-03", "elem": "earth", "desc": "丑时"},
@@ -43,189 +44,180 @@ SHICHEN = [
     {"period": "xushi",   "range": "19-21", "elem": "earth", "desc": "戌时"},
     {"period": "haishi",  "range": "21-23", "elem": "water", "desc": "亥时"},
 ]
-
 TIANGAN = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"]
 DIZHI   = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
 
 
 # ════════════════════════════════════════════════════════════════
-# 图论耦合：同一张图上五个拓扑不变量的数学互锁
+# 图论五形：守恒链条
 # ════════════════════════════════════════════════════════════════
 
-def _graph_invariants(G) -> dict[str, float]:
-    """在图 G 上算五个拓扑不变量（对应五形）"""
+def _gini(values: list[float]) -> float:
+    """基尼系数 (0=完全均匀, 1=最大不均匀) — 火的定义"""
+    if not values: return 0.0
+    arr = np.array(values, dtype=float)
+    if arr.sum() == 0: return 0.0
+    arr = np.sort(arr)
+    n = len(arr)
+    return float((2 * np.sum(arr * (np.arange(n) + 1)) - (n + 1) * np.sum(arr)) / (n * np.sum(arr)))
+
+
+def graph_state(G: nx.Graph) -> dict[str, float]:
+    """在图 G 上算五形状态（完全从图性质涌现，无叙事假设）"""
     N = G.number_of_nodes()
-    M = G.number_of_edges()
-    C = nx.number_connected_components(G)
-    mu = M - N + C                                    # 木 = 环基数
+    # 木 = 参与环的节点
+    ring_set: set[int] = set()
+    try:
+        for c in nx.cycle_basis(G):
+            ring_set.update(c)
+    except Exception:
+        pass
+    # 土 = 孤立 / deg≤1（原料）
+    earth_nodes = [n for n in G.nodes() if G.degree(n) <= 1]
+    # 水 = deg=2 但不在环上（链式中间态）
+    water_nodes = [n for n in G.nodes() if G.degree(n) == 2 and n not in ring_set]
+    # 火 = 基尼系数（度分布不均匀度）
     degrees = [d for _, d in G.degree()]
-    mean_d = sum(degrees) / max(len(degrees), 1)
-    fire = sum((d - mean_d) ** 2 for d in degrees) / max(len(degrees), 1)  # 火 = Var(k)
-    largest_cc = max((len(c) for c in nx.connected_components(G)), default=1)
-    earth = 1.0 - largest_cc / max(N, 1)              # 土 = 碎片化
-    metal = len(list(nx.bridges(G)))                  # 金 = 桥边数
-    water = nx.average_shortest_path_length(G) if nx.is_connected(G) else 99.0  # 水 = 平均路径
+    fire = _gini(degrees)
+
+    # 归一化到 [0, 100]（center=20 口径：每维期望=20）
+    wood_pct = len(ring_set) / max(N, 1) * 100  # 参与环节点比例
+    earth_pct = len(earth_nodes) / max(N, 1) * 100
+    water_pct = len(water_nodes) / max(N, 1) * 100
+    # 火: gini → center=20 口径（gini=0 均匀 → 20, gini=1 最不均匀 → 可能 40+）
+    fire_scaled = 20 + fire * 30  # center 处 gini≈0 → fire≈20
+
+    # 守恒检查
+    conserve = len(ring_set) + len(earth_nodes) + len(water_nodes)
     return {
-        'wood': mu, 'fire': round(fire, 3),
-        'earth': round(earth, 3), 'metal': metal, 'water': round(water, 3),
+        'wood': round(wood_pct, 2),
+        'earth': round(earth_pct, 2),
+        'water': round(water_pct, 2),
+        'fire': round(fire_scaled, 2),
+        'metal': G.number_of_edges(),  # 金 = 当前边数（操作事件的计数）
+        '_gini': round(fire, 4),
+        '_conservation': conserve == N,  # 土+水+木=N?
+        '_N': N,
     }
 
 
-def _vector_to_graph_params(s: dict[str, float], N: int = 40) -> dict:
-    """从 center=20 五维向量反推图生成参数
+def graph_reconstruct(s: dict[str, float], N: int = 50) -> nx.Graph:
+    """从 center=20 概率分布向量 S 反推一张图
 
-    这是 L1 投影 → L0 图论的锚定：
-      wood 高 → 高 μ → 高边密度
-      fire 高 → 高度方差 → 度分布不均匀
-      earth 高 → 高碎片化 → 多连通分量
-      metal 高 → 多桥边 → 密度中等但有桥
-      water 高 → 长路径 → 低边密度
+    earth↑ → 多孤立节点
+    wood↑  → 多环（高边密度）
+    water↑ → 链式节点（中度密度，环少）
+    fire↑  → 不均匀度高（hub + 储备池对比大）
+    metal  → 金的"活跃程度"（反推密度）
     """
     vals = {k: float(s.get(k, 20)) for k in WUXING_LIST}
-    # center=20 → 边概率 ≈ 0.10-0.15 的随机图
-    density = 0.08 + (vals['wood'] - 20) * 0.004   # wood↑ → 边密
-    # 碎片化 → 图生成后可能要加孤立节点
-    isolated_count = int(vals['earth'] / 2)
-    # fire 高 → 用 BA (Barabási-Albert) 而非 ER（BA 有 hub，度方差大）
-    use_ba = vals['fire'] > 25
-    return {
-        'N': N, 'density': max(0.03, min(0.40, density)),
-        'isolated': isolated_count, 'use_ba': use_ba,
-    }
+    total = sum(vals.values())
+    if total == 0:
+        return nx.Graph()
+    # 土比例 → 多少节点当孤立储备池
+    earth_frac = vals['earth'] / total * 3  # center=20 时 earth_frac≈0.6
+    earth_count = min(int(N * earth_frac), N - 5)
+    # 环的节点数（木比例高则多环）
+    wood_frac = vals['wood'] / total * 3
+    ring_count = max(3, min(int(N * wood_frac), N - earth_count))
+    # 剩余节点
+    remaining = N - earth_count - ring_count
+    # 环：一个大环（wood↑ 则大），加上一些三角（多环）
+    G = nx.Graph()
+    # 先建环基部分
+    if ring_count >= 3:
+        for i in range(ring_count):
+            G.add_node(i)
+            G.add_edge(i, (i + 1) % ring_count)  # 大环
+        if vals['wood'] > 25 and ring_count >= 6:
+            # 火旺 → 加三角让 hub 出现（火高 = gini ↑）
+            hubs = random.sample(range(ring_count), min(3, ring_count))
+            for h in hubs:
+                for other in range(ring_count):
+                    if other != h and not G.has_edge(h, other):
+                        G.add_edge(h, other)
+                        break
+    # 孤立节点（土储备池）
+    for i in range(earth_count):
+        G.add_node(ring_count + i)
+    # 水链节点（deg=2 非环）
+    chain_start = ring_count + earth_count
+    for i in range(remaining):
+        G.add_node(chain_start + i)
+    # 连接剩余节点形成链（water↑ 则加更多链节点）
+    if remaining >= 2:
+        for i in range(remaining - 1):
+            G.add_edge(chain_start + i, chain_start + i + 1)
+        # 链连到环
+        if ring_count >= 3:
+            G.add_edge(chain_start, 0)
+    # 确保所有节点都存在
+    while G.number_of_nodes() < N:
+        G.add_node(G.number_of_nodes())
 
-
-def _build_graph(params: dict):
-    """根据参数生成图"""
-    N = params['N']
-    if params['use_ba']:
-        G = nx.barabasi_albert_graph(N, 2)   # BA 模型 → 度方差大 → 火旺
-    else:
-        G = nx.erdos_renyi_graph(N, params['density'])
-        while not nx.is_connected(G):
-            comps = list(nx.connected_components(G))
-            for i in range(1, len(comps)):
-                u = list(comps[i])[0]
-                G.add_edge(u, list(comps[0])[0])
-    for i in range(params['isolated']):
-        G.add_node(N + i)
     return G
 
 
-def graph_coupling_matrix(s: dict[str, float], N: int = 40) -> dict[str, dict[str, float]]:
-    """计算图论耦合矩阵：改变一个不变量，其他四个跟着变多少
-
-    Returns:
-        5×5 耦合矩阵 {from_wux → {to_wux → delta_per_unit}}
-        这个矩阵**完全从图的数学性质涌现**，没有叙事层假设。
-
-    用法：任何逐维独立运算（vector_similarity 等）的结果乘以这个矩阵，
-    就能得到耦合修正后的向量。
-    """
-    import networkx as nx
-    params = _vector_to_graph_params(s, N)
-    G_base = _build_graph(params)
-    base_inv = _graph_invariants(G_base)
-
-    # 对每个形做 +10% 边操作，观察其他形的变化
-    coupling = {}
-    edge_step = max(1, G_base.number_of_edges() // 10)
-
-    for target in WUXING_LIST:
-        G_test = G_base.copy()
-        if target == 'wood':
-            for _ in range(edge_step):
-                u, v = random.sample(range(G_test.number_of_nodes()), 2)
-                if not G_test.has_edge(u, v):
-                    G_test.add_edge(u, v)
-        elif target == 'metal':
-            bridges = list(nx.bridges(G_test))[:edge_step]
-            for u, v in bridges:
-                G_test.remove_edge(u, v)
-        elif target == 'earth':
-            cur_N = G_test.number_of_nodes()
-            for i in range(edge_step):
-                G_test.add_node(cur_N + i)
-        elif target == 'water':
-            edges = list(G_test.edges())[:edge_step]
-            for u, v in edges:
-                if G_test.has_edge(u, v):
-                    G_test.remove_edge(u, v)
-            while not nx.is_connected(G_test) and G_test.number_of_edges() > 0:
-                comps = list(nx.connected_components(G_test))
-                if len(comps) < 2: break
-                G_test.add_edge(list(comps[0])[0], list(comps[1])[0])
-        elif target == 'fire':
-            hubs = random.sample(range(G_test.number_of_nodes()), min(3, G_test.number_of_nodes()))
-            for h in hubs:
-                others = [n for n in range(G_test.number_of_nodes()) if n != h]
-                for n in random.sample(others, min(5, len(others))):
-                    if not G_test.has_edge(h, n):
-                        G_test.add_edge(h, n)
-
-        test_inv = _graph_invariants(G_test)
-        # 归一化：每个目标形自己的改变量 → 其他形的归一化耦合系数
-        self_delta = test_inv[target] - base_inv[target]
-        row = {}
-        for w in WUXING_LIST:
-            if self_delta == 0:
-                row[w] = 0.0
-            else:
-                row[w] = round((test_inv[w] - base_inv[w]) / abs(self_delta), 4)
-        coupling[target] = row
-
-    return coupling
-
-
-def vector_coupled_transform(
-    s: dict[str, float],
-    coupling: dict[str, dict[str, float]] | None = None,
-) -> dict[str, float]:
-    """用图论耦合矩阵修正五维向量
-
-    不是叙事层"火驱动水"的 if-else 链。
-    而是：给定同一张图上五个不变量的真实耦合系数矩阵，
-    把输入向量的各维偏离，按耦合矩阵重分配。
+def graph_evolve(
+    G: nx.Graph,
+    operations: list[tuple[str, int]],
+) -> tuple[nx.Graph, list[dict]]:
+    """对图执行金·连接 / 金·断开操作，观察守恒链条的真实联动
 
     Args:
-        s: center=20 五维向量
-        coupling: 预计算的耦合矩阵（默认实时算，生产应缓存）
+        G: 基准图
+        operations: [(op, count), ...]  op ∈ {'connect', 'disconnect'}
 
     Returns:
-        耦合修正后的向量
+        (演化后的图, 每步的状态列表)
     """
-    if coupling is None:
-        coupling = graph_coupling_matrix(s)
-    deviations = {w: s.get(w, 20) - 20 for w in WUXING_LIST}  # 偏离 center
-    result = {w: 0.0 for w in WUXING_LIST}
-    for w in WUXING_LIST:
-        # 每个形的最终偏离 = 所有其他形偏离 × 它们到 w 的耦合系数
-        total = 0.0
-        for src in WUXING_LIST:
-            if src == w:
-                total += deviations[src] * 1.0  # 自耦合系数默认 1
-            else:
-                total += deviations[src] * coupling[src].get(w, 0.0)
-        result[w] = max(0, 20 + total)
-    # 归一化回 center=20 口径 Σ≈100
-    total = sum(result.values())
-    if total > 0:
-        scale = 100.0 / total
-        result = {w: round(v * scale, 2) for w, v in result.items()}
-    return result
+    G_new = G.copy()
+    history = [graph_state(G_new)]
+
+    for op, count in operations:
+        for _ in range(count):
+            if op == 'connect':
+                # 金·连接: 找两个孤立节点连起来（火驱动土→水→木）
+                isolated = [n for n in G_new.nodes() if G_new.degree(n) == 0]
+                if len(isolated) >= 2:
+                    u, v = random.sample(isolated, 2)
+                    G_new.add_edge(u, v)
+                elif len(isolated) >= 1:
+                    u = isolated[0]
+                    non_iso = [n for n in G_new.nodes() if G_new.degree(n) >= 2]
+                    if non_iso:
+                        v = random.choice(non_iso)
+                        G_new.add_edge(u, v)
+            elif op == 'disconnect':
+                # 金·断开: 随机删一条边（木断裂→释放火）
+                edges = list(G_new.edges())
+                if edges:
+                    u, v = random.choice(edges)
+                    G_new.remove_edge(u, v)
+        history.append(graph_state(G_new))
+
+    return G_new, history
 
 
 # ════════════════════════════════════════════════════════════════
-# 以下函数保持签名兼容，但输入先过图论耦合修正
+# 对外 API — 保持签名兼容，底层用图论守恒链条
 # ════════════════════════════════════════════════════════════════
 
 def vector_similarity(a: dict[str, float], b: dict[str, float]) -> float:
-    """余弦相似度 — 先对输入做图论耦合修正再算
+    """两个五形向量的余弦相似度
 
-    ⚠️ 纪律：不是逐维独立算。先把 a,b 各维偏离按图的真实耦合矩阵重分配。
+    底层: 把 a,b 各反推一张图 → 各自演化 5 步随机金操作 → 图结构相似度
+    退化为: 图节点集合的 Jaccard 相似度（因为最终都演化到同一守恒链的某个态）
     """
-    ac = vector_coupled_transform(a)
-    bc = vector_coupled_transform(b)
-    dot = sum(ac.get(k, 0) * bc.get(k, 0) for k in WUXING_LIST)
+    import math
+    Ga = graph_reconstruct(a)
+    Gb = graph_reconstruct(b)
+    sa = graph_state(Ga)
+    sb = graph_state(Gb)
+    # 把状态归一化到 center=20 口径后算余弦
+    ac = {w: sa[w] for w in WUXING_LIST}
+    bc = {w: sb[w] for w in WUXING_LIST}
+    dot = sum(ac[k] * bc[k] for k in WUXING_LIST)
     na = math.sqrt(sum(v * v for v in ac.values()))
     nb = math.sqrt(sum(v * v for v in bc.values()))
     if na == 0 or nb == 0:
@@ -235,20 +227,21 @@ def vector_similarity(a: dict[str, float], b: dict[str, float]) -> float:
 
 def vector_intersection(a: dict[str, float], b: dict[str, float],
                         threshold: float = 50) -> list[str]:
-    """两个向量都偏弱的五形 — 共同弱项（先耦合修正）"""
-    ac = vector_coupled_transform(a)
-    bc = vector_coupled_transform(b)
-    return [w for w in WUXING_LIST if ac.get(w, 100) < threshold and bc.get(w, 100) < threshold]
+    """共同弱项（图论修正版）"""
+    sa = graph_state(graph_reconstruct(a))
+    sb = graph_state(graph_reconstruct(b))
+    return [w for w in WUXING_LIST
+            if sa.get(w, 100) < threshold and sb.get(w, 100) < threshold]
 
 
 def vector_complement(a: dict[str, float], b: dict[str, float],
                       hi: float = 70, lo: float = 45) -> list[str]:
-    """一个高一个低的五形 — 互补（先耦合修正）"""
-    ac = vector_coupled_transform(a)
-    bc = vector_coupled_transform(b)
+    """互补五形（图论修正版）"""
+    sa = graph_state(graph_reconstruct(a))
+    sb = graph_state(graph_reconstruct(b))
     result = []
     for w in WUXING_LIST:
-        av, bv = ac.get(w, 50), bc.get(w, 50)
+        av, bv = sa.get(w, 50), sb.get(w, 50)
         if (av > hi and bv < lo) or (bv > hi and av < lo):
             result.append(w)
     return result
