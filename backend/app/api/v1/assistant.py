@@ -18,6 +18,7 @@ from ...utils.maturity import compute_maturity, STAGE_DEFS
 from ...utils.trajectory_algorithm import (
     DIMS as _WU, detect_vector_scale as _detect_vector_scale, get_wu_thresholds as _get_wu_thresholds,
 )
+from ...utils.wuxing import graph_diagnose as _graph_diagnose
 
 router = APIRouter()
 
@@ -370,30 +371,24 @@ S(t) = S_base(birth) + ΔS_节气 + ΔS_日干支 + ΔS_时辰 + ΔS_观测漂�
     except Exception as _e:
         print(f"[build_system_prompt] TonguePhoto skip: {_e}")
 
-    # ── 根据 v_current / v_baseline 动态生成用户特征摘要（通用 SPUM 逻辑）─
+    # ── 根据 v_current / v_baseline 动态生成用户特征摘要（图论守恒链条版）─
     vc = (case.v_current or case.v_baseline or {}) if case else {}
     vb = (case.v_baseline or {}) if case else {}
     wuxing_labels = {"wood": "木", "fire": "火", "earth": "土", "metal": "金", "water": "水"}
 
-    # ⚠️ 双重修复：
-    # 1) 显式五形白名单（P0-2）— vc 可能含 sigma/tau，不能全字典遍历
-    # 2) 动态量纲阈值（P0-1）— vc 可能是 v_innate(center=20) 或健康标量(center=50)，
-    #    之前硬编码 45/65 把 center=20 的 earth:43（土壅！）判为偏弱 → 方向完全相反
-    _wt, _st = _get_wu_thresholds(vc)
-    weak = [k for k in _WU if isinstance(vc.get(k), (int, float)) and vc.get(k) < _wt]
-    strong = [k for k in _WU if isinstance(vc.get(k), (int, float)) and vc.get(k) > _st]
-    drift = []
-    for k in _WU:
-        cv = vc.get(k); bv = vb.get(k)
-        if isinstance(cv, (int, float)) and isinstance(bv, (int, float)) and cv != bv:
-            drift.append(f"{wuxing_labels[k]}{cv-bv:+.0f}")
+    # 图论诊断：反推守恒图 → 金·连接×N + 金·断开×N → 演化方向判弱/强/漂移
+    # 弱 = 连接后提升最大（金能补），强 = 断开后跌幅最大（金一搞就碎）
+    diag = _graph_diagnose(vc, vb if vb else None)
+    weak = diag['weak']
+    strong = diag['strong']
+    drift = diag['drift']
 
     parts += [
         "",
-        "【当前特征摘要】（基于观测向量自动生成）",
-        f"偏弱形: {'、'.join(wuxing_labels[w] for w in weak) if weak else '五形调和'}",
-        f"偏强形: {'、'.join(wuxing_labels[w] for w in strong) if strong else '五形调和'}",
-        f"基线→当前漂移: {' '.join(drift) if drift else '无显著漂移'}",
+        "【当前特征摘要】（图论守恒链条演化诊断）",
+        f"偏弱形: {'、'.join(wuxing_labels[w] for w in weak) if weak else '守恒链条均衡'}",
+        f"偏强形: {'、'.join(wuxing_labels[w] for w in strong) if strong else '守恒链条均衡'}",
+        f"基线→当前演化方向差: {' '.join(drift) if drift else '无显著结构张力'}",
     ]
 
     # ── L2+ 模板架构：注入 schema 描述，告诉 LLM 它有填空位可填 ──
@@ -413,9 +408,9 @@ def _generate_generic_reply(user: User, db: Session, keyword: str) -> str:
     v = {}
     if case:
         v = case.v_current or case.v_baseline or {}
-    # ⚠️ 双重修复：显式五形白名单(P0-2) + 动态量纲阈值(P0-1)
-    _wt, _ = _get_wu_thresholds(v)
-    weak = [k for k in _WU if isinstance(v.get(k), (int, float)) and v.get(k) < _wt]
+    # 图论守恒链条诊断（不再逐维阈值判弱）
+    diag = _graph_diagnose(v)
+    weak = diag['weak']
     w_name = {"wood": "木", "fire": "火", "earth": "土", "metal": "金", "water": "水"}
     weak_names = [w_name[w] for w in weak] if weak else ["整体"]
 

@@ -245,3 +245,81 @@ def vector_complement(a: dict[str, float], b: dict[str, float],
         if (av > hi and bv < lo) or (bv > hi and av < lo):
             result.append(w)
     return result
+
+
+def graph_diagnose(
+    vc: dict[str, float],
+    vb: dict[str, float] | None = None,
+    N_evolve: int = 10,
+    N_nodes: int = 50,
+) -> dict:
+    """图论诊断：逐维判弱/偏强/漂移的守恒链条版本
+
+    纪律：弱/强不是"数字低/高"，是金操作让守恒链条往哪个方向演化。
+
+    Args:
+        vc: v_current（当前观测向量，center=20 概率分布口径）
+        vb: v_baseline（可选，基线向量）
+        N_evolve: 每次演化的金操作次数
+        N_nodes: 重构图的节点数
+
+    Returns:
+        {
+            'weak': list[str],   # 金·连接后提升最大的形 = 偏弱（金能补）
+            'strong': list[str], # 金·断开后崩得最厉害的形 = 偏强（金一搞就碎）
+            'drift': list[str],  # baseline→current 的守恒链条演化差异
+            'baseline_state': dict,    # baseline 图状态
+            'current_state': dict,     # current 图状态
+            'connect_delta': dict,     # 连接演化 Δ
+            'disconnect_delta': dict,  # 断开演化 Δ
+        }
+    """
+    labels = WUXING_LIST
+    base_scale = {w: float(vc.get(w, 20)) for w in labels}
+
+    G_cur = graph_reconstruct(base_scale, N=N_nodes)
+    s_cur = graph_state(G_cur)
+
+    # 演化: 连接 × N + 断开 × N
+    _, hist = graph_evolve(G_cur, [
+        ('connect', N_evolve),
+        ('disconnect', N_evolve),
+    ])
+    s_conn = hist[1]  # 连接后
+    s_disc = hist[2]  # 断开后
+
+    # ── 偏弱形: 连接后提升幅度 top2 ──
+    conn_delta = {w: s_conn[w] - s_cur[w] for w in labels}
+    weak_ranked = sorted(conn_delta.items(), key=lambda x: x[1], reverse=True)
+    weak = [w for w, d in weak_ranked if d > 0.0]
+
+    # ── 偏强形: 断开后跌幅 top2（金一搞就崩） ──
+    disc_delta = {w: s_disc[w] - s_conn[w] for w in labels}
+    strong_ranked = sorted(disc_delta.items(), key=lambda x: x[1])
+    strong = [w for w, d in strong_ranked if d < -0.5]
+
+    # ── 漂移: baseline vs current 各自演化后的差异 ──
+    drift = []
+    baseline_state = None
+    if vb:
+        base_scale = {w: float(vb.get(w, 20)) for w in labels}
+        G_base = graph_reconstruct(base_scale, N=N_nodes)
+        baseline_state = graph_state(G_base)
+        # baseline 也演化相同步数，比较演化方向
+        _, h2 = graph_evolve(G_base, [
+            ('connect', N_evolve), ('disconnect', N_evolve)])
+        bs_conn = h2[1]; bs_disc = h2[2]
+        for w in labels:
+            cur_dir = s_conn[w] - s_cur[w]   # current 连接后该形变化
+            base_dir = bs_conn[w] - baseline_state[w]
+            diff = cur_dir - base_dir
+            if abs(diff) > 0.5:
+                drift.append(f"{WUXING_NAMES[w]}{diff:+.1f}")
+
+    return {
+        'weak': weak, 'strong': strong, 'drift': drift,
+        'baseline_state': baseline_state,
+        'current_state': s_cur,
+        'connect_delta': conn_delta,
+        'disconnect_delta': disc_delta,
+    }
