@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="splash-root">
     <!-- ═══════════════════════════════════════════════════
          舞台一：启动动画（正放 8s，结尾定格青囊 Logo 落版）
@@ -37,6 +37,11 @@
           <!-- 玻璃态登录卡片 -->
           <Transition name="card">
             <div v-if="showCard" class="auth-card">
+              <button v-if="mode === 'register'" class="back-btn" type="button" @click="goLogin" aria-label="返回登录">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                <span>返回登录</span>
+              </button>
+
               <p class="card-title">{{ mode === 'login' ? '欢迎回来' : '开启你的调理旅程' }}</p>
 
               <!-- 登录表单 -->
@@ -86,7 +91,7 @@
                 </button>
                 <p class="switch-mode">
                   已有账号？
-                  <button type="button" class="link-btn" @click="mode = 'login'">← 去登录</button>
+                  <button type="button" class="link-btn" @click="goLogin">← 去登录</button>
                 </p>
               </form>
             </div>
@@ -155,6 +160,11 @@ function onVideoEnded() {
 function goRegister() {
   router.replace({ name: 'register' })
   mode.value = 'register'
+}
+
+function goLogin() {
+  mode.value = 'login'
+  router.replace({ name: 'login' })
 }
 
 async function doLogin() {
@@ -289,7 +299,18 @@ async function doRegister() {
   box-shadow:
     0 1px 0 rgba(255,255,255,0.8) inset,
     0 20px 60px rgba(15,35,30,0.22);
+  position: relative;
 }
+.back-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: none; border: none; padding: 4px 0 10px; margin: -4px 0 0;
+  color: var(--qn-emerald);
+  font-size: calc(13px * var(--qn-fs-scale)); font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, transform 0.15s;
+}
+.back-btn:hover { color: var(--qn-emerald-light); }
+.back-btn:active { transform: translateX(-1px); }
 .card-enter-active {
   transition: opacity 0.7s ease-out, transform 0.7s cubic-bezier(0.22,1,0.36,1);
 }
