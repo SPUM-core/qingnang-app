@@ -71,8 +71,9 @@ import DriftVectorCard from '../modules/DriftVectorCard.vue'
 import HeroTodoCard from '../modules/HeroTodoCard.vue'
 import HeroDailyTipsCard from '../modules/HeroDailyTipsCard.vue'
 import LifestyleReminderCard from '../modules/LifestyleReminderCard.vue'
+import LifeAdviceCard from '../modules/LifeAdviceCard.vue'
 
-const selected = ref('LifestyleReminderCard')
+const selected = ref('LifeAdviceCard')
 const events = ref([])
 
 const modules = [
@@ -85,19 +86,29 @@ const modules = [
     maturityStage: 3, expanded: true, activeTab: 'good',
     remTotal: 14, remTabs: [{key:'good',label:'宜·忌'},{key:'home',label:'住房'},{key:'avoid',label:'禁忌'}],
     lifestyleLoading: false, lifestylePreview: '',
-    clothGoodSelect: [{ id:'c1', title:'多穿黄褐系', desc:'补土形，抑制木形过旺' }, { id:'c2', title:'佩戴玉石', desc:'玉性寒润，降心火' }],
+    clothGoodSelect: [{ id:'c1', title:'多穿黄褐系', desc:'补土形，抑制木形过旺' }],
     clothBadSelect: [{ id:'c3', title:'忌青绿系', desc:'助木形过旺，土形更弱' }],
-    foodGoodSelect: [{ id:'f1', title:'宜吃山药等补土食物', desc:'山药、薏米、南瓜、红薯 — 按相生律补土形' }],
-    foodBadSelect: [{ id:'f2', title:'忌辛辣', desc:'辛辣、茴香、花椒 — 避免助木形过旺' }],
-    homeSelect: [{ id:'h1', title:'辰时养胃', desc:'7:00-9:00 辰时脾经旺，宜温热早餐', urgent: true }],
+    foodGoodSelect: [{ id:'f1', title:'宜吃山药等补土食物', desc:'山药、薏米、南瓜、红薯' }],
+    foodBadSelect: [{ id:'f2', title:'忌辛辣', desc:'辛辣、茴香、花椒' }],
+    homeSelect: [{ id:'h1', title:'辰时养胃', desc:'7:00-9:00 辰时脾经旺', urgent: true }],
     relativeSelect: [{ id:'r1', title:'慎用过木类事物', reason:'五形差 > 25 触发警示' }],
-    absoluteSelect: [{ id:'a1', title:'今日冲鸡', desc:'属鸡者忌远行、忌搬迁' }],
-    stoneSelect: [{ id:'s1', title:'忌戴木质饰品', desc:'助木克土，加剧失衡' }]
+    absoluteSelect: [{ id:'a1', title:'今日冲鸡', desc:'属鸡者忌远行' }],
+    stoneSelect: [{ id:'s1', title:'忌戴木质饰品', desc:'助木克土' }]
+  } },
+  { name: 'LifeAdviceCard',   title: 'M7 今日建议',    component: LifeAdviceCard,   done: true,  risk: 'high', mock: {
+    maturityStage: 3, activeFilter: 'pending',
+    segTabs: [{key:'pending',label:'待处理 2'},{key:'all',label:'全部 3'},{key:'archived',label:'归档 1 天'}],
+    filteredTodos: [
+      { id:'t1', title:'喝一碗山药薏米粥养土', priority:'p0', done:false, priority_label:'必做' },
+      { id:'t2', title:'辰时温热早餐', priority:'p1', done:false, priority_label:'建议' },
+    ],
+    feedbacksMap: { t1: [], t2: [] },
+    archives: [{ date:'2026-10-09', todos:[{ title:'早睡', exec_status:'done', feedbacks:[] }], totalFeedbacks: 1 }],
+    archivedDays: 1, totalFeedbacks: 1,
   } },
   { name: 'PullRefreshBar',   title: 'M1 下拉刷新',    component: null, done: false, risk: 'low',  mock: {} },
   { name: 'ConstitutionCurveCard', title: 'M5 调理曲线', component: null, done: false, risk: 'mid', mock: {} },
   { name: 'AnchorTimelineCard',    title: 'M5b 时空锚点', component: null, done: false, risk: 'mid', mock: {} },
-  { name: 'LifeAdviceCard',  title: 'M7 今日建议',    component: null, done: false, risk: 'high', mock: {} },
 ]
 
 const current = shallowRef(modules.find(m => m.name === selected.value))
