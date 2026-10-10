@@ -64,7 +64,7 @@
 </template>
 
 <script setup>
-import { QIcon } from 'quasar'
+import QIcon from '../components/ui/QIcon.vue'
 
 defineProps({
   anchorSafe:      { type: Object, default: () => ({}) },

@@ -1111,5 +1111,4 @@ function _applyLifestyleResult(d) {
 /* M6 生活提醒 → modules/LifestyleReminderCard.vue scoped */
 /* M8 PunchModal → modules/PunchModal.vue scoped */
 /* M9 DetailModal → modules/DetailModal.vue scoped */
-}
 </style>

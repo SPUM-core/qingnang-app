@@ -1,12 +1,9 @@
 <!-- ═══════════════════════════════════════════════════════════
   PullRefreshBar.vue — 下拉刷新指示器 + 手势（Dashboard M1）
-  ⚠️ 自管理手势状态。refreshFn prop 是 async 函数，onPullEnd 里真 await 它。
+  自管理手势状态。refreshFn prop 是 async 函数，onPullEnd 里真 await 它。
   外层 touch 事件也在此组件上，使用时包裹最外层页面。
 
-  用法：
-    <PullRefreshBar :refresh-fn="async () => await _lightRefresh()">
-      <!-- 页面内容 -->
-    </PullRefreshBar>
+  用法: 组件包裹页面内容即可
 ══════════════════════════════════════════════════════════════ -->
 <template>
   <div class="pull-refresh-wrap"
