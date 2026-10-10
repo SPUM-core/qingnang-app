@@ -67,6 +67,57 @@
     </div>
 
     <!-- 底部 -->
+    <!-- ═══ 八字校准：出生地经纬度（真太阳时校正）═══ -->
+    <div class="setting-group">
+      <h3 class="group-title"><QIcon name="chart" :size="16" /> ⚗️ 八字校准</h3>
+      <div class="setting-list">
+        <div class="setting-row">
+          <div class="row-left">
+            <span class="row-icon"><QIcon name="home" :size="15" /></span>
+            <div class="row-text">
+              <span class="row-label">出生地（真太阳时校正）</span>
+              <span class="row-desc">
+                出生地经度决定八字时柱：北京时间 120°E 为基准，{{ birthLngDisplay }}
+              </span>
+            </div>
+          </div>
+        </div>
+        <!-- 省→市 级联 -->
+        <div class="setting-row" style="flex-direction:column; gap:10px; align-items:flex-start;">
+          <div class="birth-cascader">
+            <select v-model="birthProvince" class="select" @change="onBirthProvinceChange">
+              <option value="">选择省份</option>
+              <option v-for="p in CHINA_PROVINCES" :key="p.code" :value="p.code">{{ p.name }}</option>
+            </select>
+            <select v-model="birthCity" class="select" :disabled="!birthProvince">
+              <option value="">{{ birthProvince ? '选择城市' : '先选省份' }}</option>
+              <option v-for="c in birthCities" :key="c.name" :value="c.name">
+                {{ c.name }}
+              </option>
+            </select>
+            <button class="row-btn" :disabled="!canSaveBirth" :class="{ disabled: !canSaveBirth }"
+                    :style="{ marginLeft: 'auto' }"
+                    @click="saveBirthLocation">
+              保存校准
+            </button>
+          </div>
+          <!-- 真太阳时预览 -->
+          <div v-if="birthLng != null" class="birth-solar-preview">
+            <span>🌐 {{ birthLng.toFixed(2) }}°E</span>
+            <span class="birth-solar-diff" :class="{ east: birthLng > 120, west: birthLng < 120 }">
+              相对标准 120°E：
+              {{ birthLng > 120 ? '早' : '晚' }}
+              {{ Math.abs(((birthLng - 120) * 4)).toFixed(1) }} 分钟
+            </span>
+            <span v-if="birthLat != null">· {{ birthLat.toFixed(2) }}°N</span>
+          </div>
+          <div v-if="savedBirthInfo" class="birth-saved">
+            ✅ 已保存：{{ savedBirthInfo.city }} · {{ savedBirthInfo.lng }}°E
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="app-info">
       <p class="app-name">青囊生活管家</p>
       <p class="app-ver">Version 1.0.0 · SPUM 范式引擎</p>
@@ -84,13 +135,14 @@
 </template>
 
 <script setup>
-import { reactive, ref, onMounted, watch } from 'vue'
+import { reactive, ref, onMounted, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { useSettingsStore } from '../stores/settings'
 import { api } from '../api/client'
 import * as storage from '../utils/storage'
 import QIcon from '../components/ui/QIcon.vue'
+import { CHINA_PROVINCES, CHINA_CITIES } from '../constants/china-cities.js'
 
 const router = useRouter()
 const user   = useUserStore()
@@ -113,26 +165,55 @@ watch(() => settings.city, async (newCity, oldCity) => {
 // ── 状态 ──
 const busy     = ref(null)
 const caseData = ref(null)
-const providerInfo = ref({ providers: {}, default_provider: 'spum' })
+// providerInfo / refreshHealth / llm_provider watch 已删除（全局 DeepSeek）
 
-// 刷新后端 provider 可用性（实时 ping Ollama）
-async function refreshHealth() {
+// ── 出生地经纬度编辑（八字校准）──
+const birthProvince = ref('')      // 省 code
+const birthCity = ref('')          // 市 name
+const savedBirthInfo = ref(null)   // { city, lng } 已保存状态
+
+const birthCities = computed(() => CHINA_CITIES[birthProvince.value] || [])
+
+const birthLng = computed(() => {
+  if (!birthProvince.value || !birthCity.value) return null
+  const c = birthCities.value.find(x => x.name === birthCity.value)
+  return c?.lng ?? null
+})
+const birthLat = computed(() => {
+  if (!birthProvince.value || !birthCity.value) return null
+  const c = birthCities.value.find(x => x.name === birthCity.value)
+  return c?.lat ?? null
+})
+const birthLngDisplay = computed(() => {
+  if (birthLng.value == null) return '请选择'
+  return `${birthLng.value.toFixed(2)}°E → ${((birthLng.value - 120) * 4).toFixed(1)} min 时差`
+})
+const canSaveBirth = computed(() => !!(birthProvince.value && birthCity.value))
+
+function onBirthProvinceChange() { birthCity.value = '' }
+
+async function saveBirthLocation() {
+  if (!canSaveBirth.value) return
+  busy.value = 'save_birth'
   try {
-    const h = await api.get('/api/v1/assistant/health')
-    providerInfo.value = h.data || providerInfo.value
+    await api.patch('/api/v1/auth/me', {
+      birth_city: birthCity.value,
+      birth_longitude: birthLng.value,
+      birth_latitude: birthLat.value,
+    })
+    savedBirthInfo.value = {
+      city: birthCity.value,
+      lng: birthLng.value.toFixed(2),
+    }
+    // 刷新 userStore 让 user.birthLongitude 同步
+    await user.fetchMe()
+    setTimeout(() => { savedBirthInfo.value = null }, 3000)
   } catch (e) {
-    console.warn('health check failed:', e.message)
+    alert('保存失败：' + (e.response?.data?.detail || e.message))
+  } finally {
+    busy.value = null
   }
 }
-
-// 加载后端 provider 配置（哪些可用）
-onMounted(refreshHealth)
-
-// ⭐ provider 切换 → 立即重新探活，让用户看到切换后的真实状态
-watch(() => settings.llm_provider, async (_new, old) => {
-  if (old === undefined) return
-  await refreshHealth()
-})
 
 // ── 设置 (storage 持久化 + App.vue 全局应用) ──
 // 设置已全部迁到 stores/settings.js (Pinia store)
@@ -236,50 +317,7 @@ const groups = [
         ] }
     ]
   },
-  {
-    key: 'ai', icon: 'spark', title: '推理模型',
-    items: [
-      { key: 'llm_provider', type: 'select', icon: 'spark', label: 'AI 助手模型',
-        desc: 'SPUM 本地模型（默认·离线可用）或 DeepSeek 云端',
-        options: [
-          {
-            value: 'spum',
-            label: 'SPUM 本地模型',
-            hint: () => {
-              const p = providerInfo.value.providers?.spum
-              if (!p) return '· 检测中…'
-              if (p.online && p.model_available) return `· ✅ 在线（${p.available_models?.length ?? 0} 个模型可用）`
-              if (p.online && p.model_available === false) return `· ⚠️ 在线但未加载 ${p.model}`
-              if (p.ollama_online) return `· ⚠️ Ollama 可达，青檬离线`
-              return '· ❌ 离线（fallback 规则引擎）'
-            }
-          },
-          {
-            value: 'deepseek',
-            label: 'DeepSeek 云端',
-            hint: () => providerInfo.value.providers?.deepseek?.online
-              ? '· ✅ 已配置 API KEY'
-              : '· ❌ 未配置 API KEY（设置 DEEPSEEK_API_KEY）'
-          },
-        ],
-      },
-      {
-        key: 'llm_provider_readonly', type: 'readonly', icon: 'doc',
-        get value() {
-          const p = providerInfo.value.providers?.[settings.llm_provider]
-          if (!p) return '--'
-          const onlineBadge = p.online ? '🟢 在线' : '🔴 离线'
-          const availBadge = settings.llm_provider === 'spum' && p.model_available === false
-            ? ` ⚠️ 模型 ${p.model} 未加载`
-            : ''
-          const url = p.url?.replace(/^https?:\/\//, '') || ''
-          return `${onlineBadge}${availBadge} · ${p.model} @ ${url}`
-        },
-      },
-      { key: 'llm_provider_test', type: 'button', icon: 'spark',
-        label: '测试连接状态', btnText: '重新探测', action: 'test_llm' },
-    ]
-  },
+  // ai section 已删除（全局 DeepSeek 云端，无模型切换）
   {
     key: 'privacy', icon: 'lock', title: '隐私与数据',
     items: [
@@ -498,6 +536,27 @@ async function handleAction(action) {
 }
 .logout-btn:hover:not(:disabled) { border-color: var(--wuxing-fire); color: var(--wuxing-fire); }
 .logout-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ═══ 八字校准 ═══ */
+.birth-cascader {
+  display: flex; gap: 10px; flex-wrap: wrap;
+}
+.birth-solar-preview {
+  font-size: calc(11px * var(--qn-fs-scale));
+  color: var(--qn-ink-2);
+  display: flex; gap: 10px; flex-wrap: wrap;
+  background: var(--qn-bg-2); border-radius: 6px;
+  padding: 6px 10px; width: 100%;
+}
+.birth-solar-diff.east { color: #4CAF50; }   /* 东经 >120 早 */
+.birth-solar-diff.west { color: #F9A825; }   /* 东经 <120 晚 */
+.birth-saved {
+  font-size: calc(11px * var(--qn-fs-scale));
+  color: #4CAF50; font-weight: 500;
+  padding: 4px 10px; background: rgba(76,175,80,0.1); border-radius: 6px;
+  width: 100%;
+}
+.row-btn.disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ═══ 移动端自适应 ═══ */
 @media (max-width: 720px) {

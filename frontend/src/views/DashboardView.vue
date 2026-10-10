@@ -1,46 +1,18 @@
 <template>
-  <section class="page home"
-           @touchstart="onPullStart"
-           @touchmove="onPullMove"
-           @touchend="onPullEnd">
-    <!-- ══ 下拉刷新指示器 ══ -->
-    <div class="pull-refresh"
-         :style="{ height: pullDistance + 'px', opacity: pullDistance > 0 ? 1 : 0 }">
-      <!-- 下拉阶段：箭头 + 阻尼拉伸 -->
-      <template v-if="!pullRefreshing">
-        <div class="pr-arrow" :class="{ spin: pullDistance > 80 }">↓</div>
-      </template>
-      <!-- 刷新阶段：青囊主题加载动画 -->
-      <template v-else>
-        <div class="pr-loader">
-          <div class="pr-ring pr-ring-outer"></div>
-          <div class="pr-ring pr-ring-inner"></div>
-          <div class="pr-dots">
-            <span></span><span></span><span></span>
-          </div>
-        </div>
-      </template>
-      <span class="pr-text">
-        {{ pullRefreshing ? '青囊正在更新…' : (pullDistance > 80 ? '释放刷新' : '下拉刷新') }}
-      </span>
-    </div>
-    <!-- 问候头部 -->
-    <div class="home-header">
-      <div>
-        <h1 class="home-greeting">{{ greeting }}，{{ userStore.displayName }}</h1>
-        <p class="home-date">{{ today }} · {{ weekday }} · {{ caseStatusLabel }}</p>
-      </div>
-      <div class="home-quick">
-        <div class="quick-stat">
-          <span class="qs-val">{{ vectorStore.driftSeries?.length || 0 }}</span>
-          <span class="qs-label">次观测</span>
-        </div>
-        <div class="quick-stat">
-          <span class="qs-val">{{ archivedDays }}</span>
-          <span class="qs-label">天归档</span>
-        </div>
-      </div>
-    </div>
+  <!-- ══ M1 下拉刷新 + 页面容器
+       手势/动画已抽离 → modules/PullRefreshBar.vue ══ -->
+  <section class="page home">
+    <PullRefreshBar :refresh-fn="_lightRefresh">
+    <!-- 问候头部（已抽离 → modules/GreetingHeader.vue） -->
+    <GreetingHeader
+      :greeting="greeting"
+      :display-name="userStore.displayName"
+      :today="today"
+      :weekday="weekday"
+      :case-status-label="caseStatusLabel"
+      :observation-count="vectorStore.driftSeries?.length || 0"
+      :archived-days="archivedDays"
+    />
 
     <!-- 🎖️ 数字模型成熟度进度卡（4 阶段节点 + 总进度 + next_target）
          2026-10-04 隐藏：成熟度是后台隐形设定，AI 用它引导用户完善采集，不需要给用户看
@@ -177,8 +149,26 @@
         <div class="card-head">
           <h2>体质曲线</h2>
           <div style="display:flex;gap:6px;align-items:center;">
+            <div class="view-mode-tabs">
+              <button
+                class="tab-btn"
+                :class="{ active: chartMode === 'current' }"
+                @click="chartMode = 'current'"
+              >当前观测</button>
+              <button
+                class="tab-btn"
+                :class="{ active: chartMode === 'lifetime' }"
+                :disabled="!vectorStore.lifetimeTrajectory"
+                :title="vectorStore.lifetimeTrajectory ? '八字大运+流年终身推演' : '等待推演数据...'"
+                @click="chartMode = 'lifetime'"
+              >终身推演</button>
+            </div>
             <span class="chip-dv">
-              {{ driftTrajectory ? '综合健康得分' : ('ΔV ' + vectorStore.trendStateLabel) }}
+              {{ chartMode === 'lifetime'
+                ? (vectorStore.lifetimeTrajectory?.stateFlags?.length
+                  ? `${vectorStore.lifetimeTrajectory.stateFlags.filter(s => s === 'disease').length}个疾病态`
+                  : '八字推演')
+                : (driftTrajectory ? '综合健康得分' : ('ΔV ' + vectorStore.trendStateLabel)) }}
             </span>
           </div>
         </div>
@@ -186,10 +176,19 @@
           v-if="driftTrajectory || driftSeries.length"
           :trajectory="driftTrajectory"
           :series="driftSeries"
-          height="260px"
+          height="320px"
           class="curve-chart"
         />
         <p v-else class="placeholder curve-empty">暂无观测数据 · 完成一次数据采集后生成调理曲线</p>
+        <!-- ⭐ 2026-10-08: 体质曲线四视图模块入口 -->
+        <div class="chart-footer">
+          <button class="chart-footer-btn" @click="$router.push({ name: 'trajectory' })">
+            <span class="cfb-icon">🌀</span>
+            查看完整体质曲线模块
+            <span class="cfb-arrow">→</span>
+          </button>
+          <span class="chart-footer-hint">SPUM 四视图：终身推演 · 流年气运 · 节气属性 · 调节视图</span>
+        </div>
       </div>
 
       <!-- 右：时空锚点（可点 → AI 大白话解读） -->
@@ -475,39 +474,19 @@
       </Transition>
     </Teleport>
 
-    <!-- ════ 第三行：体质趋势（雷达图，恢复） ════ -->
-    <div class="card chart-card trend-card">
-      <div class="card-head">
-        <h2>体质趋势</h2>
-        <span class="chip-dv">ΔV {{ vectorStore.trendStateLabel }}</span>
-      </div>
-      <div class="trend-body">
-        <RadarChart v-if="vBase || latestObs" :v-base="vBase" :v-obs="latestObs" hide-legend height="220px" class="trend-radar" />
-        <p v-else class="placeholder trend-radar">暂无数据</p>
-        <div class="trend-side">
-          <div class="legend-row"><span class="lg-swatch base"></span>先天基底</div>
-          <div class="legend-row"><span class="lg-swatch obs"></span>当前观测</div>
-          <p class="trend-delta">{{ deltaSummary }}</p>
-          <button class="btn-ghost-sm" @click="goCase">查看档案</button>
-        </div>
-      </div>
-    </div>
+    <!-- ════ 第三行：体质趋势（雷达图） ════
+         已抽离 → modules/TrendRadarCard.vue -->
+    <TrendRadarCard
+      :v-base="vBase"
+      :v-obs="latestObs"
+      :trend-state-label="vectorStore.trendStateLabel"
+      :delta-summary="deltaSummary"
+      @go-case="goCase"
+    />
 
-    <!-- ════ 第四行：漂移矢量一览 ════ -->
-    <div class="card table-card">
-      <h2>漂移矢量一览</h2>
-      <table class="table">
-        <thead><tr><th>维度</th><th>先天基底</th><th>最新观测</th><th>ΔV</th></tr></thead>
-        <tbody>
-          <tr v-for="row in deltaTable" :key="row.k">
-            <td>{{ row.label }}</td>
-            <td>{{ fmt(row.base) }}</td>
-            <td>{{ fmt(row.obs) }}</td>
-            <td :class="{ delta: true, up: row.delta > 0, down: row.delta < 0 }">{{ fmt(row.delta) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <!-- ════ 第四行：漂移矢量一览
+         已抽离 → modules/DriftVectorCard.vue ════ -->
+    <DriftVectorCard :rows="deltaTable" />
 
     <!-- ════ AI 大白话解读 Modal ════ -->
     <div v-if="anchorModal.show" class="modal-backdrop" @click.self="anchorModal.show = false">
@@ -549,6 +528,7 @@
         </div>
       </div>
     </div>
+    </PullRefreshBar>
   </section>
 </template>
 
@@ -563,6 +543,10 @@ import RadarChart from '../components/charts/RadarChart.vue'
 import DriftChart from '../components/charts/DriftChart.vue'
 import TodoCard from '../components/TodoCard.vue'
 import QIcon from '../components/ui/QIcon.vue'
+import GreetingHeader from '../modules/GreetingHeader.vue'
+import TrendRadarCard from '../modules/TrendRadarCard.vue'
+import DriftVectorCard from '../modules/DriftVectorCard.vue'
+import PullRefreshBar from '../modules/PullRefreshBar.vue'
 // mock 数据已移除——所有内容从后端 API / reasoning 端点实时获取
 // 后端不可达时为空占位，不展示任何其他用户的病历数据
 
@@ -725,7 +709,11 @@ const userStore = useUserStore()
 const health = ref({ ok: false })
 
 // 三曲线 trajectory：仅显示当前用户真实数据，无硬编码 fallback
+const chartMode = ref('current')   // 'current' 观测曲线 | 'lifetime' 终身推演
 const driftTrajectory = computed(() => {
+  if (chartMode.value === 'lifetime' && vectorStore.lifetimeTrajectory) {
+    return vectorStore.lifetimeTrajectory
+  }
   // 真实数据优先（vectorStore.fetchTrajectory 拉后端 /cases/trajectories）
   if (vectorStore.trajectory?.actual?.length > 0) return vectorStore.trajectory
   // 无观测数据 → null（降级到 ΔV 漂移线模式，展示当前用户 v_base vs 观测）
@@ -1131,58 +1119,35 @@ function _invalidateAndReload() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 📱 移动端下拉刷新（纯手写 Touch 事件，零依赖）
+// 💡 轻量刷新（下拉刷新专用）：不清除已计算卡片
+//  只重新拉可能变化的动态数据（新上传的观测、最新 SPUM 分析）
+//  已按天缓存的卡片（干支/宜忌/穿衣/饮食）保持不变
 // ═══════════════════════════════════════════════════════════
-const PULL_THRESHOLD = 80       // 释放触发刷新的阈值（px）
-const PULL_MAX = 140            // 下拉最大高度
-const PULL_BACK_DAMPING = 0.5   // 回弹阻尼系数
-
-const pullDistance = ref(0)
-const pullRefreshing = ref(false)
-let _pullStartY = 0
-let _pullActive = false
-
-function onPullStart(e) {
-  if (pullRefreshing.value) return
-  // 只有滚动条在最顶端才激活下拉
-  if ((window.scrollY || document.documentElement.scrollTop) > 0) return
-  _pullStartY = e.touches[0].clientY
-  _pullActive = true
-}
-
-function onPullMove(e) {
-  if (!_pullActive || pullRefreshing.value) return
-  const dy = e.touches[0].clientY - _pullStartY
-  if (dy > 0) {
-    // 带阻尼的下拉：越往下越难拉
-    const damped = Math.min(PULL_MAX, dy * PULL_BACK_DAMPING)
-    pullDistance.value = damped
-    // 阻止浏览器橡皮筋/滚动
-    if (e.cancelable) e.preventDefault()
-  } else {
-    pullDistance.value = 0
+async function _lightRefresh() {
+  // 1) 用户信息（可能刚更新了昵称）
+  try { await userStore.fetchMe() } catch {}
+  // 2) 健康快照（可能有新观测上传）
+  try { health.value = await healthCheck() } catch {}
+  // 3) SPUM 分析（vBase 可能因新观测而变 —— 必须重拉）
+  try { await vectorStore.fetchCase() } catch {}
+  // 4) 终身推演（八字大运 = 静态数据，只在首次无数据时拉）
+  if (!vectorStore.lifetimeTrajectory) {
+    vectorStore.fetchYearView().catch(() => {})
   }
+  // 5) 今日待办（后端聚合）
+  try {
+    const r = await api.get('/api/v1/cases/today-todos')
+    todos.value = (r.data?.todos || []).map(mapBackendTodo)
+    avoidanceNotes.value = r.data?.avoidances || []
+    saveToday()
+  } catch {}
+  // ⚠️ 注意：不清 anchor / food / cloth / lifestyle —— 这些是按天缓存的
+  // 同一天干支不变，LLM 结果也不会变，无需重复计算
 }
 
-async function onPullEnd() {
-  if (!_pullActive) return
-  _pullActive = false
-
-  if (pullDistance.value >= PULL_THRESHOLD && !pullRefreshing.value) {
-    // 🎯 触发刷新
-    pullRefreshing.value = true
-    pullDistance.value = 60   // 固定在刷新指示器高度
-    try {
-      await _invalidateAndReload()
-    } finally {
-      pullRefreshing.value = false
-      pullDistance.value = 0
-    }
-  } else {
-    // 未达阈值 → 回弹
-    pullDistance.value = 0
-  }
-}
+// ═══════════════════════════════════════════════════════════
+// M1 下拉刷新 → modules/PullRefreshBar.vue（自管理手势，emit('refresh') 时调用 _lightRefresh）
+// ═══════════════════════════════════════════════════════════
 
 // ── 缓存键：按天（同一天干支一样，LLM 结果可复用）──
 function _lifestyleCacheKey() {
@@ -1201,6 +1166,10 @@ async function _onBoard() {
   // 注：问诊报告已迁移到「体质 → 报告时间线」
   health.value = await healthCheck()
   await vectorStore.fetchCase()
+  // 后台预拉终身推演数据（八字大运+流年）——不阻塞主流程
+  vectorStore.fetchYearView().then(() => {
+    console.log('[Dashboard] ✅ 终身推演数据就绪')
+  }).catch(e => console.warn('[Dashboard] 终身推演拉取失败（未建档或无八字数据）', e))
 
   // ── 从后端聚合今日待办（聊天 suggestions + 生活提醒）──
   try {
@@ -1236,7 +1205,6 @@ async function _onBoard() {
   const _settings = storage.get('qingnang_settings', {}) || {}
   const _lsPayload = {
     city: _settings.city || null,
-    provider: _settings.llm_provider || undefined,  // 不传 → 后端默认 auto(=deepseek)
   }
   lifestyleLoading.value = true
   lifestylePreview.value = ''
@@ -1293,109 +1261,9 @@ function _applyLifestyleResult(d) {
 <style scoped>
 /* max-width 由全局 .page 统一管理（1200px） */
 
-/* ═══════════════════════════════════════════════════════════
-   📱 下拉刷新指示器 — 青囊主题
-   ═══════════════════════════════════════════════════════════ */
-.pull-refresh {
-  position: relative;
-  width: 100%;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 10px;
-  overflow: hidden;
-  transition: height 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
-              opacity 0.2s ease;
-  pointer-events: none;
-  z-index: 10;
-}
-.pr-arrow {
-  font-size: 22px;
-  color: var(--qn-emerald);
-  line-height: 1;
-  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.pr-arrow.spin {
-  transform: rotate(180deg);
-}
+/* M1 下拉刷新 → modules/PullRefreshBar.vue scoped */
 
-/* ── 青囊主题加载器（刷新中）── */
-.pr-loader {
-  position: relative;
-  width: 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-/* 外环：青色顺时针旋转 */
-.pr-ring {
-  position: absolute;
-  border-radius: 50%;
-  border-style: solid;
-}
-.pr-ring-outer {
-  width: 44px; height: 44px;
-  border-width: 2.5px;
-  border-color: rgba(var(--qn-emerald-rgb), 0.15);
-  border-top-color: var(--qn-emerald);
-  animation: pr-rotate 1.2s linear infinite;
-}
-/* 内环：深色逆时针旋转 + 脉冲 */
-.pr-ring-inner {
-  width: 26px; height: 26px;
-  border-width: 2px;
-  border-color: transparent;
-  border-top-color: var(--qn-emerald-dark);
-  border-right-color: rgba(var(--qn-emerald-rgb), 0.5);
-  animation: pr-rotate-rev 0.9s linear infinite, pr-pulse 1.8s ease-in-out infinite;
-}
-@keyframes pr-rotate {
-  to { transform: rotate(360deg); }
-}
-@keyframes pr-rotate-rev {
-  to { transform: rotate(-360deg); }
-}
-@keyframes pr-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-/* 三个脉冲点（青囊精神象征） */
-.pr-dots {
-  position: absolute;
-  display: flex;
-  gap: 3px;
-}
-.pr-dots span {
-  width: 4px; height: 4px;
-  background: var(--qn-emerald);
-  border-radius: 50%;
-  animation: pr-dot-bounce 1.4s ease-in-out infinite;
-}
-.pr-dots span:nth-child(2) { animation-delay: 0.15s; background: var(--qn-emerald-dark); }
-.pr-dots span:nth-child(3) { animation-delay: 0.3s; background: rgba(var(--qn-emerald-rgb), 0.7); }
-@keyframes pr-dot-bounce {
-  0%, 80%, 100% { transform: translateY(0); opacity: 0.6; }
-  40% { transform: translateY(-5px); opacity: 1; }
-}
-
-.pr-text {
-  font-size: 12px;
-  color: var(--qn-ink-3);
-  letter-spacing: 1px;
-  font-weight: 500;
-}
-
-/* ── 问候头部 ── */
-.home-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; }
-.home-greeting { font-size: calc(24px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-ink); margin: 0; }
-.home-date { font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin-top: 4px; }
-/* 统计：右对齐弱化，纯文本堆叠（去白盒） */
-.home-quick { display: flex; gap: 32px; padding-bottom: 4px; }
-.quick-stat { display: flex; flex-direction: column; gap: 2px; text-align: left; }
-.qs-val { font-size: calc(22px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-emerald); font-family: var(--font-mono); line-height: 1.1; }
-.qs-label { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
+/* M2 问候头部 → modules/GreetingHeader.vue scoped */
 
 /* ═══════════════════════════════════════════════════════════
    🎖️ 数字模型成熟度进度卡
@@ -1609,6 +1477,26 @@ function _applyLifestyleResult(d) {
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--qn-line); }
 .card-head h2 { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; border: none; }
 .chip-dv { font-size: calc(12px * var(--qn-fs-scale)); font-weight: 500; color: var(--qn-emerald); background: rgba(var(--qn-emerald-rgb),0.08); border-radius: 12px; padding: 3px 10px; }
+/* ── 视图模式 tab 切换 ── */
+.view-mode-tabs { display: flex; gap: 2px; background: var(--qn-bg-2); border-radius: 8px; padding: 2px; }
+.tab-btn {
+  font-size: calc(11px * var(--qn-fs-scale));
+  font-weight: 500;
+  padding: 3px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--qn-ink-3);
+  cursor: pointer;
+  transition: all .15s;
+}
+.tab-btn:hover:not(:disabled) { color: var(--qn-ink); }
+.tab-btn.active {
+  background: var(--qn-bg);
+  color: var(--qn-emerald);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.tab-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .anchor-sub { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); font-weight: 400; }
 .anchor-card .anchor-grid { grid-template-columns: repeat(3, 1fr); }
 
@@ -1717,23 +1605,32 @@ function _applyLifestyleResult(d) {
 .curve-chart { flex: 1; min-height: 260px; }
 .curve-empty { color: var(--qn-ink-3); text-align: center; padding: 50px 16px; font-size: calc(13px * var(--qn-fs-scale)); }
 
-/* ── 体质趋势卡：雷达图左 + 图例右 ── */
-.trend-card { margin-top: 28px; }
-.trend-body { display: flex; gap: 20px; align-items: center; flex: 1; min-height: 0; }
-.trend-radar { flex: 1; min-width: 0; }
-.trend-side { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
-.legend-row { display: flex; align-items: center; gap: 8px; font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink-2); }
-.lg-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
-.lg-swatch.base { background: var(--qn-emerald); }
-.lg-swatch.obs { background: var(--wuxing-fire, var(--qn-cinnabar)); }
-.trend-delta { margin: 2px 0 0; font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); line-height: 1.6; max-width: 200px; }
-.btn-ghost-sm {
-  align-self: flex-start; margin-top: 4px;
-  font-size: calc(13px * var(--qn-fs-scale)); padding: 6px 16px; border-radius: var(--qn-r-pill);
-  border: 1px solid var(--qn-emerald); background: transparent; color: var(--qn-emerald);
-  cursor: pointer; transition: background 0.15s;
+/* ⭐ 体质曲线四视图模块入口 */
+.chart-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed var(--qn-line);
+  flex-wrap: wrap;
 }
-.btn-ghost-sm:hover { background: rgba(var(--qn-emerald-rgb),0.06); }
+.chart-footer-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: calc(12px * var(--qn-fs-scale)); font-weight: 500;
+  padding: 6px 14px; border-radius: 20px;
+  border: 1px solid var(--qn-primary, #17534C);
+  background: transparent;
+  color: var(--qn-primary, #17534C);
+  cursor: pointer; transition: all 0.15s;
+}
+.chart-footer-btn:hover {
+  background: var(--qn-primary, #17534C); color: #fff;
+}
+.cfb-icon { font-size: 14px; }
+.cfb-arrow { font-size: 14px; opacity: 0.7; }
+.chart-footer-hint {
+  font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3);
+}
+
+/* M10 体质趋势雷达 → modules/TrendRadarCard.vue scoped */
 
 /* ── 分区标题 + 三段分段器 ── */
 .section-head { display: flex; justify-content: space-between; align-items: center; margin: 16px 0 12px; gap: 12px; flex-wrap: wrap; }
@@ -1786,8 +1683,7 @@ function _applyLifestyleResult(d) {
 .archive-exec.exec-null { background: var(--qn-paper); color: var(--qn-ink-3); }
 .archive-fb { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
 
-/* ── 表格 ── */
-.table-card { margin-top: 16px; }
+/* M11 漂移矢量表格 → modules/DriftVectorCard.vue scoped */
 .placeholder { color: var(--qn-ink-3); text-align: center; padding: 40px 16px; font-size: calc(13px * var(--qn-fs-scale)); }
 
 /* ── 响应式：竖屏 / 窄窗修复 — 归并到 1024px 档位（原 960px） ── */
@@ -1798,22 +1694,12 @@ function _applyLifestyleResult(d) {
   /* 英雄卡：桌面并排 → 竖屏上下堆叠 */
   .hero-row { grid-template-columns: 1fr; gap: 12px; }
   .hero-yi-card .hero-title { font-size: calc(16px * var(--qn-fs-scale)); margin-bottom: 10px; }
-  /* 体质趋势：图上文下 */
-  .trend-body { flex-direction: column; align-items: stretch; }
-  .trend-radar { width: 100%; }
-  .trend-side { align-items: flex-start; }
-  .trend-delta { max-width: none; }
-  /* 问候区改上下两行，统计左对齐 */
-  .home-header { flex-direction: column; align-items: flex-start; gap: 12px; }
-  .home-quick { gap: 24px; }
-  .table-card { overflow-x: auto; }
-  .table { min-width: 520px; }
+  /* M10 体质趋势响应式 → modules/TrendRadarCard.vue scoped */
+  /* M2 / M11 响应式 → modules/* scoped */
 }
 /* —— 小屏字体再压一下 — 归并到 480px 档位（原 640px） —— */
 @media (max-width: 480px) {
-  .home-greeting { font-size: calc(19px * var(--qn-fs-scale)); }
-  .home-quick { gap: 20px; }
-  .qs-val { font-size: calc(18px * var(--qn-fs-scale)); }
+  /* M2 问候头部响应式 → modules/GreetingHeader.vue scoped */
   .hero-card { padding: 20px; }
   .hero-yi-card { padding: 18px 20px; }
   .anchor-grid { gap: 8px; }

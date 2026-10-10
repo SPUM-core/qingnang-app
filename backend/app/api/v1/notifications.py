@@ -1,4 +1,4 @@
-﻿"""notifications - 生活提醒（LLM 驱动，qingmeng-engine 推理）
+"""notifications - 生活提醒（LLM 驱动，qingmeng-engine 推理）
 
 2026-10-06 增强：
 - ⭐ build_user_meta() 通用函数：从 User.health_tags + birth_date 组装年龄/慢性病/过敏
@@ -251,14 +251,9 @@ async def _call_qingmeng_lifestyle(v_base: dict, v_current: dict | None = None,
     except Exception as e:
         logger.warning(f"[notifications] qingmeng-engine lifestyle 不可达: {e}")
 
-    # qingmeng-engine 不可达 → 返回空结构（前端优雅降级）
-    return {
-        "anchor": {"state": "离线模式", "yi": "养生", "ji": "辛辣"},
-        "timeline": [], "cloth_reminders": [], "food_good": [],
-        "food_bad": [], "home_reminders": [],
-        "absolute_avoid": [], "relative_avoid": [],
-        "engine": "backend_fallback",
-    }
+    # qingmeng-engine 不可达 → 用 rule-based fallback（根据 v_base 五形 + 今日干支生成建议）
+    from .assistant import _fallback_lifestyle
+    return _fallback_lifestyle(v_base, {"city": city})
 
 
 async def _generate_reminders(v_base: dict) -> dict:

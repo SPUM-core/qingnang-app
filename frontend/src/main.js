@@ -1,5 +1,6 @@
 import './styles/tokens.css'  // ⚠️ 必须最先引入——唯一设计变量真源（--qn-* + 兼容别名）
 import './styles/base.css'    // 全局 reset + 排版 + 原子类
+import 'katex/dist/katex.min.css'  // KaTeX 公式渲染样式（QMarkdown 组件用）
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'

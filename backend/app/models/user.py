@@ -1,5 +1,5 @@
 """User + DoctorProfile"""
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON, Float
 from sqlalchemy.sql import func
 from ..database import Base
 
@@ -21,10 +21,16 @@ class User(Base):
     nickname      = Column(String(50))
     gender        = Column(String(10))      # male / female / other
     birth_date    = Column(String(10))      # 1986-08-02
-    birth_hour    = Column(String(10))      # 寅时
+    birth_hour    = Column(String(10))      # 寅时（注意：这是**真太阳时**对应的时辰，不是北京时间）
     height        = Column(Integer)         # cm
     weight        = Column(Integer)         # kg
-    city          = Column(String(20))      # ⭐ 2026-10-05 新增：用户所在城市（用于查天气）
+    city          = Column(String(20))      # 当前所在城市（用于查天气）
+
+    # ⭐ 2026-10-08 新增：出生地经纬度（真太阳时校正必需）
+    # 出生时柱 = 北京时间出生时 + (birth_longitude - 120) × 4 分钟
+    birth_city    = Column(String(30))     # 出生地（如 "乌鲁木齐"）
+    birth_longitude = Column(Float)          # 出生地经度（东经，如 87.62；西经为负）
+    birth_latitude  = Column(Float)          # 出生地纬度（北纬为正，南纬为负）
 
     # 身份
     is_doctor     = Column(Boolean, default=False)   # 医生端

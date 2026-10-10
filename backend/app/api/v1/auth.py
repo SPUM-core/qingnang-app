@@ -134,11 +134,14 @@ def patch_guides_seen(body: GuidesSeenPatch, db: Session = Depends(get_db), curr
 class MePatch(BaseModel):
     nickname: str | None = None
     gender: str | None = None
-    # PATCH 端点放宽 ge/le — 问诊自动补填场景可能来自 number input，允许更宽范围
     height: int | None = Field(default=None, ge=30, le=250)
     weight: float | None = Field(default=None, ge=10, le=250)
     birth_date: str | None = None
     birth_hour: str | None = None
+    # ⭐ 2026-10-08 新增：出生地经纬度（真太阳时校正）
+    birth_city: str | None = None
+    birth_longitude: float | None = None
+    birth_latitude: float | None = None
 
 
 @router.patch("/me")

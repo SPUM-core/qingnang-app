@@ -267,11 +267,10 @@ function renderYinYang () {
   const { C, NURBS, GRID, AXIS, TEXT, WHITE } = pal
   const rgba = pal.rgba
   const traj = props.trajectory
-  // ═══ 版本检测: v1 或 v2 都走新算法路径（v2 后端仍返回 v1 兼容字段）═══
-  const isSpumNew = (traj.algorithm === 'spum_computeHealthBounds_v1' ||
-                     traj.algorithm === 'spum_computeHealthBounds_v2')
-  const isSpumV2 = traj.algorithm === 'spum_computeHealthBounds_v2'
-
+  // ═══ 版本检测: v1/v2/v3 都走新算法路径（v3 后端仍返回 v1 兼容字段）═══
+  const isSpumNew = /spum_computeHealthBounds_v[123]/.test(traj.algorithm) || !!traj.elems
+  const isSpumV2 = /spum_computeHealthBounds_v[23]/.test(traj.algorithm)  // v2 或 v3 → 有完整向量分析
+  const _isYearView = !!traj._isYearView   // 年视图（LifetimePanel 终身推演）
   // 新算法优先用 traj.elems，老算法用 traj.actual_elements
   const elems = isSpumNew ? (traj.elems || traj.actual_elements || [])
                           : (traj.actual_elements || [])
@@ -286,26 +285,169 @@ function renderYinYang () {
   let yangLine, yinLine, driftData, diseaseModes, rawYangMax, rawYinMax,
     dominantColor, dominantLabel, dominant, stateFlags, spikeUp, spikeDown
 
-  // ═══ v2 新增字段加载（后端并行返回）═══
-  const slice = arr => (arr || []).slice(0, n)
+  // ═══ v3 Wuxing-FB 信号检测 + gap 预计算（提前到 options 外面，避免嵌套三元让 parser 混淆）═══
+  const slice = arr => (arr || []).slice(0, n)   // 必须先声明！gapData 要用到
+
+  const wxFb = traj.wuxing_fb
+  const isWxFb = !!(wxFb && wxFb.available && wxFb.tolerance_u_series?.length)
+
+  // gap 每帧值 & tolerance_u* 天花板
+  let gapData = null, avgUStar = null, driftWx = null
+  if (isWxFb) {
+    const tolSeries = wxFb.tolerance_u_series
+    driftWx = slice(wxFb.driftData_wuxing) || []   // 相对空间 s 均值（后端已去 ×5）
+    // 区间状态剖面：最差维 zone → 分数（IN=2 安全 / CRIT=1 紧张 / OUT=0 高危）
+    // 语义 = 健康区间（分岔式判据），不再用 u*−sMean 的跨空间相减
+    gapData = (wxFb.zone_series || []).slice(0, n).map(z => {
+      const dims = z.zone || {}
+      let worst = 2
+      for (const d of Object.keys(dims)) {
+        const tag = dims[d]
+        const sc = tag === 'OUT' || tag === '实' || tag === '虚' ? 0 : tag === 'CRIT' || tag === '临界' ? 1 : 2
+        if (sc < worst) worst = sc
+      }
+      return worst
+    })
+    avgUStar = tolSeries.reduce((s, t) => s + t.tolerance_u_star, 0) / tolSeries.length
+  }
+  // 阴阳投影层（tizhi-curve 借鉴 · 2026-10-09）：有符号阴阳偏移主曲线
+  // 定义在函数作用域（tooltip formatter 也要用）；isSpumNew 分支消费
+  const yyLayer = (isWxFb && wxFb.yin_yang && wxFb.yin_yang.drift_yy?.length)
+    ? wxFb.yin_yang : null
+
+  // v2 新增字段加载（后端并行返回）═══
   const sigmaTrend       = slice(traj.sigma_trend)        // [0, 1] 密度
   const healthScore      = slice(traj.health_score)       // [0, 1] 综合健康度
   const polytopeStatuses = slice(traj.polytope_statuses)  // IN/ON/OUT
   const violationDepths  = slice(traj.violation_depths)   // 越界深度
   const frameResidues    = slice(traj.frame_residues)     // 不完美残留
 
+  // ═══ 大运 markArea + graphic 标签条准备（year-view 推演数据有 dayun）═══
+  // 简化地支→五行映射（跟后端 Python ganzhi_main_elem 取地支主气一致）
+  const ZHI_TO_ELEM = {
+    0:'water', 1:'earth', 2:'wood', 3:'wood', 4:'earth', 5:'fire',
+    6:'fire', 7:'earth', 8:'metal', 9:'metal', 10:'earth', 11:'water'
+  }
+  const DAYUN_ZHI = ['子','丑','寅','卯','辰','巳','午','未','申','酉','戌','亥']
+  const ganzhiMainElem = (gan, zhi) => {
+    if (!zhi) return ''
+    const zIdx = DAYUN_ZHI.indexOf(zhi)
+    if (zIdx < 0) return ''
+    return ZHI_TO_ELEM[zIdx]
+  }
+
+  // 大运数据（从顶层 traj.dayun 或每点 elem.dayun 推导）
+  const dayunList = traj.dayun || []   // [{gan, zhi, start, end, name}]
+  const hasDayunData = dayunList.length > 0 && elems.some(p => p.dayun)
+  let dayunMarkArea = []
+  let dayunLabels = []
+  // ── 安全 hex → hex8/rgba（给 markArea 渐变加透明度）──
+  const withAlpha = (color, alphaHex = '55') => {
+    if (!color) return '#999999' + alphaHex
+    // 6 位 hex → 8 位
+    if (/^#[0-9a-fA-F]{6}$/.test(color)) return color + alphaHex
+    // 3 位 hex → 6 位 → 8 位
+    if (/^#[0-9a-fA-F]{3}$/.test(color)) {
+      const h6 = '#' + color.slice(1).split('').map(c => c + c).join('')
+      return h6 + alphaHex
+    }
+    // rgb/rgba → 转成 rgba 带 alpha
+    const m = color.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+    if (m) return `rgba(${m[1]},${m[2]},${m[3]},0.33)`
+    return '#999999' + alphaHex   // fallback
+  }
+
+  if (hasDayunData) {
+    // ⚠️ 后端 dayunMarkArea 是元数据（start_age/end_age），不是 ECharts 格式
+    // 永远从 dayun 数组自己算（跟沙盒 L955-997 一样）
+    const centers = dayunList.map(dy => {
+      const midAge = (dy.start + dy.end) / 2
+      const idx = elems.findIndex(p => (p.age ?? 0) >= midAge)
+      return idx < 0 ? elems.length - 1 : idx
+    })
+    for (let i = 0; i < dayunList.length; i++) {
+      const xStart = i === 0 ? 0 : centers[i - 1]
+      const xEnd = i === dayunList.length - 1 ? n : centers[i]
+      if (xEnd <= xStart) continue
+      const dy = dayunList[i]
+      const mainElem = ganzhiMainElem(dy.gan, dy.zhi)
+      const cRight = C[mainElem]?.color || '#999999'
+      const prevMainElem = ganzhiMainElem(dayunList[i-1]?.gan, dayunList[i-1]?.zhi)
+      const cLeft = i === 0 ? cRight : (C[prevMainElem]?.color || cRight)
+      const grad = new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+        { offset: 0, color: withAlpha(cLeft) },
+        { offset: 1, color: withAlpha(cRight) },
+      ])
+      dayunMarkArea.push([
+        { xAxis: xStart, itemStyle: { color: grad, borderWidth: 0 },
+          label: { show: true, position: 'insideTop', distance: 4,
+            formatter: dy.name, color: '#fff', fontSize: fs(9), fontWeight: 600,
+            backgroundColor: rgba('--qn-emerald-rgb', 0.6), padding: [1, 6], borderRadius: 3 }
+        },
+        { xAxis: xEnd, label: { show: false } },
+      ])
+      dayunLabels.push({
+        xStart, xEnd,
+        name: dy.name,
+        mainElem,
+        dyColor: cRight,
+        startAge: dy.start, endAge: dy.end,
+      })
+    }
+  }
+
+  // ─── 逐年流年五行色底图（年视图专用，借鉴 tizhi-curve 沙盒）───
+  // 后端 elems[i].liunian_elem 已给出每年流年主气五行
+  const liunianMarkArea = []
+  if (_isYearView && n > 1) {
+    for (let i = 0; i < n; i++) {
+      const pt = elems[i]
+      const elem = pt.liunian_elem || ganzhiMainElem(pt.liunian?.[0], pt.liunian?.[1])
+      const color = C[elem]?.color || '#999999'
+      liunianMarkArea.push([
+        { xAxis: i, itemStyle: { color: withAlpha(color, '38'), borderWidth: 0 } },
+        { xAxis: Math.min(i + 0.99, n - 1) },
+      ])
+    }
+  }
+
   if (isSpumNew) {
+    // ═══ DEBUG: 直接看到底拿到什么数据 ═══
+    if (n > 0 || traj.algorithm) {
+      console.log('[DriftChart DEBUG]', JSON.stringify({
+        algorithm: traj.algorithm,
+        n,
+        dayun_list_len: (traj.dayun || []).length,
+        elems0_has_dayun: !!(elems[0]?.dayun),
+        hasDayunData,
+        driftData_sample: (traj.driftData || []).slice(0, 5),
+        yinTop_sample: (traj.yinTop || []).slice(0, 3),
+        yangBot_sample: (traj.yangBot || []).slice(0, 3),
+        stateFlags_sample: (traj.stateFlags || []).slice(0, 5),
+        v_innate: traj.v_innate,
+        _isYearView: traj._isYearView,
+      }, null, 0))
+    }
+
     // ═══════════════════════════════════════════════════════════
-    // 新算法路径（v1 或 v2 后端都走这里）
-    // 坐标系对齐：
-    //   沙盒: driftData 正=阳偏(火↑), 老系统: driftData 正=阴偏(水↑)
     //   → driftData 翻转符号
     //   沙盒 yangBot ≤0, 老 yangLine ≤0; 沙盒 yinTop ≥0, 老 yinLine ≥0
     //   → 边界线符号一致，直接用
     // ═══════════════════════════════════════════════════════════
-    driftData   = slice(traj.driftData).map(d => -d)   // 翻转！
-    yangLine    = slice(traj.yangBot)                   // 直接用（负值）
-    yinLine     = slice(traj.yinTop)                    // 直接用（正值）
+    // 2026-10-09：v3 主图切换 —— 有 wuxing_fb.yin_yang（tizhi-curve 借鉴的
+    // 阴阳投影：火木→阳 / 土水→阴，金只调弹性）时，用有符号阴阳偏移作主曲线：
+    //   实线 = drift_yy（正=阳偏↑ 负=阴偏↓）
+    //   黄/红虚线 = yy_bot/yy_top（逆转阈值 θ 投影 × 金弹性 × 生命周期包络）
+    // 该区间为 2D 呈现层（判定仍在 5D zone_series，见 markPoint）
+    if (yyLayer) {
+      driftData = slice(yyLayer.drift_yy)   // 有符号阴阳偏移（相对空间 ±1 量级）
+      yangLine  = slice(yyLayer.yy_bot)     // 负值（阳界）
+      yinLine   = slice(yyLayer.yy_top)     // 正值（阴界）
+    } else {
+      driftData   = slice(traj.driftData).map(d => -d)   // 翻转！
+      yangLine    = slice(traj.yangBot)                   // 直接用（负值）
+      yinLine     = slice(traj.yinTop)                    // 直接用（正值）
+    }
     diseaseModes = slice(traj.diseaseModes)
 
     // v2: 后端已返回三态 + 尖峰（坐标系与后端一致，无需翻转）
@@ -374,7 +516,33 @@ function renderYinYang () {
   }).filter(Boolean)
 
   const hasMedical = (traj.events || []).some(ev => ev.surgery || ev.isMedical)
-  const bottomPad = 48 + (hasMedical ? 24 : 0)
+  // bottomPad: dataZoom slider + 底部 legend + 可选医疗事件区
+  const bottomPad = 56 + (hasMedical ? 20 : 0)
+
+  // ─── driftData 每点五行色（沙盒 L1142-1149）───
+  // v3 路径：用 s_series 相对偏移（|s| 最大维）；v2 路径：先天偏差最大维
+  const driftColors = elems.map((p, i) => {
+    if (isWxFb && wxFb.s_series?.[i]) {
+      const s = wxFb.s_series[i]
+      let maxAbs = 0, key = 'fire'
+      for (const k of DIMS) {
+        const a = Math.abs(s[k] ?? 0)
+        if (a > maxAbs) { maxAbs = a; key = k }
+      }
+      return C[key]?.color || NURBS
+    }
+    let maxDev = 0, key = 'fire'
+    for (const k of DIMS) {
+      const d = Math.abs((p[k] ?? 50) - (innate[k] ?? 50))
+      if (d > maxDev) { maxDev = d; key = k }
+    }
+    return C[key]?.color || NURBS
+  })
+
+  // ─── yAxis 动态范围（沙盒 L1152-1154）───
+  const allVals = [...yangLine, ...yinLine, ...driftData]
+  const yMaxCalc = Math.max(5, Math.ceil(Math.max(...allVals) * 1.3))
+  const yMinCalc = Math.min(-5, Math.floor(Math.min(...allVals) * 1.3))
 
   // 先天体质特征描述（tooltip 顶部）
   const innateTag = () => {
@@ -388,10 +556,12 @@ function renderYinYang () {
   chart.setOption({
     tooltip: {
       trigger: 'axis',
+      confine: true,               // ← 防越界到容器外
       backgroundColor: rgba('--qn-emerald-rgb', 0.95),
       borderColor: NURBS,
       textStyle: { color: WHITE, fontSize: fs(12) },
       axisPointer: { type: 'cross', lineStyle: { color: NURBS, opacity: 0.3 } },
+      extraCssText: 'max-width:280px;line-height:1.45;',
       formatter: (params) => {
         const idx = params[0].dataIndex
         const pt = elems[idx]
@@ -403,10 +573,20 @@ function renderYinYang () {
         if (pt.syndromeHint) h += `<div style="font-size:${fs(11)}px;opacity:0.8;margin-bottom:4px;font-style:italic;">${pt.syndromeHint}</div>`
 
         h += `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:3px 10px;margin-bottom:6px;">`
-        for (const k of DIMS) {
-          const v = pt[k] ?? 50, dev = Math.round((v - 50) * 10) / 10
-          const devC = dev > 0 ? '#F9A825' : dev < 0 ? '#1E88E5' : TEXT
-          h += `<div><span style="color:${C[k].color};font-weight:700;">${C[k].label}</span> ${v.toFixed(1)} <span style="color:${devC};font-size:${fs(10)}px;">(${dev >= 0 ? '+' : ''}${dev})</span></div>`
+        if (isWxFb && wxFb.s_series?.[idx]) {
+          // v3：五行相对偏移（s 相对空间，θ=1.0 量级）
+          const s = wxFb.s_series[idx]
+          for (const k of DIMS) {
+            const v = s[k] ?? 0, dev = Math.round(v * 100) / 100
+            const devC = dev > 0 ? '#F9A825' : dev < 0 ? '#1E88E5' : TEXT
+            h += `<div><span style="color:${C[k].color};font-weight:700;">${C[k].label}</span> <span style="font-size:${fs(10)}px;opacity:0.7;">相对偏移</span> <span style="color:${devC};">${dev >= 0 ? '+' : ''}${dev}</span></div>`
+          }
+        } else {
+          for (const k of DIMS) {
+            const v = pt[k] ?? 50, dev = Math.round((v - 50) * 10) / 10
+            const devC = dev > 0 ? '#F9A825' : dev < 0 ? '#1E88E5' : TEXT
+            h += `<div><span style="color:${C[k].color};font-weight:700;">${C[k].label}</span> ${v.toFixed(1)} <span style="color:${devC};font-size:${fs(10)}px;">(${dev >= 0 ? '+' : ''}${dev})</span></div>`
+          }
         }
         h += `</div>`
 
@@ -415,32 +595,44 @@ function renderYinYang () {
         const yl = yinLine[idx]    // 正
         const inZone = hs >= yu && hs <= yl
 
-        // 阴阳方向
+        // 阴阳方向（v3 阴阳投影为相对空间 ±1 量级，阈值用 0.3；v2 老量纲 ±3）
+        const yyThresh = yyLayer ? 0.3 : 3
         let direction, dirColor
-        if (hs > 3) { direction = '阳偏（亢热/上浮）'; dirColor = '#DA6C57' }
-        else if (hs < -3) { direction = '阴偏（虚寒/下坠）'; dirColor = '#4C90AF' }
+        if (hs > yyThresh) { direction = '阳偏（发散/浮越）'; dirColor = '#DA6C57' }
+        else if (hs < -yyThresh) { direction = '阴偏（收敛/下坠）'; dirColor = '#4C90AF' }
         else { direction = '阴阳交合（中轴附近）'; dirColor = '#7BC4A9' }
 
         h += `<div style="border-top:1px dashed rgba(255,255,255,0.25);padding-top:4px;">`
-        h += `<strong>体质偏移:</strong> <span style="font-size:${fs(14)}px;">${hs?.toFixed(1) ?? '—'}</span> `
-        if (hs > 0) h += `<span style="color:#DA6C57;font-size:${fs(10)}px;">↑阳(+${Math.abs(hs).toFixed(1)})</span>`
-        else h += `<span style="color:#4C90AF;font-size:${fs(10)}px;">↓阴(${Math.abs(hs).toFixed(1)})</span>`
+        h += `<strong>体质偏移:</strong> <span style="font-size:${fs(14)}px;">${hs?.toFixed(2) ?? '—'}</span> `
+        if (hs > 0) h += `<span style="color:#DA6C57;font-size:${fs(10)}px;">↑阳(+${Math.abs(hs).toFixed(2)})</span>`
+        else h += `<span style="color:#4C90AF;font-size:${fs(10)}px;">↓阴(${Math.abs(hs).toFixed(2)})</span>`
 
-        // ═══ 三态判定（stateFlags 优先，fallback 到 inZone）═══
-        const st = stateFlags?.[idx]
+        // ═══ 三态判定（v3 用 5D zone 分岔 / v2 用 stateFlags，fallback inZone）═══
         let zoneTag = ''
-        if (st === 'disease') {
-          zoneTag = `<span style="color:#E57373;margin-left:6px;">⚠️ 已穿出有效边界（疾病态）</span>`
-        } else if (st === 'subhealthy') {
-          zoneTag = `<span style="color:#FFA726;margin-left:6px;">⚠️ 反复尖峰触边（亚健康态）</span>`
-        } else if (st === 'healthy') {
-          zoneTag = `<span style="color:#7BC4A9;margin-left:6px;">健康区间内（健康态）</span>`
-        } else if (inZone) {
-          zoneTag = `<span style="color:#7BC4A9;margin-left:6px;">健康区间内</span>`
+        if (isWxFb) {
+          const g = gapData?.[idx]
+          if (g === 0) {
+            zoneTag = `<span style="color:#E57373;margin-left:6px;">⚠️ 已越出逆转阈值（失衡态）</span>`
+          } else if (g === 1) {
+            zoneTag = `<span style="color:#FFA726;margin-left:6px;">⚠️ 临界（逼近逆转阈值）</span>`
+          } else {
+            zoneTag = `<span style="color:#7BC4A9;margin-left:6px;">健康区间内（生克制约在度）</span>`
+          }
         } else {
-          zoneTag = `<span style="color:#E57373;margin-left:6px;">超出区间 ⚠️</span>`
+          const st = stateFlags?.[idx]
+          if (st === 'disease') {
+            zoneTag = `<span style="color:#E57373;margin-left:6px;">⚠️ 已穿出有效边界（疾病态）</span>`
+          } else if (st === 'subhealthy') {
+            zoneTag = `<span style="color:#FFA726;margin-left:6px;">⚠️ 反复尖峰触边（亚健康态）</span>`
+          } else if (st === 'healthy') {
+            zoneTag = `<span style="color:#7BC4A9;margin-left:6px;">健康区间内（健康态）</span>`
+          } else if (inZone) {
+            zoneTag = `<span style="color:#7BC4A9;margin-left:6px;">健康区间内</span>`
+          } else {
+            zoneTag = `<span style="color:#E57373;margin-left:6px;">超出区间 ⚠️</span>`
+          }
         }
-        h += zoneTag + `<span style="font-size:${fs(11)}px;opacity:0.7;margin-left:4px;">区间 [${yu.toFixed(0)}, ${yl.toFixed(0)}]</span>`
+        h += zoneTag + `<span style="font-size:${fs(11)}px;opacity:0.7;margin-left:4px;">区间 [${yu.toFixed(2)}, ${yl.toFixed(2)}]</span>`
         h += `</div>`
 
         // ═══ 尖峰触边细节（健康态本帧是尖峰也标记）═══
@@ -463,42 +655,55 @@ function renderYinYang () {
           h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(249,168,37,0.15);border-left:3px solid #F9A825;border-radius:3px;font-size:${fs(11)}px;color:#FFD54F;">反复撞边弹回·${dirLabel}·金形弹性持续紧张（2D投影）</div>`
         }
 
-        // ── L1 投影层标注 ──
-        h += `<div style="font-size:${fs(10)}px;opacity:0.5;margin-top:2px;">[L1投影] 五形本体耦合信息已丢失，判定对应体质曲线形态</div>`
-
-        // ═══ v2 SPUM 理论数据段 ═══
+        // ═══ v2 SPUM 理论数据段（紧凑单行）═══
         if (isSpumV2 && sigmaTrend.length) {
           const st = sigmaTrend[idx]
           const hs_v2 = healthScore[idx]
           const ps = polytopeStatuses[idx]
           const vd = violationDepths[idx]
-          const fr = frameResidues[idx]
 
-          let psColor = '#7BC4A9', psLabel = '健康多面体内'
-          if (ps === 'ON') { psColor = '#FFAB40'; psLabel = '触碰边界' }
-          else if (ps === 'OUT') { psColor = '#E53935'; psLabel = '越界' }
+          let psColor = '#7BC4A9', psLabel = 'IN'
+          if (ps === 'ON') { psColor = '#FFAB40'; psLabel = 'ON' }
+          else if (ps === 'OUT') { psColor = '#E53935'; psLabel = 'OUT' }
 
-          h += `<div style="margin-top:6px;border-top:1px dashed rgba(255,255,255,0.2);padding-top:4px;">`
-          h += `<div style="font-size:${fs(10)}px;opacity:0.6;margin-bottom:3px;">── SPUM v2 理论值 ──</div>`
-
-          // σ + health_score 进度条
-          h += `<div style="display:flex;align-items:center;gap:6px;font-size:${fs(11)}px;margin-bottom:2px;">`
-          h += `<span style="color:#B2EBF2;width:50px;">健康度</span>`
-          h += `<div style="flex:1;height:6px;background:rgba(255,255,255,0.15);border-radius:3px;overflow:hidden;">`
-          h += `<div style="height:100%;width:${(hs_v2 * 100).toFixed(0)}%;background:linear-gradient(90deg,${hs_v2 > 0.6 ? '#7BC4A9' : hs_v2 > 0.3 ? '#FFAB40' : '#E53935'},${hs_v2 > 0.6 ? '#B2DFDB' : hs_v2 > 0.3 ? '#FFD54F' : '#EF9A9A'});border-radius:3px;"></div>`
+          h += `<div style="margin-top:4px;border-top:1px dashed rgba(255,255,255,0.2);padding-top:3px;font-size:${fs(10)}px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">`
+          h += `<span style="color:#B2EBF2;">健康 ${(hs_v2*100).toFixed(0)}%</span>`
+          h += `<span style="color:#B2EBF2;">σ ${st.toFixed(2)}</span>`
+          h += `<span style="color:${psColor};font-weight:600;">◆${psLabel}${vd>0?` ${vd.toFixed(1)}`:''}</span>`
           h += `</div>`
-          h += `<span style="color:#fff;width:32px;text-align:right;">${(hs_v2 * 100).toFixed(0)}%</span>`
-          h += `</div>`
+        }
 
-          h += `<div style="display:flex;align-items:center;gap:6px;font-size:${fs(11)}px;margin-bottom:2px;">`
-          h += `<span style="color:#B2EBF2;width:50px;">σ 密度</span>`
-          h += `<div style="flex:1;height:6px;background:rgba(255,255,255,0.15);border-radius:3px;overflow:hidden;">`
-          h += `<div style="height:100%;width:${(st * 100).toFixed(0)}%;background:linear-gradient(90deg,#4DB6AC,#80CBC4);border-radius:3px;"></div>`
-          h += `</div>`
-          h += `<span style="color:#fff;width:32px;text-align:right;">${st.toFixed(2)}</span>`
-          h += `</div>`
+        // ═══ v3 Wuxing-FB 信号段 ═══
+        if (isWxFb && wxFb.tolerance_u_series?.[idx]) {
+          const wxTol = wxFb.tolerance_u_series[idx]
+          const wxZone = wxFb.zone_series?.[idx]?.zone || {}
+          const wxWeak = wxFb.weak_virtual_series?.[idx] || {}
+          const driftWxVal = wxFb.driftData_wuxing?.[idx]
+          const sMean = driftWxVal != null ? Math.abs(driftWxVal) : 0   // 后端已去 ×5
 
-          h += `<div style="font-size:${fs(10)}px;color:${psColor};margin-top:2px;">◆ 凸多面体: ${psLabel}${vd > 0 ? ` · 越界深度 ${vd.toFixed(1)}` : ''} · 帧残留 ${fr.toFixed(2)}</div>`
+          // 区间状态（最差维 zone）：OUT/实/虚=0 高危 · CRIT/临界=1 紧张 · IN=2 安全
+          let worst = 2, worstDim = ''
+          for (const d of Object.keys(wxZone)) {
+            const tag = wxZone[d]
+            const sc = tag === 'OUT' || tag === '实' || tag === '虚' ? 0 : tag === 'CRIT' || tag === '临界' ? 1 : 2
+            if (sc < worst) { worst = sc; worstDim = d }
+          }
+          let gapColor = '#7BC4A9', gapState = '安全'
+          if (worst === 0) { gapColor = '#E53935'; gapState = '高危' }
+          else if (worst === 1) { gapColor = '#FFAB40'; gapState = '紧张' }
+          const wxName = d => ({wood:'木',fire:'火',earth:'土',metal:'金',water:'水'}[d] || d)
+
+          h += `<div style="margin-top:4px;border-top:1px dashed rgba(255,255,255,0.2);padding-top:3px;font-size:${fs(10)}px;line-height:1.5;">`
+          h += `<span style="color:#7BC4A9;font-weight:600;">⚗️ Wuxing-FB</span> `
+          h += `<span style="color:${gapColor};">区间=${gapState}${worstDim ? `（最脆 ${wxName(worstDim)}）` : ''}</span>`
+          h += `<span style="color:#B4433C;margin-left:4px;">u*=${wxTol.tolerance_u_star.toFixed(2)}</span>`
+          h += `<span style="opacity:0.7;margin-left:4px;">偏移=${sMean.toFixed(2)}</span>`
+
+          // zone 带状态摘要（OUT/CRIT 的维度）
+          const outs = Object.entries(wxZone).filter(([d, z]) => z === 'OUT' || z === '实' || z === '虚').map(([d]) => d)
+          const crits = Object.entries(wxZone).filter(([d, z]) => z === 'CRIT' || z === '临界').map(([d]) => d)
+          if (outs.length) h += `<span style="color:#E53935;margin-left:4px;">⚠️ 带外 ${outs.map(d => ({wood:'木',fire:'火',earth:'土',metal:'金',water:'水'}[d])).join('·')}</span>`
+          if (crits.length) h += `<span style="color:#FFAB40;margin-left:4px;">⚡ 临界 ${crits.map(d => ({wood:'木',fire:'火',earth:'土',metal:'金',water:'水'}[d])).join('·')}</span>`
           h += `</div>`
         }
 
@@ -528,56 +733,133 @@ function renderYinYang () {
       bottom: 0, textStyle: { color: TEXT, fontSize: fs(11) }, itemWidth: 12, itemHeight: 9,
       data: [
         { name: '体质偏移', itemStyle: { color: NURBS } },
-        ...(isSpumV2 && healthScore.length
-          ? [{ name: '健康度', itemStyle: { color: NURBS } }] : []),
+        ...(isWxFb && wxFb.tolerance_u_series?.length
+          ? [{ name: '裕度 gap', itemStyle: { color: '#2E7D5B' } }]
+          : (isSpumV2 && healthScore.length ? [{ name: '健康度', itemStyle: { color: NURBS } }] : [])),
       ]
     },
+    // ═══ 年视图专属工具条：缩放/还原/导出 ═══
+    toolbox: _isYearView ? {
+      right: 8, top: 6,
+      iconStyle: { borderColor: AXIS, opacity: 0.75 },
+      feature: {
+        dataZoom: { yAxisIndex: 'all', iconStyle: { borderColor: NURBS } },
+        restore: { iconStyle: { borderColor: AXIS } },
+        saveAsImage: { pixelRatio: 2, name: 'spum-trajectory-' + (props.trajectory?.birth_year || 'lifetime') },
+      },
+    } : undefined,
     backgroundColor: 'transparent',
     grid: {
       left: 52,
-      right: isSpumV2 && healthScore.length ? 48 : 16,   // v2 给右轴留空间
+      right: (_isYearView || isSpumV2 && healthScore.length || isWxFb) ? 48 : 16,   // 年视图/右轴模式给右轴留空间
       top: 28,
       bottom: bottomPad
     },
+    // ═══ 注：大运干支标签已用 markArea label 渲染（跟 dataZoom 同步缩放），不再用 graphic ═══
+    graphic: [],
+    // ═══ 缩放/拖动控制（只管 X 轴，Y 轴用户可直接拖动左边轴）═══
+    // 年视图（82 点）默认只显示前 ~50 岁，避免全挤在一起
     dataZoom: n > 4 ? [
-      { type: 'slider', start: 0, end: 100, height: 20, bottom: 24, borderColor: AXIS,
+      // 底部水平拖动条（只管 X 轴）
+      { type: 'slider',
+        start: 0,
+        end: _isYearView && n > 50 ? Math.round(50 / n * 100) : 100,
+        height: 18, bottom: 24, borderColor: AXIS,
         fillerColor: rgba('--qn-emerald-rgb', 0.15), handleStyle: { color: NURBS },
-        textStyle: { color: TEXT, fontSize: fs(10) }, dataBackground: { lineStyle: { color: AXIS } } },
-      { type: 'inside', start: 0, end: 100, zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
+        textStyle: { color: TEXT, fontSize: fs(10) }, dataBackground: { lineStyle: { color: AXIS } },
+        labelFormatter: (v) => (elems[v]?.age ?? v) + '岁',
+      },
+      // 画布内：滚轮缩放 + 点击拖动平移（slider 和 inside 必须同 start/end 才不冲突）
+      { type: 'inside',
+        start: 0,
+        end: _isYearView && n > 50 ? Math.round(50 / n * 100) : 100,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,     // 点击拖动平移
+        moveOnMouseWheel: true,    // 触摸板双指平移
+      },
     ] : [],
     xAxis: {
       type: 'category', data: times, boundaryGap: false,
       axisLine: { lineStyle: { color: AXIS } },
-      axisLabel: { color: AXIS, fontSize: fs(10), interval: Math.max(0, Math.floor(n / 8)) },
+      axisLabel: {
+        color: AXIS, fontSize: fs(9),
+        // 年视图：两行（年龄 + 年份后两位），interval 后面 datazoom 事件动态调
+        interval: _isYearView
+          ? (n > 50 ? 5 : n > 30 ? 3 : n > 15 ? 2 : n > 8 ? 1 : 0)
+          : Math.max(0, Math.floor(n / 6)),
+        formatter: _isYearView ? (val, idx) => {
+          const pt = elems[idx];
+          if (!pt) return '';
+          const age = pt.age ?? idx;
+          const yy = (pt.t || '').split('·')[0].slice(-2);  // 1987 → 87
+          return age + '\n' + yy;
+        } : undefined,
+        lineHeight: fs(10),
+        margin: 16,
+      },
       axisTick: { show: false }
     },
     yAxis: [
       {
-        type: 'value', inverse: false, min: -100, max: 100, interval: 20,
-        name: '阳 ↑  |  阴 ↓',
-        nameTextStyle: { color: AXIS, fontSize: fs(11), padding: [0, 0, 0, -30] },
+        type: 'value', inverse: false,
+        min: yMinCalc, max: yMaxCalc,
+        interval: Math.max(1, Math.round((yMaxCalc - yMinCalc) / 5)),
+        name: '',
+        nameTextStyle: { color: AXIS, fontSize: fs(11) },
         axisLine: { show: false },
         axisLabel: {
           color: AXIS, fontSize: fs(10),
           formatter: (v) => {
-            if (v === 0) return '0 中轴'
-            if (v > 0) return `+${v} 阳`
-            return `${v} 阴`
+            if (v === 0) return '中轴'
+            if (v > 0) return `+${v}`   // 正值（阴方向，下方）
+            return `${v}`               // 负值（阳方向，上方）
           }
         },
         splitLine: { lineStyle: { color: GRID, type: 'dashed' } }
       },
-      // v2 右轴: 健康度 [0, 1]
-      ...(isSpumV2 && healthScore.length ? [{
+      // v2 右轴: 健康度 [0, 1] 或 v3: 区间状态剖面 (Wuxing-FB) — 用提前计算的变量避免嵌套三元
+      ...(_isYearView ? [{
+        type: 'value', position: 'right',
+        min: 0, max: 100,
+        interval: 25,
+        name: '五行浓度',
+        nameTextStyle: { color: TEXT, fontSize: fs(10) },
+        axisLine: { show: false }, axisTick: { show: false },
+        axisLabel: { color: TEXT, fontSize: fs(9), formatter: '{value}' },
+        splitLine: { show: false }
+      }] : isWxFb ? [{
+        type: 'value', position: 'right',
+        min: 0,
+        max: 2,
+        interval: 1,
+        name: '区间',
+        nameTextStyle: { color: '#7BC4A9', fontSize: fs(10) },
+        axisLine: { show: false }, axisTick: { show: false },
+        axisLabel: { color: '#7BC4A9', fontSize: fs(9), formatter: v => v === 2 ? '带内' : v === 1 ? '临界' : '带外' },
+        splitLine: { show: false }
+      }] : (isSpumV2 && healthScore.length ? [{
         type: 'value', position: 'right', min: 0, max: 1, interval: 0.25,
         name: '健康度', nameTextStyle: { color: NURBS, fontSize: fs(10) },
         axisLine: { show: false }, axisTick: { show: false },
         axisLabel: { color: NURBS, fontSize: fs(9), formatter: v => (v * 100).toFixed(0) + '%' },
         splitLine: { show: false }
-      }] : []),
+      }] : [])),
     ],
     series: [
-      // ═══ 阳界（动态虚线，0→16岁向下延伸，代表阳气充盛过程）═══
+      // ═══ 年视图：五条五行曲线（右轴 0~100，z=3 在 SPUM 曲线下方、markArea 上方）═══
+      ...(_isYearView ? DIMS.map((k) => ({
+        name: C[k].label,
+        type: 'line', smooth: 0.5,
+        symbol: 'none',
+        showInLegend: true,
+        lineStyle: { width: 1.6, color: C[k].color, opacity: 0.72 },
+        itemStyle: { color: C[k].color },
+        emphasis: { lineStyle: { width: 2.5, opacity: 1 } },
+        data: elems.map(p => Math.round((p[k] ?? 50) * 10) / 10),
+        yAxisIndex: 1,
+        z: 3,
+      })) : []),
+      // ═══ 阳界（动态虚线）═══
       {
         name: '阳界',
         type: 'line',
@@ -587,6 +869,14 @@ function renderYinYang () {
         lineStyle: { width: 1.5, color: dominantColor, type: 'dashed', opacity: 0.75 },
         data: yangLine,
         z: 5,
+        // 逐年流年底图 + 大运分段（年视图渲染）
+        markArea: (liunianMarkArea.length || hasDayunData) ? {
+          silent: true, label: { show: false },
+          data: [
+            ...(_isYearView ? liunianMarkArea : []),   // 最底层：逐年流年五行色
+            ...(hasDayunData ? dayunMarkArea : []),    // 上层：大运分段渐变
+          ],
+        } : undefined,
       },
       // ═══ 阴界（动态虚线，阴基本不动）═══
       {
@@ -607,7 +897,11 @@ function renderYinYang () {
         symbol: n <= 1 ? 'circle' : 'none',
         symbolSize: 11,
         lineStyle: { width: 3.5, color: NURBS, opacity: 0.92 },
-        itemStyle: { color: NURBS, borderColor: WHITE, borderWidth: 2 },
+        // 每点按偏离最大的五行上色（沙盒 L1142-1149）
+        itemStyle: {
+          color: (params) => driftColors[params.dataIndex] || NURBS,
+          borderColor: WHITE, borderWidth: 2,
+        },
         data: driftData,
         z: 10,
         // ═══ markLine: 中轴 + 医疗事件（固定边界已改为 yangLine/yinLine series）═══
@@ -628,6 +922,12 @@ function renderYinYang () {
         markPoint: {
           symbol: 'circle',
           symbolSize: (idx) => {
+            // 2026-10-09：v3 主图判定层切 5D zone（逆转阈值分岔）
+            // 0=带外(OUT/实/虚) → 大红点；1=临界(CRIT) → 橙点；2=带内 → 无
+            if (isWxFb) {
+              const g = gapData?.[idx]
+              return g === 0 ? 14 : g === 1 ? 11 : 0
+            }
             const dm = diseaseModes[idx]
             const st = stateFlags?.[idx]
             const isSpike = spikeUp?.[idx] || spikeDown?.[idx]
@@ -643,6 +943,12 @@ function renderYinYang () {
             return 0
           },
           itemStyle: (params) => {
+            if (isWxFb) {
+              const g = gapData?.[params.dataIndex]
+              if (g === 0) return { color: C.fire, borderColor: WHITE, borderWidth: 2 }
+              if (g === 1) return { color: rgba('--qn-earth-rgb', 0.9), borderColor: WHITE, borderWidth: 2 }
+              return { color: 'transparent' }
+            }
             const dm = diseaseModes[params.dataIndex]
             const st = stateFlags?.[params.dataIndex]
             const isSpike = spikeUp?.[params.dataIndex] || spikeDown?.[params.dataIndex]
@@ -662,16 +968,18 @@ function renderYinYang () {
             return { color: 'transparent' }
           },
           label: { show: false },
-          data: diseaseModes.map((m, i) => {
-            const st = stateFlags?.[i]
-            const isSpike = spikeUp?.[i] || spikeDown?.[i]
-            if (st === 'disease' || m === 'acuteDeviation' || m === 'subtleDeviation' || m === 'chronicBoundary' || isSpike)
-              return { coord: [i, driftData[i]] }
-            // v2: polytope OUT 也标
-            if (isSpumV2 && polytopeStatuses[i] === 'OUT')
-              return { coord: [i, driftData[i]] }
-            return null
-          }).filter(Boolean)
+          data: isWxFb
+            ? gapData.map((g, i) => (g < 2 ? { coord: [i, driftData[i]] } : null)).filter(Boolean)
+            : diseaseModes.map((m, i) => {
+              const st = stateFlags?.[i]
+              const isSpike = spikeUp?.[i] || spikeDown?.[i]
+              if (st === 'disease' || m === 'acuteDeviation' || m === 'subtleDeviation' || m === 'chronicBoundary' || isSpike)
+                return { coord: [i, driftData[i]] }
+              // v2: polytope OUT 也标
+              if (isSpumV2 && polytopeStatuses[i] === 'OUT')
+                return { coord: [i, driftData[i]] }
+              return null
+            }).filter(Boolean)
         },
       },
       // ═══ 事件 pin 叠层 ═══
@@ -691,8 +999,8 @@ function renderYinYang () {
           data: evMarkPts
         }
       },
-      // ═══ v2: 健康度叠加层（右轴，半透明）═══
-      ...(isSpumV2 && healthScore.length ? [{
+      // ═══ v2: 健康度叠加层（右轴，半透明）—— 只有 v3 没上时才显示健康度 ═══
+      ...(!isWxFb && isSpumV2 && healthScore.length ? [{
         name: '健康度',
         type: 'line',
         yAxisIndex: 1,
@@ -705,8 +1013,72 @@ function renderYinYang () {
         data: healthScore,
         z: 3,
       }] : []),
+      // ═══ v3 Wuxing-FB: 区间状态剖面（副轴：2=带内 1=临界 0=带外）═══
+      ...(isWxFb ? [{
+        name: '区间状态',
+        type: 'line',
+        yAxisIndex: 1,
+        smooth: true,
+        symbol: 'none',
+        showSymbol: false,
+        lineStyle: { width: 1.5, color: '#2E7D5B', opacity: 0.85, type: 'solid' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(46,125,91,0.40)' },     // 顶部绿（带内）
+            { offset: 0.5, color: 'rgba(249,168,37,0.22)' },  // 中间黄（临界）
+            { offset: 1, color: 'rgba(180,67,60,0.18)' },    // 底部红（带外）
+          ])
+        },
+        itemStyle: { color: '#2E7D5B' },
+        data: gapData,
+        z: 4,
+        markLine: {
+          silent: true, symbol: 'none',
+          label: { show: true, fontSize: fs(9), fontWeight: 700, position: 'insideEndTop', color: '#B4433C' },
+          data: [{
+            yAxis: 1,
+            lineStyle: { color: '#B4433C', type: 'dashed', width: 1.5, opacity: 0.85 },
+            label: { formatter: '临界下沿', color: '#B4433C' }
+          }]
+        },
+        markArea: {
+          silent: true,
+          data: [[
+            { yAxis: 0, itemStyle: { color: 'rgba(180,67,60,0.12)' } },
+            { yAxis: 1 }   // 0~1 = 带外/临界高危带
+          ]]
+        }
+      }] : []),
     ]
   }, true)
+
+  // ═══ datazoom 事件：X 轴标签密度自适应 ═══
+  if (_isYearView) {
+    // 先解绑旧的（每次 renderYinYang 都重绑，防重复）
+    chart.off('datazoom');
+    let _dzLock = false;
+    chart.on('datazoom', () => {
+      if (_dzLock) return;
+      _dzLock = true;
+      try {
+        const opt = chart.getOption();
+        const dzArr = opt.dataZoom || [];
+        const dz = dzArr.find(d => d.type === 'slider') || dzArr[0];
+        const start = dz?.start ?? 0;
+        const end = dz?.end ?? 100;
+        const visible = Math.round(n * (end - start) / 100);
+        let interval;
+        if (visible > 50) interval = 5;
+        else if (visible > 30) interval = 3;
+        else if (visible > 15) interval = 2;
+        else if (visible > 8) interval = 1;
+        else interval = 0;
+        chart.setOption({ xAxis: { axisLabel: { interval } } });
+      } finally {
+        setTimeout(() => { _dzLock = false; }, 0);
+      }
+    });
+  }
 }
 
 function renderLegacy () {
@@ -763,7 +1135,11 @@ onBeforeUnmount(() => {
   chart?.dispose(); chart = null
 })
 
-watch(() => props.trajectory, () => { chart ? render() : tryInit() }, { deep: true })
+watch(() => props.trajectory, async () => {
+  await nextTick()
+  if (chart) { chart.resize(); render() }
+  else await tryInit()
+}, { deep: true })
 watch(() => props.series, () => { if (!useNewMode.value) chart ? render() : tryInit() }, { deep: true })
 </script>
 

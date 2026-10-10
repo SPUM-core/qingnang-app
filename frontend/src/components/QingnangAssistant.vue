@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
   <div class="assistant-root" ref="rootRef" :style="fabPosStyle">
     <!-- 悬浮触发按钮（可拖动） -->
     <button class="fab" :class="{ minimized: isOpen, dragging: isDragging }"
@@ -74,7 +74,7 @@
             <QIcon name="history" :size="16" />
           </button>
           <div class="head-info">
-            <h3>晴晴·6岁</h3>
+            <h3>{{ headerTitle }}</h3>
           </div>
           <button class="head-btn" @click="clearChat" title="新对话" aria-label="新对话">
             <QIcon name="refresh" :size="16" />
@@ -125,20 +125,9 @@
                   </div>
                 </div>
                 <template v-else>
-                  <!-- XSS 安全：不用 v-html，用文本节点 + 语义分段渲染 -->
+                  <!-- ⭐ 2026-10-07：升级为完整 Markdown 渲染 → 表格/标题/公式/代码块全支持 -->
                   <div class="msg-text">
-                    <template v-for="(seg, si) in m.segments" :key="si">
-                      <!-- 小标题：【当前基线】【先天基底】等 -->
-                      <div v-if="seg.type === 'heading'" class="seg-heading">{{ seg.text }}</div>
-                      <!-- 数据行：木:26 火:0 等五行向量 -->
-                      <div v-else-if="seg.type === 'data'" class="seg-data">{{ seg.text }}</div>
-                      <!-- 加粗 -->
-                      <strong v-else-if="seg.type === 'bold'">{{ seg.text }}</strong>
-                      <!-- 换行 -->
-                      <br v-else-if="seg.type === 'newline'" />
-                      <!-- 普通正文 -->
-                      <template v-else>{{ seg.text }}</template>
-                    </template>
+                    <QMarkdown :content="m.content" />
                   </div>
                   <div v-if="m.suggestions?.length" class="suggest-row">
                     <button v-for="(s, i) in m.suggestions" :key="i" class="sugg-btn" @click="send(s)">{{ s }}</button>
@@ -281,6 +270,7 @@ import { useVectorStore } from '../stores/vector'
 import * as storage from '../utils/storage'
 import { api } from '../api/client'
 import QIcon from './ui/QIcon.vue'
+import QMarkdown from './ui/QMarkdown.vue'
 
 const userStore = useUserStore()
 const vectorStore = useVectorStore()
@@ -624,6 +614,12 @@ const archiveInfo = computed(() => {
     age: cp.age || '',
   }
 })
+// ⭐ 2026-10-07：修复硬编码 "晴晴·6岁" → 动态读取当前登录用户
+const headerTitle = computed(() => {
+  const { name, age } = archiveInfo.value
+  if (!name) return '青囊管家'
+  return age ? `${name}·${age}岁` : name
+})
 const ctxWeakLabels = computed(() => {
   const v = userStore.caseData?.v_current || userStore.caseData?.v_baseline || {}
   const labels = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
@@ -899,10 +895,7 @@ const send = async (text, voiceData = null) => {
       history.unshift({ role: 'system', content: contextMsg.content })
     }
 
-    const settings = storage.get('qingnang_settings', {}) || {}
-    let provider = settings.llm_provider || undefined  // 不传 → 后端默认
-
-    const chatPayload = { message: text || '', history, provider }
+    const chatPayload = { message: text || '', history }
     if (voiceData) {
       chatPayload.voice_base64 = voiceData.base64
       chatPayload.voice_format = voiceData.format

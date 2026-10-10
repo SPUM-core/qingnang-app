@@ -27,10 +27,17 @@ from ...config import settings
 from ...utils import WUXING_LIST
 from ...utils.trajectory_algorithm import (
     compute_health_bounds, compute_health_bounds_v2,
-    compute_yx, build_year_view, build_year_view_v2, norm,
+    compute_yx, build_year_view, build_year_view_v2, build_year_view_v3, norm,
     DIMS as _WU, get_wu_thresholds as _get_wu_thresholds,
+    ganzhi_to_elems, elems_to_delta, get_liunian,
+    build_jieqi_view_v2 as _build_jieqi_view_v2,
+    build_jieqi_view_v3, WUXING_FB_AVAILABLE,
 )
-from ...utils.lunar_helper import compute_dayun
+from ...utils.lunar_helper import (
+    compute_dayun, compute_dayun_with_location,
+    get_true_solar_hour, get_jieqi_dates,
+    JIEQI_24,
+)
 
 router = APIRouter()
 logger = logging.getLogger("qingnang.cases")
@@ -200,13 +207,17 @@ def get_trajectories(db: Session = Depends(get_db),
         ).order_by(Observation.observed_at.asc()).all()
 
     if len(obs_list) == 0:
-        # 无观测，返回空 SPUM 字段
+        # 无观测，返回 v2 格式空 SPUM 字段（保持前端字段一致性）
         return {
-            "algorithm": "spum_computeHealthBounds_v1",
+            "algorithm": "spum_computeHealthBounds_v2",
+            "theory_source": "SPUM2611 + 青囊中医总纲",
             "target": [], "actual": [], "actual_elements": [], "events": [],
-            "driftData": [], "yinTop": [], "yangBot": [],
+            "elems": [], "driftData": [], "yinTop": [], "yangBot": [],
             "diseaseModes": [], "elArr": [],
+            "stateFlags": [], "spikeUp": [], "spikeDown": [], "adaptiveParams": {},
+            "sigma_trend": [], "polytope_statuses": [], "health_score": [],
             "v_innate": case.v_innate, "v_baseline": case.v_baseline,
+            "message": "暂无观测数据",
         }
 
     # 计算每个观测点的健康得分（统一用 v2 SPUM health_score，在循环后批量注入）
@@ -352,13 +363,11 @@ def get_trajectories(db: Session = Depends(get_db),
     #     保证与 target/波动推断的一致性；此处再调一次 v2（带 events）
     #     仅用于 diseaseModes/frame_residues 等受事件影响的字段。
     # ═══════════════════════════════════════════════════════
-    spum_bounds_v1 = compute_health_bounds(actual_elements, innate_ref)
     spum_bounds_v2 = compute_health_bounds_v2(actual_elements, innate_ref, events)
 
     return {
         'algorithm': 'spum_computeHealthBounds_v2',
-        'algorithm_v1_fallback': 'spum_computeHealthBounds_v1',
-        'theory_source': 'SPUM2611 + 青囊中医总纲',
+        'theory_source': 'SPUM2611 + 青囊中医总纲 + tizhi-curve沙盒(流年+平滑)',
         'topological_constant_12': 12,
         'target': target_points,
         'actual': actual_points,
@@ -371,26 +380,31 @@ def get_trajectories(db: Session = Depends(get_db),
         'observation_count': len(obs_list),
         'health_zone': {'min': 40, 'max': 60, 'label': '健康区带 H'},
         'computed_at': datetime.now().isoformat(),
-        # ── SPUM v1 兼容字段（三曲线 + 金属弹性）──
+        # ── SPUM 三曲线（统一用 v2，消除 v1/v2 漂移数据不一致）──
         'elems': actual_elements,
-        'driftData': spum_bounds_v1['driftData'],
-        'yinTop': spum_bounds_v1['yinTop'],
-        'yangBot': spum_bounds_v1['yangBot'],
-        'diseaseModes': spum_bounds_v2['diseaseModes'],  # v2 联合判定更精确
-        'elArr': spum_bounds_v1['elArr'],
+        'driftData': spum_bounds_v2['driftData'],
+        'yinTop': spum_bounds_v2['yinTop'],
+        'yangBot': spum_bounds_v2['yangBot'],
+        'diseaseModes': spum_bounds_v2['diseaseModes'],
+        'elArr': spum_bounds_v2['elArr'],
         # 动态健康区间（基于 SPUM 边界的 ±10%）
         'spum_healthy_zone': {
-            'min': round(min(spum_bounds_v1['yangBot']) * 1.1, 1) if spum_bounds_v1['yangBot'] else -10,
-            'max': round(max(spum_bounds_v1['yinTop']) * 1.1, 1) if spum_bounds_v1['yinTop'] else +10,
+            'min': round(min(spum_bounds_v2['yangBot']) * 1.1, 1) if spum_bounds_v2['yangBot'] else -10,
+            'max': round(max(spum_bounds_v2['yinTop']) * 1.1, 1) if spum_bounds_v2['yinTop'] else +10,
             'label': 'SPUM 动态健康区间',
         },
-        # ── SPUM v2 新增字段 ──
+        # ── SPUM v2 完整字段（前端 DriftChart.vue 全部消费）──
         'sigma_trend': spum_bounds_v2['sigma_trend'],
         'polytope_statuses': spum_bounds_v2['polytope_statuses'],
         'violation_depths': spum_bounds_v2['violation_depths'],
         'frame_residues': spum_bounds_v2['frame_residues'],
-        'health_score': [s / 100.0 for s in actual_scores],  # 与 actual_points.score 同源
+        'health_score': [s / 100.0 for s in actual_scores],
         'S_vectors': spum_bounds_v2['S_vectors'],
+        # tizhi-curve 沙盒核心：三态 + 尖峰触边 + 自适应参数
+        'stateFlags': spum_bounds_v2['stateFlags'],
+        'spikeUp': spum_bounds_v2['spikeUp'],
+        'spikeDown': spum_bounds_v2['spikeDown'],
+        'adaptiveParams': spum_bounds_v2['adaptiveParams'],
     }
 
 
@@ -460,8 +474,8 @@ def get_year_view(db: Session = Depends(get_db), current: User = Depends(get_cur
     except Exception:
         pass
 
-    # ── 核心推演（v2: build_year_view_v2 + dv/dt 约束 + σ 场）──
-    result = build_year_view_v2(
+    # ── 核心推演（v3: Wuxing-FB 五形生克负反馈旁路叠加 v2 全部输出）──
+    result = build_year_view_v3(
         innate=innate,
         dayun=dayun,
         age_start=0, age_end=end_age,
@@ -538,13 +552,27 @@ def get_radar(db: Session = Depends(get_db), current: User = Depends(get_current
     # 健康区带中心 H = [20,20,20,20,20]（center=20 概率分布口径）
     v_health_center = {k: 20 for k in dims}
 
-    # 归一化偏离度: (v_current_norm - v_innate_norm) / H_RANGE
-    # 注：H_RANGE 是 center=20 概率分布空间的各维健康半宽
+    # ── 2026-10-08 E2：H_RANGE 动态化 — Wuxing-FB θ（分岔式健康区间）↔ 概率分布口径 ──
+    # 相对空间 s_i ≈ v_i/mean(v) − 1 → s=1.0 ↔ 分布均值 20；半宽 h_i = θ_i × 20
+    # θ 由「当前观测」的稳态虚实折损决定：越虚 θ 越小 → 区间越窄（健康区间变窄=风险升高）
+    h_range = dict(H_RANGE)
+    try:
+        from ...utils import wuxing_feedback as _wfb
+        v_rel_cur = _wfb.to_relative(v_current)
+        rho0_dyn = _wfb.rho_from_relative(v_rel_cur, equilibrium=1.0)
+        A_dyn = _wfb.build_coupling_matrix()
+        ss_dyn = _wfb.steady_state(rho0_dyn, {k: 0.0 for k in dims}, A_dyn, n_steps=12)
+        h_range = {k: round(max(6.0, float(ss_dyn['theta'][k]) * 20.0), 1) for k in dims}
+    except Exception:
+        h_range = dict(H_RANGE)  # fallback：wuxing_feedback 不可用时保持静态区间
+
+    # 归一化偏离度: (v_current_norm - v_innate_norm) / h_range
+    # 注：h_range 是 center=20 概率分布空间的各维健康半宽（θ×20 动态换算）
     delta_norm = {}
     for k in dims:
         v_cur = v_current.get(k, 20)
         v_in  = innate.get(k, 20)
-        hr    = H_RANGE.get(k, 30)
+        hr    = h_range.get(k, 30)
         delta_norm[k] = round((v_cur - v_in) / hr, 2)
 
     # SPUM Y/X 实时（用归一化后 v_current 算）
@@ -577,7 +605,8 @@ def get_radar(db: Session = Depends(get_db), current: User = Depends(get_current
         'v_innate': innate,
         'v_current': v_current,
         'v_health_center': v_health_center,
-        'h_range': H_RANGE,
+        'h_range': h_range,             # 动态 θ×20（2026-10-08 E2）
+        'h_range_static': H_RANGE,      # 静态参考（旧口径，用于对比）
         'delta_normalized': delta_norm,
         'yx_realtime': yx,
         'layers': layers,
@@ -699,6 +728,11 @@ async def do_onboarding(body: dict, db: Session = Depends(get_db),
     if body.get("birth_hour"): current.birth_hour = body["birth_hour"]
     if body.get("height"): current.height = body["height"]
     if body.get("weight"): current.weight = body["weight"]
+    # ⭐ 2026-10-08 新增：出生地经纬度（真太阳时校正必需）
+    if body.get("birthplace"): current.birth_city = body["birthplace"]
+    if body.get("longitude") is not None and body.get("longitude") != "":
+        current.birth_longitude = float(body["longitude"])
+    # birth_latitude 前端 QuestionnaireView 暂时没传，先看 birth_city 是否能自动查
     current.v_base = v_innate
     current.is_onboarded = True
 
@@ -1195,3 +1229,315 @@ async def _forward_bazi(birth_date: str, birth_hour: str | None, birthplace: str
     from app.api.v1.assistant import _local_bazi_fallback, BaziIn
     body = BaziIn(birth_date=birth_date, birth_hour=birth_hour, birthplace=birthplace)
     return _local_bazi_fallback(body)
+
+
+# ═══════════════════════════════════════════════════════
+# 🆕 trajectories/jieqi-view — 24 节气五行属性视图
+# 后端算法占位（算法层 build_jieqi_view_v2 待实现）
+# 先用真实节气日期 + mock 五行偏移返回
+# ═══════════════════════════════════════════════════════
+
+# 每个节气的五行微调量（中医理论定义）
+_JIEQI_WUXING_BIAS = {
+    '立春': {'wood':+1.5,'fire':+0.3,'earth':0,'metal':0,'water':-0.3},
+    '雨水': {'wood':+1.2,'fire':+0.5,'earth':0,'metal':0,'water':-0.5},
+    '惊蛰': {'wood':+1.0,'fire':+0.8,'earth':0,'metal':0,'water':-0.8},
+    '春分': {'wood':+0.8,'fire':+1.0,'earth':0,'metal':0,'water':-1.0},
+    '清明': {'wood':+0.5,'fire':+1.2,'earth':+0.3,'metal':0,'water':-1.2},
+    '谷雨': {'wood':+0.3,'fire':+1.3,'earth':+1.0,'metal':0,'water':-0.8},
+    '立夏': {'wood':0,'fire':+1.5,'earth':+0.5,'metal':0,'water':-1.0},
+    '小满': {'wood':0,'fire':+1.3,'earth':+0.8,'metal':0,'water':-0.8},
+    '芒种': {'wood':-0.2,'fire':+1.2,'earth':+1.0,'metal':0,'water':-0.5},
+    '夏至': {'wood':-0.5,'fire':+1.0,'earth':+1.2,'metal':0,'water':-0.3},
+    '小暑': {'wood':-0.8,'fire':+0.8,'earth':+1.3,'metal':0,'water':0},
+    '大暑': {'wood':-1.0,'fire':+0.5,'earth':+1.5,'metal':0,'water':+0.3},
+    '立秋': {'wood':-0.8,'fire':+0.3,'earth':+1.2,'metal':+1.2,'water':0},
+    '处暑': {'wood':-0.5,'fire':0,'earth':+0.8,'metal':+1.5,'water':+0.3},
+    '白露': {'wood':-0.3,'fire':-0.2,'earth':+0.5,'metal':+1.5,'water':+0.5},
+    '秋分': {'wood':0,'fire':-0.5,'earth':+0.3,'metal':+1.3,'water':+0.8},
+    '寒露': {'wood':+0.2,'fire':-0.8,'earth':0,'metal':+1.0,'water':+1.0},
+    '霜降': {'wood':+0.3,'fire':-1.0,'earth':+0.5,'metal':+0.8,'water':+0.8},
+    '立冬': {'wood':+0.5,'fire':-1.2,'earth':0,'metal':+0.5,'water':+1.0},
+    '小雪': {'wood':+0.3,'fire':-1.3,'earth':-0.3,'metal':+0.3,'water':+1.2},
+    '大雪': {'wood':0,'fire':-1.5,'earth':-0.5,'metal':0,'water':+1.5},
+    '冬至': {'wood':-0.3,'fire':-1.5,'earth':-0.8,'metal':-0.3,'water':+1.3},
+    '小寒': {'wood':-0.5,'fire':-1.3,'earth':-1.0,'metal':-0.5,'water':+1.2},
+    '大寒': {'wood':-0.3,'fire':-1.0,'earth':-0.8,'metal':-0.3,'water':+1.0},
+}
+
+_JIEQI_MAIN_WX = {
+    '立春':'wood','雨水':'wood','惊蛰':'wood','春分':'wood','清明':'wood','谷雨':'earth',
+    '立夏':'fire','小满':'fire','芒种':'fire','夏至':'fire','小暑':'fire','大暑':'earth',
+    '立秋':'metal','处暑':'metal','白露':'metal','秋分':'metal','寒露':'metal','霜降':'earth',
+    '立冬':'water','小雪':'water','大雪':'water','冬至':'water','小寒':'water','大寒':'water',
+}
+
+
+@router.get("/trajectories/jieqi-view")
+def get_jieqi_view(db: Session = Depends(get_db), current: User = Depends(get_current_user),
+                   year_age: int = 30):
+    """某一年 24 节气的五行属性视图（前端「流年气运」和「节气属性」tab 共用）
+
+    Query params:
+      year_age: 该年年龄（用户当前年龄 ±n）
+    """
+    case = db.query(Case).filter(Case.user_id == current.id).first()
+    if not case:
+        return {"message": "未初始化建档"}
+
+    # 基础信息
+    birth_year = int(str(current.birth_date)[:4]) if current.birth_date else 1990
+    calendar_year = birth_year + year_age
+    v_innate = case.v_innate or {k: 50 for k in ['wood','fire','earth','metal','water']}
+
+    # 大运（带真太阳时校正）
+    birth_lon = current.birth_longitude
+    dayun_list = compute_dayun_with_location(
+        current.birth_date or '1990-01-01',
+        current.birth_hour, current.gender, birth_longitude=birth_lon, n_da_yun=10,
+    )
+
+    # 该年所在大运
+    dayun_active = None
+    for dy in dayun_list:
+        if dy['start'] <= year_age <= dy['end']:
+            dayun_active = dy
+            break
+    if not dayun_active and dayun_list:
+        # fallback：找最接近的
+        dayun_active = dayun_list[0]
+
+    # 24 节气日期（lunar_python 精确计算）
+    jq_dates = get_jieqi_dates(calendar_year)
+
+    # 真太阳时展示
+    solar_hour, solar_offset = get_true_solar_hour(
+        current.birth_date or '1990-01-01',
+        current.birth_hour, current.birth_longitude,
+    )
+
+    # ⭐ 统一算法层：trajectory_algorithm.build_jieqi_view_v3
+    # v2 + Wuxing-FB 旁路: 每帧节气 = 大运+流年+节气 bias → 弛豫 → 稳态
+    # 新增 tolerance_u*, zone, weak_virtual（报告第 6 章产品信号）
+    liunianGZ = get_liunian(calendar_year)  # {g, z}
+    dayun_active_gz = {'gan': dayun_active['gan'], 'zhi': dayun_active['zhi']} if dayun_active else {'gan':'?','zhi':'?'}
+    jv_result = build_jieqi_view_v3(calendar_year, dayun_active_gz, liunianGZ, jq_dates, innate=v_innate)
+
+    # 在算法层结果上叠加 true_solar_time（算法层不管地理，这里补充）
+    jieqi = []
+    for jq in jv_result['jieqi']:
+        jieqi.append({
+            **jq,
+            'true_solar_time': solar_hour,
+        })
+
+    return {
+        'view_mode': 'jieqi_view',
+        'algorithm': 'spumHealthBounds_v2',
+        'theory_source': 'SPUM 五运六气引擎',
+        'year_age': year_age,
+        'calendar_year': calendar_year,
+        'liunian': _split_ganzhi(case.ganzhi_year or ''),
+        'dayun_active': dayun_active,
+        'dayun': dayun_list,
+        'user_location': {
+            'city': current.birth_city or '未设置',
+            'longitude': current.birth_longitude,
+            'latitude': current.birth_latitude,
+            'true_solar_offset_min': solar_offset,
+            'note': '请在个人设置补填出生地经纬度以启用真太阳时校正',
+        },
+        'v_innate': v_innate,
+        'jieqi': jieqi,
+    }
+
+
+# ═══════════════════════════════════════════════════════
+# 🆕 trajectories/adjustment-view — 调节视图（2026-10-08 接 v3 真实链路）
+# 自然发展（反事实 projected）vs 青囊介入（actual）
+# ═══════════════════════════════════════════════════════
+
+@router.get("/trajectories/adjustment-view")
+def get_adjustment_view(db: Session = Depends(get_db), current: User = Depends(get_current_user)):
+    """调节视图：先天自然发展（虚线）vs 青囊调平介入（实线）
+
+    2026-10-08 修复：替换原 mock（随机数伪造 projected/actual）为 build_year_view_v3 真实推演。
+      - projected = 无干预推演（天时注入：大运+流年）
+      - actual    = 带干预推演（干预年龄后向虚维补注入）
+      - 净改善量  = Δu*（调平后耐受强度的抬升），不再用 mock 的"疾病天数"
+
+    干预来源（按优先级）：
+      1. trajectory_events 中 boost 非空的事件（boost 最大维 = 补虚目标）
+      2. 最近 TreatmentPlan.expected_delta_S（方案预期的补益向量）
+      3. 无记录 → 尚未介入，projected=actual 前段重合，comparison 全 0
+    """
+    case_obj = db.query(Case).filter(Case.user_id == current.id).first()
+    if not case_obj:
+        return {"message": "未初始化建档"}
+
+    innate = (case_obj.v_innate if case_obj else None) or {k: 20 for k in ['wood', 'fire', 'earth', 'metal', 'water']}
+
+    # ── 与 year-view 相同的推演参数（dayun/events/age 范围）──
+    start_year = (current.birth_date or '1990-01-01')[:4]
+    try:
+        start_year = int(start_year)
+    except ValueError:
+        start_year = 1990
+    end_age = max(0, datetime.now().year - start_year)
+    if end_age < 30:
+        end_age = 81
+
+    dayun = compute_dayun(
+        birth_date=current.birth_date or '1990-01-01',
+        birth_hour=current.birth_hour,
+        gender=current.gender or 'male',
+        n_da_yun=10,
+    )
+    if not dayun and case_obj.bazi:
+        for i in range(8):
+            s_a = i * 10 + 1
+            dayun.append({'gan': '?', 'zhi': '?', 'name': f'大运{i+1}',
+                          'start': s_a, 'end': min(s_a + 10, end_age + 1)})
+
+    year_events = []
+    try:
+        te_list = db.query(TrajectoryEvent).filter(
+            TrajectoryEvent.case_id == case_obj.id,
+            TrajectoryEvent.age.isnot(None),
+        ).all()
+        for te in te_list:
+            if te.damage:
+                year_events.append({'age': te.age, 'damage': dict(te.damage),
+                                    'days': te.duration_days or 540,
+                                    'type': te.event_type, 'label': te.label})
+    except Exception:
+        pass
+
+    # ── 调平干预（补虚目标维 = boost / expected_delta_S 最大正向维）──
+    interventions = []
+    try:
+        iv_list = db.query(TrajectoryEvent).filter(
+            TrajectoryEvent.case_id == case_obj.id,
+            TrajectoryEvent.boost.isnot(None),
+        ).all()
+        for te in iv_list:
+            boost = te.boost or {}
+            if boost:
+                dim = max(boost, key=lambda k: boost.get(k, 0))
+                interventions.append({
+                    'age': te.age, 'idx': te.age, 'dim': dim, 'strength': 1.2,
+                    'label': te.label or te.event_type, 'day': te.age * 365,
+                    'impact': round(float(boost.get(dim, 0)), 1),
+                })
+    except Exception:
+        pass
+    if not interventions:
+        try:
+            plan = db.query(TreatmentPlan).filter(
+                TreatmentPlan.case_id == case_obj.id,
+                TreatmentPlan.expected_delta_S.isnot(None),
+            ).order_by(TreatmentPlan.created_at.desc()).first()
+            if plan and plan.expected_delta_S:
+                ed = plan.expected_delta_S
+                dim = max(ed, key=lambda k: ed.get(k, 0))
+                inter_age = max(0, int(round((datetime.now().year - start_year) * 0.6)))
+                interventions.append({
+                    'age': inter_age, 'idx': inter_age, 'dim': dim, 'strength': 1.2,
+                    'label': (plan.strategy or '青囊调平方案'), 'day': inter_age * 365,
+                    'impact': round(float(ed.get(dim, 0)), 1),
+                })
+        except Exception:
+            pass
+
+    # ── 双线推演 ──
+    proj = build_year_view_v3(innate=innate, dayun=dayun, age_start=0, age_end=end_age,
+                              birth_year=start_year, events=year_events)
+    act = build_year_view_v3(innate=innate, dayun=dayun, age_start=0, age_end=end_age,
+                             birth_year=start_year, events=year_events,
+                             interventions=interventions)
+
+    wfp = proj.get('wuxing_fb') or {}
+    wfa = act.get('wuxing_fb') or {}
+    if not wfp:
+        return {'view_mode': 'adjustment_view', 'algorithm': 'v2 (wuxing_fb 未加载)',
+                'message': 'Wuxing-FB 不可用，调节视图暂缺'}
+
+    n = len(wfp['driftData_wuxing'])
+    ages = list(range(0, end_age + 1))[:n]
+
+    def build_side(wf):
+        elems = []
+        for age, s in zip(ages, wf['s_series']):
+            e = {'day': age * 365, 'age': age, 't': f'第{age}岁'}
+            e.update(s)
+            elems.append(e)
+        return {
+            'elems': elems,
+            'driftData': wf['driftData_wuxing'],        # 相对空间 −s_mean
+            's_series': wf['s_series'],
+            'tolerance_u_series': wf['tolerance_u_series'],
+            'zone_series': wf['zone_series'],
+            'weak_virtual_series': wf['weak_virtual_series'],
+            # 临界下沿健康带（θ≈1.0 → 0.7θ 下沿 ≈ 0.7，相对空间）
+            'yangBot': [-0.7] * n,
+            'yinTop': [+0.7] * n,
+            'stateFlags': ['healthy'] * n,
+            'wuxing_fb': wf,
+        }
+
+    projected = build_side(wfp)
+    actual = build_side(wfa)
+
+    # ── 净改善量：Δu*（调平后耐受抬升）──
+    proj_u = [t['tolerance_u_star'] for t in wfp['tolerance_u_series']]
+    act_u = [t['tolerance_u_star'] for t in wfa['tolerance_u_series']]
+    total_shift = round(sum(act_u) / len(act_u) - sum(proj_u) / len(proj_u), 2)
+
+    def bad_days(wf):
+        cnt = 0
+        for z in wf['zone_series']:
+            for d, tag in z['zone'].items():
+                if tag in ('OUT', '实', '虚', 'CRIT', '临界'):
+                    cnt += 1
+                    break
+        return cnt
+
+    proj_bad, act_bad = bad_days(wfp), bad_days(wfa)
+
+    plan_out = None
+    try:
+        plan = db.query(TreatmentPlan).filter(TreatmentPlan.case_id == case_obj.id).order_by(
+            TreatmentPlan.created_at.desc()).first()
+        if plan:
+            plan_out = {
+                'name': plan.strategy or '青囊调平方案',
+                'start_date': plan.created_at.strftime('%Y-%m-%d') if plan.created_at else None,
+                'end_date': None,
+                'expected_improvement': 12,
+                'actual_improvement': total_shift,
+                'status': 'ongoing' if plan.user_confirmed is False else 'completed',
+            }
+    except Exception:
+        pass
+
+    return {
+        'view_mode': 'adjustment_view',
+        'algorithm': 'spum_wuxing_fb_v3 + intervention',
+        'projected': projected,
+        'actual': actual,
+        'interventions': interventions,
+        'plan': plan_out,
+        'comparison': {
+            'total_shift': total_shift,                       # Δu* 净改善（耐受抬升）
+            'disease_days_projected': proj_bad,               # 带外/临界年数（最脆维）
+            'disease_days_actual': act_bad,
+            'peak_reduction': round(max(act_u) - max(proj_u), 2),
+        },
+    }
+
+
+def _split_ganzhi(name: str) -> dict:
+    """'庚午' → {gan:'庚', zhi:'午', name:'庚午'}"""
+    if not name or len(name) < 2:
+        return {'gan': '', 'zhi': '', 'name': name or ''}
+    return {'gan': name[0], 'zhi': name[1], 'name': name}

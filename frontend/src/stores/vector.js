@@ -73,6 +73,8 @@ export const useVectorStore = defineStore('vector', {
     error: null,
     // v0.2 三曲线轨迹数据
     trajectory: null,     // { target: [{t,score}], actual: [{t,score}], events: [...] }
+    // v0.3 终身推演数据（八字大运 + 流年，带 dayun/markArea）
+    lifetimeTrajectory: null,  // year-view 端点返回的完整数据
     // ── CaseDetailView 需要的扩展 mock 字段（dev seed 未建档时 fallback）──
     casePatient: null,
     casePathogenesis: [],
@@ -347,8 +349,9 @@ export const useVectorStore = defineStore('vector', {
             target: d.target || [],
             actual: d.actual || [],
             actual_elements: elements,
-            // ── SPUM v1 新字段（后端 trajectories 端点升级后自动透传）──
+            // ── SPUM v2 全量字段（后端 trajectories 端点透传，前端 DriftChart.vue 消费）──
             algorithm: d.algorithm,
+            theory_source: d.theory_source,
             elems: d.elems || elements,
             driftData: d.driftData,
             yinTop: d.yinTop,
@@ -356,11 +359,27 @@ export const useVectorStore = defineStore('vector', {
             diseaseModes: d.diseaseModes,
             elArr: d.elArr,
             spum_healthy_zone: d.spum_healthy_zone,
+            // tizhi-curve 沙盒核心：三态 + 尖峰触边 + 自适应参数
+            stateFlags: d.stateFlags,
+            spikeUp: d.spikeUp,
+            spikeDown: d.spikeDown,
+            adaptiveParams: d.adaptiveParams,
+            // v2 密度场 + 动力学
+            sigma_trend: d.sigma_trend,
+            polytope_statuses: d.polytope_statuses,
+            violation_depths: d.violation_depths,
+            frame_residues: d.frame_residues,
+            health_score: d.health_score,
+            S_vectors: d.S_vectors,
             // ── 老字段（兼容）──
             innate_elements: d.innate_elements || d.v_innate || {},
             v_innate: d.v_innate,
             events: d.events || [],
             health_zone: d.health_zone,
+            // dayun 透传（trajectories 端点暂无，但 year-view 端点会有）
+            dayun: d.dayun,
+            dayunMarkArea: d.dayunMarkArea,
+            view_mode: d.view_mode,
           }
         } else {
           this.trajectory = null
@@ -368,6 +387,48 @@ export const useVectorStore = defineStore('vector', {
         return this.trajectory
       } catch {
         this.trajectory = null
+        return null
+      }
+    },
+
+    async fetchYearView(endAge = 81) {
+      try {
+        const r = await api.get(`/api/v1/cases/trajectories/year-view?end_age=${endAge}`)
+        const d = r.data
+        if (d && d.elems?.length) {
+          this.lifetimeTrajectory = { ...d, _isYearView: true }
+        } else {
+          this.lifetimeTrajectory = null
+        }
+        return this.lifetimeTrajectory
+      } catch {
+        this.lifetimeTrajectory = null
+        return null
+      }
+    },
+
+    // ── 新增：节气视图后端对接 ──
+    jieqiView: null,
+    async fetchJieqiView(yearAge = 30) {
+      try {
+        const r = await api.get(`/api/v1/cases/trajectories/jieqi-view?year_age=${yearAge}`)
+        this.jieqiView = r.data?.message ? null : r.data
+        return this.jieqiView
+      } catch {
+        this.jieqiView = null
+        return null
+      }
+    },
+
+    // ── 新增：调节视图后端对接 ──
+    adjustView: null,
+    async fetchAdjustmentView() {
+      try {
+        const r = await api.get('/api/v1/cases/trajectories/adjustment-view')
+        this.adjustView = r.data?.message ? null : r.data
+        return this.adjustView
+      } catch {
+        this.adjustView = null
         return null
       }
     },

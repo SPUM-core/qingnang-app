@@ -10,6 +10,7 @@ const routes = [
 
   // ── 主应用页 (LayoutShell 包裹) ──
   { path: '/', name: 'home', component: () => import('../views/DashboardView.vue'), meta: { title: '主页' } },
+  { path: '/trajectory', name: 'trajectory', component: () => import('../views/TrajectoryView.vue'), meta: { title: '体质曲线' } },
   { path: '/case', name: 'case', component: () => import('../views/CaseDetailView.vue'), meta: { title: '体质档案详情' } },
   // onboarding: 全屏独占 · 需登录 · 已建档用户自动跳主页 · 未建档用户访问任意页自动跳这里
   { path: '/onboarding', name: 'onboarding', component: () => import('../views/QuestionnaireView.vue'),
@@ -33,6 +34,13 @@ const routes = [
   { path: '/users', redirect: '/friends' },
   { path: '/notifications', name: 'notifications', component: () => import('../views/NotificationsView.vue'), meta: { title: '提醒通知' } },
   { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue'), meta: { title: '设置' } },
+
+  // ══ DEV ONLY: 模块调试台 ══
+  ...(import.meta.env.DEV ? [{
+    path: '/lab', name: 'lab', component: () => import('../dev/ModuleLab.vue'),
+    meta: { title: 'Module Lab', hidden: true }
+  }] : []),
+
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
 
@@ -74,6 +82,12 @@ router.beforeEach((to) => {
 
 router.afterEach((to) => {
   document.title = to.meta?.title ? `${to.meta.title} · 青囊生活管家` : '青囊生活管家 · SPUM 引擎'
+  // ═══ 每次路由切换自动滚到顶端 ═══
+  // 延迟一帧，等 DOM 切换完再滚（keep-alive 场景也安全）
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' })
+    document.documentElement.scrollTop = 0
+  })
 })
 
 export default router

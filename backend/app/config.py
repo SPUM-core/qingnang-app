@@ -22,21 +22,14 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_HOURS: int = 72
 
-    # 青檬引擎（AI 对话 · SPUM 本地模型）
-    QINGMENG_URL: str = "http://localhost:8000"
-    QINGMENG_MODEL: str = "spum-v9-thinking:latest"
-
-    # Ollama 本地推理（青檬引擎底层，/api/tags 查模型列表）
-    OLLAMA_URL: str = "http://localhost:11434"
-
-    # DeepSeek（云端 LLM 备选 — 用户在设置里选择）
-    DEEPSEEK_API_KEY: str | None = None
+    # ── LLM：全局只用 DeepSeek 云端（本地 Ollama 模型已下线） ──
+    DEEPSEEK_API_KEY: str
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
     DEEPSEEK_MODEL: str = "deepseek-chat"
 
-    # 默认 LLM provider：production 推荐 deepseek（无需本地青檬引擎）
-    # 可选值: "spum"(青檬引擎), "deepseek"(云端), "auto"(自动：有API_KEY用deepseek)
-    DEFAULT_PROVIDER: str = "auto"
+    # ── 青檬引擎：仅用于确定性推理（bazi / daily_brief / lifestyle） ──
+    # LLM 能力已切走，不再调它的 /v1/chat/completions
+    QINGMENG_URL: str = "http://localhost:8000"
 
     # CORS 白名单（JSON 数组字符串，从环境变量注入）
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -44,13 +37,13 @@ class Settings(BaseSettings):
     # 种子数据自动注入（默认关闭；阶段0 后以迁移 + 业务数据为准）
     AUTO_SEED: bool = False
 
-settings = Settings()
+    # ── APP 自动更新推送 ──
+    # 更新文件托管根目录（后端静态文件服务路径）
+    APP_UPDATE_DIR: str = "updates"
+    # APK / bundle 下载基础 URL（生产环境需配置 CDN 或完整域名）
+    APP_UPDATE_BASE_URL: str = "http://localhost:8767/updates"
+    # 是否启用 APP 更新检查（开发期可关）
+    APP_UPDATE_ENABLED: bool = True
 
-def resolve_default_provider() -> str:
-    """解析默认 provider：auto → 有 DEEPSEEK_API_KEY 就走 deepseek，否则 spum"""
-    dp = settings.DEFAULT_PROVIDER.lower()
-    if dp in ("spum", "deepseek", "ollama"):
-        return dp
-    if settings.DEEPSEEK_API_KEY:
-        return "deepseek"
-    return "spum"
+settings = Settings()
+# （resolve_default_provider 已删除 — 全局只用 deepseek）

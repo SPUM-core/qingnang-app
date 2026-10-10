@@ -111,12 +111,7 @@ export const notifications = {
 // ── 青囊管家 AI ──
 export const assistant = {
   health:    () => api.get('/api/v1/assistant/health'),
-  // ⭐ 2026-10-05：支持传 provider（'spum'/'ollama'/'deepseek'），默认从 settings 读
-  chat:      (message, history = [], provider) => {
-    const settings = (storage.get('qingnang_settings', {}) || {})
-    const prov = provider || settings.llm_provider || 'deepseek'
-    return api.post('/api/v1/assistant/chat', { message, history, provider: prov })
-  },
+  chat:      (message, history = []) => api.post('/api/v1/assistant/chat', { message, history }),
   // ── 结构化推理（青檬引擎 LLM 推理） ──
   diagnose:  (v_base, v_current) => api.post('/api/v1/assistant/reasoning/diagnose',
                 { v_base, v_current }),

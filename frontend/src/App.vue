@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="app-root">
     <!-- ═══ 主应用壳（始终挂载，避免路由切换时 LayoutShell 被销毁重建导致 double-render） ═══ -->
     <div class="app-shell" :style="{ display: route.meta.fullScreen ? 'none' : null }">
@@ -14,22 +14,50 @@
 
     <!-- ═══ 引导（始终挂载，让从 fullScreen 页跳回主应用时 onMounted/watch 都能触发） ═══ -->
     <GuideOverlay />
+
+    <!-- ═══ APP 自动更新对话框 ═══ -->
+    <UpdateDialog
+      :visible="updateVisible"
+      :info="updateInfo"
+      @update:visible="updateVisible = $event"
+    />
   </div>
 </template>
 
 <script setup>
-import { watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import LayoutShell from './components/LayoutShell.vue'
 import ComplianceBar from './components/ComplianceBar.vue'
 import QingnangAssistant from './components/QingnangAssistant.vue'
 import GuideOverlay from './components/GuideOverlay.vue'
+import UpdateDialog from './components/UpdateDialog.vue'
 import { useUserStore } from './stores/user'
 import { useSettingsStore } from './stores/settings'
+import { runUpdateCheck } from './utils/appUpdater'
 
 const route = useRoute()
 const user = useUserStore()
 const settings = useSettingsStore()
+
+// ── APP 自动更新 ──
+const updateVisible = ref(false)
+const updateInfo = ref(null)
+
+async function checkUpdate() {
+  try {
+    const result = await runUpdateCheck()
+    if (result.action === 'show_update') {
+      updateInfo.value = result.info
+      updateVisible.value = true
+    } else if (result.action === 'show_force_update') {
+      updateInfo.value = result.info
+      updateVisible.value = true
+    }
+  } catch (e) {
+    console.warn('[App] 更新检查异常（忽略）', e)
+  }
+}
 
 // ── 监听设置变化 → 实时应用到 DOM ──
 watch(
@@ -52,6 +80,8 @@ onMounted(() => {
     darkMedia = window.matchMedia('(prefers-color-scheme: dark)')
     darkMedia.addEventListener('change', onSystemThemeChange)
   }
+  // 启动时异步检查更新（不阻塞 UI）
+  checkUpdate()
 })
 
 onUnmounted(() => {

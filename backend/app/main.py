@@ -32,6 +32,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.config import settings
@@ -224,7 +225,7 @@ def health():
 
     # ── qingmeng-engine（真正的单点依赖）──
     try:
-        r = httpx.get(f"{settings.QINGMENG_URL}/health", timeout=2.0)
+        r = httpx.get(f"{settings.QINGMENG_URL}/health", timeout=5.0)
         checks["qingmeng"] = "ok" if r.status_code == 200 else f"degraded({r.status_code})"
     except Exception as exc:
         logger.warning("health: qingmeng-engine 不可达: %s", exc)
@@ -242,6 +243,18 @@ def health():
 # 业务 API 汇总
 # ═══════════════════════════════════════════════════════
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+
+# ═══════════════════════════════════════════════════════
+# APP 更新静态文件服务（APK / manifest.json）
+# ═══════════════════════════════════════════════════════
+_UPDATES_DIR = Path(__file__).resolve().parent.parent / settings.APP_UPDATE_DIR
+_UPDATES_DIR.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/updates",
+    StaticFiles(directory=str(_UPDATES_DIR)),
+    name="app-updates",
+)
 
 
 # 启动入口

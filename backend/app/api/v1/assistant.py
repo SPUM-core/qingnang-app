@@ -10,7 +10,7 @@ import time
 
 from ...database import get_db
 from ...models import User, Case, Observation, TreatmentPlan, ChatMessage, LifeSignal
-from ...config import settings, resolve_default_provider
+from ...config import settings  # resolve_default_provider 已删除（全局 deepseek）
 from ..deps import get_current_user
 from ...utils.life_signal_extractor import extract_signals, signals_to_dict_list
 from ...utils.conversation_analyzer import analyze_conversation
@@ -117,7 +117,7 @@ def compliance_filter(text: str, stage: int = 3) -> str:
 class ChatIn(BaseModel):
     message: str = Field("", max_length=2000)
     history: list[dict] = Field(default_factory=list)  # [{role, content}] 最近 N 轮
-    provider: str | None = None  # None = 走后端默认（生产环境 = deepseek）
+    # provider 字段已删除 — 全局只用 DeepSeek 云端
 
     # ── 语音输入（可选）──
     voice_base64: str | None = None      # base64 编码的音频数据
@@ -1013,20 +1013,6 @@ constitution | symptom | preference | progress | diet | mood | habit | event | o
         except Exception as e:
             print(f"[compress-llm] deepseek error: {e}")
 
-    # 兜底：本地青檬引擎
-    try:
-        qingmeng_url = getattr(settings, 'QINGMENG_URL', 'http://localhost:11434')
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(f"{qingmeng_url}/api/generate", json={
-                "model": "qwen2.5:7b",
-                "prompt": prompt,
-                "stream": False,
-            })
-            if r.status_code == 200:
-                return _parse_memory_json(r.json().get("response", ""), dialogue_text[:300])
-    except Exception as e:
-        print(f"[compress-llm] qingmeng error: {e}")
-
     # 终极兜底：单条 permanent（截断前 150 字）
     return [{"summary": dialogue_text[:150], "category": "other", "tier": "permanent"}]
 
@@ -1313,85 +1299,49 @@ async def chat(body: ChatIn,
             messages.append({"role": h["role"], "content": h.get("content", "")})
     messages.append({"role": "user", "content": body.message})
 
-    # ── 5. 按用户选择的 provider 调 LLM（L2+: 用 JSON mode 拿结构化输出）──
+    # ── 5. 调 DeepSeek（唯一 LLM，全局 json_object mode）──
     llm_ok = False
     latency_ms = 0
     reply_text = ""
     raw = ""
     json_obj = None
-    parsed_template: AIResponseTemplate | None = None  # LLM 填的槽位
-    provider_used = body.provider or resolve_default_provider()
+    parsed_template: AIResponseTemplate | None = None
 
-    if provider_used == "deepseek":
-        # ── DeepSeek 云端：用 response_format: json_object ──
-        if settings.DEEPSEEK_API_KEY:
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    start = time.time()
-                    r = await client.post(
-                        f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
-                            "Content-Type": "application/json",
-                        },
-                        json={
-                            "model": settings.DEEPSEEK_MODEL,
-                            "messages": messages,
-                            "max_tokens": 2400,  # L2+ JSON 多槽位输出需要更多 token
-                            "response_format": {"type": "json_object"},
-                        }
-                    )
-                    latency_ms = int((time.time() - start) * 1000)
-                    if r.status_code == 200:
-                        raw = r.json()["choices"][0]["message"]["content"]
-                        json_obj = extract_json(raw)
-                        parsed_template = normalize_parsed(json_obj or {})
-                        if parsed_template:
-                            reply_text = parsed_template.reply
-                        elif json_obj and isinstance(json_obj.get("reply"), str) and json_obj["reply"].strip():
-                            reply_text = json_obj["reply"]
-                        else:
-                            reply_text = raw
-                        llm_ok = True
-            except Exception:
-                llm_ok = False
-        if not settings.DEEPSEEK_API_KEY:
-            llm_ok = False
-    else:
-        # ── SPUM 本地模型（青檬引擎/Ollama）：format: json ──
+    if settings.DEEPSEEK_API_KEY:
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                h = await client.get(f"{settings.QINGMENG_URL}/health")
-                if h.status_code == 200:
+                start = time.time()
+                r = await client.post(
+                    f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": settings.DEEPSEEK_MODEL,
+                        "messages": messages,
+                        "max_tokens": 2400,
+                        "response_format": {"type": "json_object"},
+                    }
+                )
+                latency_ms = int((time.time() - start) * 1000)
+                if r.status_code == 200:
+                    raw = r.json()["choices"][0]["message"]["content"]
+                    json_obj = extract_json(raw)
+                    parsed_template = normalize_parsed(json_obj or {})
+                    if parsed_template:
+                        reply_text = parsed_template.reply
+                    elif json_obj and isinstance(json_obj.get("reply"), str) and json_obj["reply"].strip():
+                        reply_text = json_obj["reply"]
+                    else:
+                        reply_text = raw
                     llm_ok = True
-                    start = time.time()
-                    r = await client.post(
-                        f"{settings.QINGMENG_URL}/v1/chat/completions",
-                        json={
-                            "model": settings.QINGMENG_MODEL,
-                            "messages": messages,
-                            "max_tokens": 2400,
-                            "format": "json",  # Ollama 的 JSON mode
-                        }
-                    )
-                    latency_ms = int((time.time() - start) * 1000)
-                    if r.status_code == 200:
-                        raw = r.json()["choices"][0]["message"]["content"]
-                        json_obj = extract_json(raw)
-                        parsed_template = normalize_parsed(json_obj or {})
-                        if parsed_template:
-                            reply_text = parsed_template.reply
-                        elif json_obj and isinstance(json_obj.get("reply"), str) and json_obj["reply"].strip():
-                            reply_text = json_obj["reply"]
-                        else:
-                            reply_text = raw
         except Exception:
             llm_ok = False
 
     # ── 6. Fallback：规则引擎（加空回复安全网）──
     if not llm_ok or not reply_text or not reply_text.strip():
         if llm_ok and raw and raw.strip() and (not parsed_template or not parsed_template.reply.strip()):
-            # LLM OK 但 parsed_template.reply 是空/白 → 用 raw 兜底
             reply_text = raw.strip()
         else:
             reply_text = _generate_generic_reply(current, db, body.message)
@@ -1400,17 +1350,9 @@ async def chat(body: ChatIn,
     # ── 7. 合规后处理 ──
     reply_text = compliance_filter(reply_text, stage=maturity["stage"])
 
-    # engine 标签反映真实执行路径
-    engine_tag = {
-        "deepseek": "deepseek" if llm_ok else "local_fallback",
-        "spum": "qingmeng" if llm_ok else "local_fallback",
-    }.get(provider_used, "qingmeng" if llm_ok else "local_fallback")
-
-    # 实际使用的模型名（精确版本）— 前端 footnote 显示用
-    if provider_used == "deepseek":
-        model_name = settings.DEEPSEEK_MODEL
-    else:
-        model_name = settings.QINGMENG_MODEL if llm_ok else "—（本地 fallback）"
+    # engine 标签：全局只用 deepseek，失败降级 local_fallback
+    engine_tag = "deepseek" if llm_ok else "local_fallback"
+    model_name = settings.DEEPSEEK_MODEL if llm_ok else "—（本地 fallback）"
 
     # ── 8. 持久化对话 + 抽取生活信号（青囊生活管家的数据化核心）──
     case = db.query(Case).filter(Case.user_id == current.id).first()
@@ -1497,7 +1439,7 @@ async def chat(body: ChatIn,
                     user_message=body.message,
                     assistant_reply=reply_text,
                     history=body.history,
-                    provider=provider_used,
+                    provider=engine_tag,
                 )
         except Exception:
             analysis_result = None
@@ -1635,7 +1577,7 @@ async def chat(body: ChatIn,
     return {
         "reply": reply_text,
         "engine": engine_tag + ("+template" if parsed_template else ""),
-        "provider": provider_used,
+        "provider": engine_tag,
         "model_name": model_name,
         "latency_ms": latency_ms,
         "llm_online": llm_ok,
@@ -2239,57 +2181,14 @@ async def get_maturity(
 
 @router.get("/health")
 async def health():
-    """检查各 provider 可用性 — 前端设置页据此显示哪些选项可用。
-
-    SPUM 分支：实时探青檬引擎 health → 再探 Ollama /api/tags 拿实际模型列表。
-    """
-    # SPUM 本地：青檬引擎 + Ollama 双通道探测
-    spum_online = False
-    ollama_online = False
-    ollama_models: list[str] = []
-    try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            h = await client.get(f"{settings.QINGMENG_URL}/health")
-            spum_online = h.status_code == 200
-            # 进一步探 Ollama 实际可达性 + 模型列表
-            try:
-                tags = await client.get(f"{settings.OLLAMA_URL}/api/tags")
-                if tags.status_code == 200:
-                    ollama_online = True
-                    ollama_models = [
-                        m.get("name", "")
-                        for m in tags.json().get("models", [])
-                        if m.get("name")
-                    ]
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    # DeepSeek：只要配了 API KEY 就算可用（实际连通性在调用时检测）
-    deepseek_configured = bool(settings.DEEPSEEK_API_KEY)
-
+    """LLM 可用性（全局 DeepSeek）。"""
     return {
-        "providers": {
-            "spum": {
-                "label": "SPUM 本地模型",
-                "online": spum_online and ollama_online,
-                "qingmeng_online": spum_online,
-                "ollama_online": ollama_online,
-                "model": settings.QINGMENG_MODEL,
-                "available_models": ollama_models,
-                "model_available": settings.QINGMENG_MODEL in ollama_models if ollama_models else None,
-                "url": settings.QINGMENG_URL,
-                "ollama_url": settings.OLLAMA_URL,
-            },
-            "deepseek": {
-                "label": "DeepSeek 云端",
-                "online": deepseek_configured,
-                "model": settings.DEEPSEEK_MODEL,
-                "url": settings.DEEPSEEK_BASE_URL,
-            },
+        "llm": {
+            "provider": "deepseek",
+            "model": settings.DEEPSEEK_MODEL,
+            "configured": bool(settings.DEEPSEEK_API_KEY),
+            "base_url": settings.DEEPSEEK_BASE_URL,
         },
-        "default_provider": resolve_default_provider(),
     }
 
 
@@ -2376,8 +2275,8 @@ async def _forward_reasoning(path: str, payload: dict, db: Session, current: Use
 
 
 def _simple_fallback(path: str, payload: dict) -> dict:
-    """qingmeng-engine 不可达时的最小兜底。"""
-    v = payload.get("v_base", {})
+    """qingmeng-engine 不可达时的 rule-based 兜底（不再返回空壳）。"""
+    v = payload.get("v_base") or payload.get("v_current") or {}
     if "diagnose" in path:
         return {
             "summary": "·".join(
@@ -2393,13 +2292,7 @@ def _simple_fallback(path: str, payload: dict) -> dict:
             "engine": "backend_fallback",
         }
     if "lifestyle" in path:
-        return {
-            "anchor": {"state": "离线模式", "yi": "养生", "ji": "辛辣"},
-            "timeline": [], "cloth_reminders": [], "food_good": [],
-            "food_bad": [], "home_reminders": [],
-            "absolute_avoid": [], "relative_avoid": [],
-            "engine": "backend_fallback",
-        }
+        return _fallback_lifestyle(v, payload)
     if "treatment" in path:
         return {
             "current_assessment": "离线模式",
@@ -2408,6 +2301,117 @@ def _simple_fallback(path: str, payload: dict) -> dict:
             "updated_guidance": [], "engine": "backend_fallback",
         }
     return {"engine": "backend_fallback", "note": "unknown path"}
+
+
+# ═══════════════════════════════════════════════════════════
+# Rule-based lifestyle fallback — 根据 v_base 五形向量 + 今日干支生成建议
+# 不用 LLM，靠中医五行生克硬规则，离线也能给有用建议
+# ═══════════════════════════════════════════════════════════
+def _fallback_lifestyle(v: dict, payload: dict) -> dict:
+    from datetime import date
+    from ...utils.trajectory_algorithm import get_liunian, ganzhi_main_elem
+
+    # 1. 今日干支
+    today = date.today()
+    ln = get_liunian(today.year)
+    day_elem = ganzhi_main_elem(ln["g"], ln["z"])  # 今日五行主气
+
+    # 2. v_base 五形 → 找最弱/最旺
+    WUXING = ["wood", "fire", "earth", "metal", "water"]
+    WX_CN = {"wood": "木", "fire": "火", "earth": "土", "metal": "金", "water": "水"}
+    WX_COLOR = {"wood": "青绿", "fire": "赤红", "earth": "黄褐", "metal": "白灰", "water": "黑蓝"}
+    WEAK_FOOD = {
+        "wood": ["菠菜", "芹菜", "韭菜", "青梅", "枸杞"],
+        "fire": ["红枣", "桂圆", "樱桃", "番茄"],
+        "earth": ["山药", "薏米", "南瓜", "红薯"],
+        "metal": ["雪梨", "银耳", "百合", "莲藕"],
+        "water": ["黑豆", "黑芝麻", "海带", "栗子"],
+    }
+    STRONG_AVOID = {
+        "wood": ["辛辣", "茴香", "花椒"],  # 木旺火 → 火过旺需忌
+        "fire": ["煎炸", "烧烤", "辣椒"],   # 火生土 → 土过旺需忌
+        "earth": ["油腻", "甜品", "蜂蜜"],   # 土生金 → 金过旺需忌
+        "metal": ["生冷", "冰饮", "生菜"],   # 金生水 → 水过旺需忌
+        "water": ["咸腌", "酱菜", "盐"],     # 水生木 → 木过旺需忌
+    }
+
+    scores = {w: v.get(w, 50) for w in WUXING}
+    weak = min(scores, key=scores.get)   # 最弱
+    strong = max(scores, key=scores.get)  # 最旺
+
+    # 3. 穿衣建议（补最弱）
+    cloth_good = [{
+        "id": "cloth-1",
+        "title": f"多穿{WX_COLOR[weak]}系",
+        "desc": f"补{WX_CN[weak]}形，抑制{WX_CN[strong]}形过旺",
+        "reason": f"v_base {WX_CN[weak]}={scores[weak]:.0f}（最低），{WX_CN[strong]}={scores[strong]:.0f}（最高）",
+    }]
+    cloth_bad = []
+    if day_elem == strong:
+        cloth_bad.append({
+            "id": "cloth-avoid-day",
+            "title": f"忌穿{WX_COLOR[day_elem]}系",
+            "desc": f"今日{WX_CN[day_elem]}主气，穿同色助旺过甚",
+            "reason": f"今日干支 {ln['g']}{ln['z']} 主气 {WX_CN[day_elem]}",
+        })
+
+    # 4. 饮食建议
+    food_good = [{
+        "id": "food-1",
+        "title": f"宜吃{WEAK_FOOD[weak][0]}等补{WX_CN[weak]}食物",
+        "desc": "、".join(WEAK_FOOD[weak]) + f" — 按相生律补{WX_CN[weak]}形",
+        "reason": f"五形相生：弱{WX_CN[weak]}需要滋养",
+    }]
+    food_bad = [{
+        "id": "food-bad-1",
+        "title": f"忌{STRONG_AVOID[strong][0]}",
+        "desc": "、".join(STRONG_AVOID[strong]) + f" — 避免助{WX_CN[strong]}形过旺",
+        "reason": f"{WX_CN[strong]}形分数 {scores[strong]:.0f} 最高",
+    }]
+
+    # 5. 今日宜忌（干支 + v_base 综合）
+    yi_text = f"今日{WX_CN[day_elem]}日·宜{WX_COLOR[weak]}系·养{WX_CN[weak]}形"
+    ji_text = f"忌穿{WX_COLOR[strong]}系·忌{STRONG_AVOID[strong][0]}等助{WX_CN[strong]}食物"
+
+    # 6. 住房/作息提醒
+    home = []
+    if strong == "fire":
+        home.append({"id": "home-1", "title": "午后宜独处静养", "desc": "火形旺易焦躁，避开午后阳气盛时段"})
+    if weak == "water":
+        home.append({"id": "home-2", "title": "亥时泡脚养肾", "desc": "21:00-23:00 是肾经主时，泡脚 40℃/15min"})
+    if weak == "earth":
+        home.append({"id": "home-3", "title": "辰时养胃", "desc": "7:00-9:00 辰时脾经旺，宜温热早餐"})
+
+    # 7. 禁忌
+    absolute = []
+    relative = []
+    if scores[strong] - scores[weak] > 25:
+        relative.append({
+            "id": "rel-1",
+            "title": f"慎用过{WX_CN[strong]}类事物",
+            "desc": f"避免{WX_CN[strong]}形进一步过旺（差值 {scores[strong]-scores[weak]:.0f}）",
+            "reason": "五形差 > 25 触发警示",
+        })
+
+    return {
+        "anchor": {
+            "ganzhi": f"{ln['g']}{ln['z']}",
+            "state": "rule-based",
+            "yi": yi_text,
+            "ji": ji_text,
+            "dangling_elem": WX_CN[weak],
+            "feixing": f"补{WX_CN[weak]}抑{WX_CN[strong]}",
+        },
+        "timeline": [],
+        "cloth_reminders": cloth_good + cloth_bad,
+        "food_good": food_good,
+        "food_bad": food_bad,
+        "home_reminders": home,
+        "absolute_avoid": absolute,
+        "relative_avoid": relative,
+        "engine": "backend_fallback_rule",
+        "note": "青檬引擎暂不可用，以下为 rule-based 五行建议",
+    }
 
 
 class DiagnoseIn(BaseModel):
@@ -3276,8 +3280,7 @@ async def inquiry_start(
     """启动新的问诊会话 → 返回第一阶段问题清单。"""
     from ...models import InquirySession
 
-    # 1. 注入用户上下文（含身高体重 + LLM provider）
-    provider = (body.get("provider") if body else None) or resolve_default_provider()
+    # 1. 注入用户上下文（含身高体重）
     case = db.query(Case).filter(Case.user_id == current.id).first()
     v_base = case.v_baseline if case else _DEFAULT_V_INNATE
     v_innate = case.v_innate if case else _DEFAULT_V_INNATE
@@ -3306,7 +3309,6 @@ async def inquiry_start(
         "v_base": v_base,
         "bazi": case.bazi if case else None,
         "syndrome": case.syndrome if case else None,
-        "llm_provider": provider,
     }
 
     # 2. 创建 session
@@ -3522,10 +3524,9 @@ async def _generate_stage_questions(
 """.strip()},
     ]
 
-    # 调 LLM（尊重 user_context 里的 llm_provider）
+    # 调 LLM（全局 DeepSeek）
     raw_text = None
-    provider = user_context.get("llm_provider") or resolve_default_provider()
-    if provider == "deepseek" and settings.DEEPSEEK_API_KEY:
+    if settings.DEEPSEEK_API_KEY:
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 r = await client.post(
@@ -3540,24 +3541,6 @@ async def _generate_stage_questions(
                 )
                 if r.status_code == 200:
                     raw_text = r.json()["choices"][0]["message"]["content"]
-        except Exception:
-            pass
-    else:
-        # SPUM 本地
-        try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                h = await client.get(f"{settings.QINGMENG_URL}/health")
-                if h.status_code == 200:
-                    r = await client.post(
-                        f"{settings.QINGMENG_URL}/v1/chat/completions",
-                        json={
-                            "model": settings.QINGMENG_MODEL,
-                            "messages": messages,
-                            "max_tokens": 1200,
-                        }
-                    )
-                    if r.status_code == 200:
-                        raw_text = r.json()["choices"][0]["message"]["content"]
         except Exception:
             pass
 
@@ -3635,8 +3618,7 @@ async def _generate_summary(
     ]
 
     raw_text = None
-    provider = user_context.get("llm_provider") or resolve_default_provider()
-    if provider == "deepseek" and settings.DEEPSEEK_API_KEY:
+    if settings.DEEPSEEK_API_KEY:
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 r = await client.post(
@@ -3651,20 +3633,6 @@ async def _generate_summary(
                 )
                 if r.status_code == 200:
                     raw_text = r.json()["choices"][0]["message"]["content"]
-        except Exception:
-            pass
-    else:
-        # SPUM 本地
-        try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                h = await client.get(f"{settings.QINGMENG_URL}/health")
-                if h.status_code == 200:
-                    r = await client.post(
-                        f"{settings.QINGMENG_URL}/v1/chat/completions",
-                        json={"model": settings.QINGMENG_MODEL, "messages": messages, "max_tokens": 800}
-                    )
-                    if r.status_code == 200:
-                        raw_text = r.json()["choices"][0]["message"]["content"]
         except Exception:
             pass
 

@@ -21,7 +21,7 @@ const DEFAULTS = {
   share_data_anonymous: true,
   primary_goal: 'dispatch_qi',
   secondary_goal: 'warm_earth',
-  llm_provider: 'deepseek',
+  // llm_provider 已删除 — 全局只用 DeepSeek
 }
 
 export const useSettingsStore = defineStore('settings', {
