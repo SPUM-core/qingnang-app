@@ -237,6 +237,7 @@ function computeYinYangModel (elems, innate, events) {
 }
 
 const useNewMode = computed(() => !!props.trajectory)
+const _prevMode = ref(null)   // 跟踪 renderYinYang/renderLegacy 切换，切换时强制 chart.clear()
 
 // ═══ 动态背景（顶端先天五行色 → 中轴白 → 底端黑）═══
 const dominantBg = ref('')   // 默认深绿，render 时由 refreshPalette 赋值
@@ -254,6 +255,11 @@ const bgStyle = computed(() => ({
 // ═══════════════════════════════════════════════════════════
 const render = () => {
   if (!chart) return
+  const mode = useNewMode.value ? 'new' : 'legacy'
+  if (_prevMode.value !== null && _prevMode.value !== mode) {
+    chart.clear()   // ⚠️ 跨模式切换时强制清空：防 ECharts 内部 state（dataZoom/axis/graphic）残留
+  }
+  _prevMode.value = mode
   useNewMode.value ? renderYinYang() : renderLegacy()
 }
 
@@ -1099,7 +1105,7 @@ function renderLegacy () {
       lineStyle: { width: 2, color: C[k].color }, itemStyle: { color: C[k].color, borderColor: WHITE, borderWidth: 1 },
       data: props.series.map(p => p.delta?.[k] ?? null)
     }))
-  })
+  }, true)   // ⚠️ notMerge=true：彻底替换 option，防止 lifetime 旧 series 残留叠画
 }
 
 // ═══════════════════════════════════════════════════════════
