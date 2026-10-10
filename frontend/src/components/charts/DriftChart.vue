@@ -615,6 +615,7 @@ function renderYinYang () {
 
         // ═══ 三态判定（v3 用 5D zone 分岔 / v2 用 stateFlags，fallback inZone）═══
         let zoneTag = ''
+        const st = stateFlags?.[idx]  // ⚠️ 提前定义：L651 subhealthy 检查在 v3/v2 分支外，v3 路径也需要
         if (isWxFb) {
           const g = gapData?.[idx]
           if (g === 0) {
@@ -625,7 +626,6 @@ function renderYinYang () {
             zoneTag = `<span style="color:#7BC4A9;margin-left:6px;">健康区间内（生克制约在度）</span>`
           }
         } else {
-          const st = stateFlags?.[idx]
           if (st === 'disease') {
             zoneTag = `<span style="color:#E57373;margin-left:6px;">⚠️ 已穿出有效边界（疾病态）</span>`
           } else if (st === 'subhealthy') {
@@ -1143,10 +1143,18 @@ onBeforeUnmount(() => {
 
 watch(() => props.trajectory, async () => {
   await nextTick()
-  if (chart) { chart.resize(); render() }
+  // ECharts 5.5+ 要求 resize/setOption 不在 Vue 同步更新周期内
+  // 再等一帧确保脱离 Vue scheduler 的 flush
+  if (chart) setTimeout(() => { chart.resize(); render() }, 0)
   else await tryInit()
 }, { deep: true })
-watch(() => props.series, () => { if (!useNewMode.value) chart ? render() : tryInit() }, { deep: true })
+watch(() => props.series, async () => {
+  await nextTick()
+  if (!useNewMode.value) {
+    if (chart) setTimeout(render, 0)
+    else await tryInit()
+  }
+}, { deep: true })
 </script>
 
 <style scoped>
