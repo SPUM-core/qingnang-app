@@ -365,10 +365,14 @@ def steady_state(rho0: Dict[str, float],
     theta = last['theta']
 
     # 虚实分类
+    # 2026-10-10 修复：classify_virtual 的标签体系为 IN/CRIT/实/虚，
+    # 旧实现按 '临界'/'带内' 消费 → weak_virtual['临界']/['带内'] 恒空，
+    # CRIT（临界）状态被静默丢弃。此处按 zone_of 的原始标签 IN/CRIT 归集。
     vtags = classify_virtual(s, theta)
     weak = [d for d, t in vtags.items() if t == '虚']
     strong = [d for d, t in vtags.items() if t == '实']
-    critical = [d for d, t in vtags.items() if t == '临界']
+    critical = [d for d, t in vtags.items() if t == 'CRIT']
+    in_band = [d for d, t in vtags.items() if t == 'IN']
 
     # 动态耐受强度 u*（从当前稳态 s 起扫：u* 随状态/调平移动）
     tolerance_u = _compute_tolerance(rho0, A, theta, n_steps, s_start=s)
@@ -378,7 +382,7 @@ def steady_state(rho0: Dict[str, float],
         'rho': rho,
         'theta': theta,
         'zone': vtags,
-        'weak_virtual': {'虚': weak, '实': strong, '临界': critical, '带内': [d for d, t in vtags.items() if t == '带内']},
+        'weak_virtual': {'虚': weak, '实': strong, '临界': critical, '带内': in_band},
         'tolerance_u': tolerance_u,
         'records': records,  # 调试用
     }

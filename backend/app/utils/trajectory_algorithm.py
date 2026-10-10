@@ -690,10 +690,16 @@ def normalize_S_effective(S_current: dict, S_innate: dict) -> dict:
     s_eff = {}
     for dim in DIMS:
         # 偏移修正 = 先天值 偏离 中心 的量
-        innate_bias = (S_innate.get(dim, 50) or 50) - HEALTH_CENTROID[dim]
+        # 2026-10-10 防护：NaN/None/非数值输入按健康中心兜底，避免污染 σ/判定
+        _inn = S_innate.get(dim, 50)
+        if not isinstance(_inn, (int, float)) or not math.isfinite(_inn):
+            _inn = 50.0
+        innate_bias = _inn - HEALTH_CENTROID[dim]
         # S_effective = S_current - 先天偏移
-        current_raw = S_current.get(dim, 50) or 50
-        s_eff[dim] = current_raw - innate_bias
+        _cur = S_current.get(dim, 50)
+        if not isinstance(_cur, (int, float)) or not math.isfinite(_cur):
+            _cur = 50.0
+        s_eff[dim] = _cur - innate_bias
     # σ 和 τ 保持不变
     s_eff['sigma'] = S_current.get('sigma', 0.5)
     s_eff['tau'] = S_current.get('tau', 0)
@@ -739,10 +745,17 @@ def health_polytope_margin(S_eff: dict,
     margins = {}
     violations = []    # 越界维度
     touches = []       # 触碰维度
+    invalid_dims = []  # 非有限数值维度（2026-10-10 防护）
 
     for dim in DIMS:
         lo, hi = HEALTH_POLYTOPE[dim]
         val = S_eff.get(dim, HEALTH_CENTROID[dim])
+
+        # 2026-10-10 防护：NaN/Inf 等非有限数值 → 标记 INVALID 而非误判 IN/ON/OUT
+        if not isinstance(val, (int, float)) or not math.isfinite(val):
+            invalid_dims.append(dim)
+            margins[dim] = {'lo': None, 'hi': None}
+            continue
 
         margin_lo = val - lo
         margin_hi = hi - val
@@ -757,7 +770,9 @@ def health_polytope_margin(S_eff: dict,
             touches.append(dim)
 
     # status 判定
-    if violations:
+    if invalid_dims:
+        status = 'INVALID'
+    elif violations:
         status = 'OUT'
     elif touches:
         status = 'ON'
@@ -777,6 +792,7 @@ def health_polytope_margin(S_eff: dict,
         'violations': [(d, b, round(v, 2)) for d, b, v in violations],
         'violation_depth': round(violation_depth, 2),
         'violation_dim': violation_dim,
+        'invalid_dims': invalid_dims,
     }
 
 
@@ -1108,6 +1124,76 @@ def compute_health_bounds_v2(elems: list, innate: Optional[dict] = None,
                 if h_next > h_cur:  # 条件③弹回
                     spike_down[i] = True
 
+    # Phase 2.5c: 5D 根判定增强尖峰（S₀ 中心化 · 2026-10-10 新增）
+    #
+    # 设计意图（algorithm.md 尖峰触边判定核实结论）：
+    #   ① 快   = |Δh| ≥ spikeThresh（与 2.5a 相同，2D 投影层速度）
+    # ① 快   = |Δ drift| > 基础阈值（SPIKE_BASIC_THRESH）
+    # ② 顶   = 5D 健康多面体 H 触边（margin ≤ TOUCH_EPS）或首次越界
+    #            （S_effective 根判定层，替代 EMA 滞后边界）
+    # ③ 弹   = 下一帧 drift 反向且回落幅度 ≥ 30% 当前速度（子类型，非必要条件）
+    #
+    # 2026-10-10 按《尖峰触边判定_核实结论》4.1 落地：弹回从必要条件降为子类型。
+    #   - 尖峰 + 弹回（rebound=True） = 弹性尚可（金形仍在工作）
+    #   - 尖峰 + 不回（rebound=False）= 弹性失效（金形修剪不足，需干预）
+    # 若仍把弹回当必要条件，穿出后持续恶化的帧永远不会被标为尖峰（acuteDeviation 盲区）。
+    #
+    # 旧实现仅以 EMA 滞后边界为"顶"，边界随信号漂移 → 实测任何场景
+    # （平稳/冲击/终身推演）都撞不上，尖峰判定功能失效（P1-01）。
+    spike_up_5d = [False] * n
+    spike_down_5d = [False] * n
+    rebound_up = [False] * n
+    rebound_down = [False] * n
+    for i in range(1, n - 1):
+        h_prev = drift_data[i - 1]
+        h_cur = drift_data[i]
+        h_next = drift_data[i + 1]
+        delta = h_cur - h_prev
+        if abs(delta) <= SPIKE_BASIC_THRESH:
+            continue  # ① 不快 → 跳过
+
+        m = S_vectors[i]['margin']
+        m_prev_status = S_vectors[i - 1]['margin']['status'] if i >= 1 else 'IN'
+        touch_up = any(m['margins'][d]['hi'] is not None and
+                       m['margins'][d]['hi'] <= TOUCH_EPS for d in DIMS)
+        touch_dn = any(m['margins'][d]['lo'] is not None and
+                       m['margins'][d]['lo'] <= TOUCH_EPS for d in DIMS)
+        first_viol_up = (m['status'] == 'OUT' and m_prev_status != 'OUT' and
+                         any(b == 'hi' for _, b, _ in m['violations']))
+        first_viol_dn = (m['status'] == 'OUT' and m_prev_status != 'OUT' and
+                         any(b == 'lo' for _, b, _ in m['violations']))
+
+        if delta > 0:
+            # 上冲触上边界 / 首越上界 → 尖峰（弹回为子类型标记）
+            if touch_up or first_viol_up:
+                spike_up_5d[i] = True
+                rebound_up[i] = h_next < h_cur
+        else:
+            # 下冲触下边界 / 首越下界 → 尖峰（弹回为子类型标记）
+            if touch_dn or first_viol_dn:
+                spike_down_5d[i] = True
+                rebound_down[i] = h_next > h_cur
+
+    # 合并 EMA 路径与 5D 路径（保留原有判定 + 新增根判定，互不覆盖）
+    spike_up = [a or b for a, b in zip(spike_up, spike_up_5d)]
+    spike_down = [a or b for a, b in zip(spike_down, spike_down_5d)]
+
+    # 速度 / 方向序列（S₀ 中心化曲线的一阶差分；前端 tooltip 与形态判定用）
+    velocity = [0.0] * n
+    direction = ['flat'] * n
+    for i in range(1, n):
+        _v = drift_data[i] - drift_data[i - 1]
+        velocity[i] = round(_v, 3)
+        direction[i] = 'up' if _v > 1e-9 else ('down' if _v < -1e-9 else 'flat')
+
+    # S₀ 中心化后的漂移（去均值，均值回归到 0 轴；旧 driftData 以 EMA 中心为参考）
+    _mean = sum(drift_data) / n if n else 0.0
+    drift_centered = [round(h - _mean, 3) for h in drift_data]
+
+    # 先天偏置向量（S₀ 中心化设计：S_effective = S_current − (S₀ − C)）
+    centroid_bias = {d: round((innate.get(d, 50) or 50) - HEALTH_CENTROID[d], 2)
+                     for d in DIMS}
+
     # Phase 2.5b: 三态 + 原有疾病模式联合判定
     state_flags = ['healthy'] * n  # healthy / subhealthy / disease
     disease_modes = [None] * n
@@ -1221,6 +1307,14 @@ def compute_health_bounds_v2(elems: list, innate: Optional[dict] = None,
         'stateFlags': state_flags,        # ['healthy'|'subhealthy'|'disease'] * n
         'spikeUp': spike_up,              # [bool] * n — 撞上边界（yinTop）尖峰
         'spikeDown': spike_down,          # [bool] * n — 撞下边界（yangBot）尖峰
+        'spikeUp5d': spike_up_5d,         # [bool] * n — 5D 根判定触边尖峰（2026-10-10）
+        'spikeDown5d': spike_down_5d,     # [bool] * n — 5D 根判定触边尖峰
+        'reboundUp': rebound_up,          # [bool] * n — 上冲尖峰弹回子类型（金形弹性尚可）
+        'reboundDown': rebound_down,      # [bool] * n — 下冲尖峰弹回子类型（金形弹性尚可）
+        'velocity': velocity,             # [float] * n — 漂移速度（一阶差分）
+        'direction': direction,           # ['up'|'down'|'flat'] * n — 漂移方向
+        'driftCentered': drift_centered,  # [float] * n — S₀ 中心化漂移（去均值）
+        'centroidBias': centroid_bias,    # {dim: float} — 先天偏置向量（S₀ − C）
         'adaptiveParams': {               # viewMode 自适应参数（前端调试用）
             'isYearView': is_year_view,
             'spikeThresh': SPIKE_BASIC_THRESH,
@@ -1352,6 +1446,15 @@ def build_year_view_v2(innate: dict, dayun: list, age_start: int = 0,
         'stateFlags': bounds_v2['stateFlags'],
         'spikeUp': bounds_v2['spikeUp'],
         'spikeDown': bounds_v2['spikeDown'],
+        # 2026-10-10 新增：5D 触边尖峰 + 弹回子类型 + 速度/方向 + S₀ 中心化漂移
+        'spikeUp5d': bounds_v2['spikeUp5d'],
+        'spikeDown5d': bounds_v2['spikeDown5d'],
+        'reboundUp': bounds_v2['reboundUp'],
+        'reboundDown': bounds_v2['reboundDown'],
+        'velocity': bounds_v2['velocity'],
+        'direction': bounds_v2['direction'],
+        'driftCentered': bounds_v2['driftCentered'],
+        'centroidBias': bounds_v2['centroidBias'],
         'adaptiveParams': bounds_v2['adaptiveParams'],
         # v2 深层分析（S 向量 / σ / 凸多面体 margin）
         'S_vectors': bounds_v2['S_vectors'],
@@ -1441,9 +1544,10 @@ def wuxing_frame_analysis(innate: dict,
 
         # weak_virtual dict keys 里加带内
         wv = result['weak_virtual']
-        # normalize keys
+        # normalize keys（2026-10-10：zone 标签体系为 IN/CRIT/实/虚，
+        # 旧写法把 CRIT 也计入带内、'临界' 恒空 —— 修正为精确语义）
         zone_map = result['zone']
-        in_zone = [d for d, z in zone_map.items() if z not in ('实', '虚', '临界')]
+        in_zone = [d for d, z in zone_map.items() if z == 'IN']
 
         return {
             's': {d: round(result['s'][d], 4) for d in WX_DIMS},
@@ -1453,7 +1557,7 @@ def wuxing_frame_analysis(innate: dict,
             'weak_virtual': {
                 '虚': wv.get('虚', []),
                 '实': wv.get('实', []),
-                '临界': [d for d, z in zone_map.items() if z == '临界'],
+                '临界': [d for d, z in zone_map.items() if z == 'CRIT'],
                 '带内': in_zone,
             },
             'tolerance_u': tol,
@@ -1613,7 +1717,9 @@ def build_year_view_v3(innate: dict, dayun: list, age_start: int = 0,
     A_mat = wx_build_A()
 
     # 先天向量 → 相对构型 → 势能基底（柔和映射，仅形状；无观测绝对水平）
-    v_rel = wx_to_relative({d: float(innate.get(d, 20.0)) for d in WX_DIMS})
+    # 2026-10-10 口径统一：缺省 50.0 与 v2 HEALTH_CENTROID 一致（旧 20.0 使
+    # 未传 innate 时 v3 rho0 与 v2 语义不同；to_relative 对中心不敏感但保持一致性）
+    v_rel = wx_to_relative({d: float(innate.get(d, 50.0)) for d in WX_DIMS})
     rho0 = wx_rho0_from_rel(v_rel, equilibrium=1.0)
 
     # ── 注入标定（2026-10-08 修复）──────────────────────────────
@@ -1778,8 +1884,9 @@ def build_jieqi_view_v3(calendar_year: int, dayun_active_gz: dict,
         return v2
 
     # 构造 rho0（如果给了 innate，用它；否则用均匀 1.0 基底）
+    # 2026-10-10 口径统一：缺省 50.0 与 v2 HEALTH_CENTROID 一致
     if innate:
-        v_rel = wx_to_relative({d: float(innate.get(d, 20.0)) for d in WX_DIMS})
+        v_rel = wx_to_relative({d: float(innate.get(d, 50.0)) for d in WX_DIMS})
         rho0 = wx_rho0_from_rel(v_rel, equilibrium=1.0)
     else:
         rho0 = {d: 1.0 for d in WX_DIMS}

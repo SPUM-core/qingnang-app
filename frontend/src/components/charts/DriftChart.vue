@@ -289,7 +289,8 @@ function renderYinYang () {
   const n = elems.length
 
   let yangLine, yinLine, driftData, diseaseModes, rawYangMax, rawYinMax,
-    dominantColor, dominantLabel, dominant, stateFlags, spikeUp, spikeDown
+    dominantColor, dominantLabel, dominant, stateFlags, spikeUp, spikeDown,
+    spikeUp5d, spikeDown5d, velocityArr, directionArr, driftCenteredArr
 
   // ═══ v3 Wuxing-FB 信号检测 + gap 预计算（提前到 options 外面，避免嵌套三元让 parser 混淆）═══
   const slice = arr => (arr || []).slice(0, n)   // 必须先声明！gapData 要用到
@@ -460,6 +461,13 @@ function renderYinYang () {
     stateFlags  = slice(traj.stateFlags)
     spikeUp     = slice(traj.spikeUp)      // 后端撞 yinTop（正）→ 前端正方向
     spikeDown   = slice(traj.spikeDown)    // 后端撞 yangBot（负）→ 前端负方向
+
+    // 2026-10-10 新增：5D 触边尖峰 + 速度/方向 + S₀ 中心化漂移（后端 v2 增强字段）
+    spikeUp5d     = slice(traj.spikeUp5d)
+    spikeDown5d   = slice(traj.spikeDown5d)
+    velocityArr   = slice(traj.velocity)
+    directionArr  = slice(traj.direction)
+    driftCenteredArr = slice(traj.driftCentered)
 
     // 先天主色：偏离 50 最远的那个五行
     dominant = 'wood'; let maxDev = 0
@@ -644,10 +652,21 @@ function renderYinYang () {
         // ═══ 尖峰触边细节（健康态本帧是尖峰也标记）═══
         const isSpike = spikeUp?.[idx] || spikeDown?.[idx]
         if (isSpike) {
+          const spikeSrc5d = spikeUp5d?.[idx] || spikeDown5d?.[idx]
           const spikeDir = spikeUp?.[idx]
             ? `<span style="color:#DA6C57;">上撞阴界</span>`
             : `<span style="color:#4C90AF;">下撞阳界</span>`
-          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(249,168,37,0.15);border-left:3px solid #F9A825;border-radius:3px;font-size:${fs(11)}px;color:#FFD54F;">⚡ ${spikeDir}·快冲→触边→弹回（2D投影，耦合信息已丢失）</div>`
+          // 2026-10-10：弹回降级为子类型（金形弹性状态），不回弹=金形失职需干预
+          let reboundTag = ''
+          if (spikeSrc5d) {
+            const reb = (spikeUp5d?.[idx] ? reboundUp?.[idx] : reboundDown?.[idx])
+            reboundTag = reb
+              ? `<span style="color:#7BC4A9;">弹回·金形弹性尚可</span>`
+              : `<span style="color:#E57373;">未弹回·金形修剪不足</span>`
+          }
+          // ⚠️ 2D 路径（老算法）无后端弹回标记 → 不说弹回（之前硬编码 '→弹回' 误导）
+          const spikeTail = reboundTag ? `·${reboundTag}` : (spikeSrc5d ? '' : '（2D EMA 路径无弹回判定）')
+          h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(249,168,37,0.15);border-left:3px solid #F9A825;border-radius:3px;font-size:${fs(11)}px;color:#FFD54F;">⚡ ${spikeDir}·快冲→触边${spikeTail}（${spikeSrc5d ? '5D健康多面体根判定' : '2D投影EMA路径'}）</div>`
         } else if (st === 'subhealthy') {
           let upHit = 0, dnHit = 0
           const wh = 2  // 窗口半宽（老算法路径 fallback）
@@ -659,6 +678,20 @@ function renderYinYang () {
           }
           const dirLabel = upHit >= dnHit ? `上撞阴界${upHit}次` : `下撞阳界${dnHit}次`
           h += `<div style="margin-top:4px;padding:3px 6px;background:rgba(249,168,37,0.15);border-left:3px solid #F9A825;border-radius:3px;font-size:${fs(11)}px;color:#FFD54F;">反复撞边弹回·${dirLabel}·金形弹性持续紧张（2D投影）</div>`
+        }
+
+        // ═══ 2026-10-10：速度/方向（S₀ 中心化漂移一阶差分）═══
+        const vel = velocityArr?.[idx]
+        if (vel != null) {
+          const vDir = directionArr?.[idx]
+          const vColor = vDir === 'up' ? '#DA6C57' : vDir === 'down' ? '#4C90AF' : TEXT
+          const vLabel = vDir === 'up' ? '上行' : vDir === 'down' ? '下行' : '持平'
+          h += `<div style="margin-top:2px;font-size:${fs(10)}px;opacity:0.8;">速度 <span style="color:${vColor};font-weight:600;">${vel >= 0 ? '+' : ''}${vel.toFixed(3)}</span> /帧 · ${vLabel}`
+          if (driftCenteredArr?.[idx] != null) {
+            const dc = driftCenteredArr[idx]
+            h += ` · 中心化漂移 <span style="color:${dc >= 0 ? '#DA6C57' : '#4C90AF'};">${dc >= 0 ? '+' : ''}${dc.toFixed(3)}</span>`
+          }
+          h += `</div>`
         }
 
         // ═══ v2 SPUM 理论数据段（紧凑单行）═══
