@@ -221,57 +221,21 @@
       :stone-select="stoneSelect"
     />
 
-    <!-- ════ 第二行：待办卡片网格 ════ -->
-    <template v-if="maturity?.stage >= 2">
-    <div class="section-head">
-      <h2 class="section-title"><QIcon name="doc" :size="15" /> 今日生活建议</h2>
-      <div class="seg-control">
-        <button v-for="t in segTabs" :key="t.key" class="seg-btn"
-                :class="{ active: activeFilter === t.key }" @click="activeFilter = t.key">
-          {{ t.label }}
-        </button>
-      </div>
-    </div>
-
-    <!-- 待办卡片网格 -->
-    <div v-if="activeFilter !== 'archived'" class="todo-grid">
-      <TodoCard
-        v-for="todo in filteredTodos"
-        :key="todo.id"
-        :todo="todo"
-        :feedbacks="getFeedbacks(todo.id)"
-        @open-detail="openDetailModal"
-        @open-punch="openPunchModal"
-      />
-      <div v-if="!filteredTodos.length" class="todo-empty">
-        没有匹配的待办
-      </div>
-    </div>
-
-    <!-- 归档视图 -->
-    <div v-else class="archive-view">
-      <div class="archive-summary" v-if="archivedDays > 0">
-        <p>共 <strong>{{ archivedDays }}</strong> 天归档 · <strong>{{ totalFeedbacks }}</strong> 条反馈 · 用作复诊诊断数据</p>
-      </div>
-      <div v-if="archives.length" class="archive-list">
-        <details v-for="arc in archives" :key="arc.date" class="archive-day">
-          <summary class="archive-day-head">
-            <span class="archive-date">{{ arc.date }}</span>
-            <span class="archive-todo-count">{{ arc.todos.length }} 项</span>
-            <span class="archive-fb-count"><QIcon name="chat" :size="11" /> {{ arc.totalFeedbacks }} 条反馈</span>
-          </summary>
-          <div class="archive-day-body">
-            <div v-for="t in arc.todos" :key="t.id" class="archive-todo">
-              <span class="archive-todo-title">{{ t.title }}</span>
-              <span class="archive-exec" :class="'exec-' + t.exec_status">{{ execLabel(t.exec_status) }}</span>
-              <span v-if="t.feedbacks?.length" class="archive-fb">{{ t.feedbacks.length }}条反馈</span>
-            </div>
-          </div>
-        </details>
-      </div>
-      <p v-else class="placeholder">暂无归档 · 完成今日待办后，每日自动归档</p>
-    </div>
-    </template>
+    <!-- ════ 第二行：待办卡片网格 + 归档视图
+         已抽离 → modules/LifeAdviceCard.vue（M8 PunchModal / M9 DetailModal 留在装配层） ════ -->
+    <LifeAdviceCard
+      :maturity-stage="maturity?.stage ?? 0"
+      v-model:filter="activeFilter"
+      :seg-tabs="segTabs"
+      :filtered-todos="filteredTodos"
+      :feedbacks-map="feedbacksMap"
+      :archives="archives"
+      :archived-days="archivedDays"
+      :total-feedbacks="totalFeedbacks"
+      :exec-label-fn="execLabel"
+      @open-punch="openPunchModal"
+      @open-detail="openDetailModal"
+    />
 
     <!-- ════ 打卡弹窗（v-if/v-else 链之外，独立渲染） ════ -->
     <Teleport to="body">
@@ -441,6 +405,7 @@ import PullRefreshBar from '../modules/PullRefreshBar.vue'
 import HeroTodoCard from '../modules/HeroTodoCard.vue'
 import HeroDailyTipsCard from '../modules/HeroDailyTipsCard.vue'
 import LifestyleReminderCard from '../modules/LifestyleReminderCard.vue'
+import LifeAdviceCard from '../modules/LifeAdviceCard.vue'
 // mock 数据已移除——所有内容从后端 API / reasoning 端点实时获取
 // 后端不可达时为空占位，不展示任何其他用户的病历数据
 
@@ -578,14 +543,14 @@ const heroTodo = computed(() => {
 })
 function goPending() {
   activeFilter.value = 'pending'
-  document.querySelector('.section-head')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  nextTick(() => document.querySelector('.scroll-target-advice')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
 }
 function goCase() {
   router.push({ name: 'case' })
 }
 function openReminders() {
   remExpanded.value = true
-  nextTick(() => document.querySelector('.reminders-mini')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  nextTick(() => document.querySelector('.scroll-target-life')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
 }
 
 // 精选筛选（压缩版：分类选 2 条 + 全部宜 3 条）
@@ -803,6 +768,13 @@ function saveFeedbacks() {
 
 const feedbacks = ref(loadFeedbacks())
 function getFeedbacks(todoId) { return feedbacks.value[todoId] || [] }
+
+// ⭐ 预计算 feedbacksMap — LifeAdviceCard 组件需要 object 形式 (避免模板里函数调用)
+const feedbacksMap = computed(() => {
+  const map = {}
+  for (const t of todos.value) map[t.id] = feedbacks.value[t.id] || []
+  return map
+})
 
 const todos = ref(loadToday())
 watch(todos, saveToday, { deep: true })
@@ -1444,56 +1416,7 @@ function _applyLifestyleResult(d) {
 
 /* M10 体质趋势雷达 → modules/TrendRadarCard.vue scoped */
 
-/* ── 分区标题 + 三段分段器 ── */
-.section-head { display: flex; justify-content: space-between; align-items: center; margin: 16px 0 12px; gap: 12px; flex-wrap: wrap; }
-.section-title { font-size: calc(18px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-ink); margin: 0; letter-spacing: 0.5px; }
-.seg-control { display: flex; background: var(--qn-surface); border: 1px solid var(--qn-line); border-radius: var(--qn-r-pill); overflow: hidden; }
-.seg-btn {
-  font-size: calc(13px * var(--qn-fs-scale)); padding: 7px 18px; border: none; background: transparent;
-  color: var(--qn-ink-3); cursor: pointer; transition: all 0.15s; white-space: nowrap;
-}
-.seg-btn:hover { color: var(--qn-emerald); }
-.seg-btn.active { background: var(--qn-emerald); color: var(--qn-paper); font-weight: 500; }
-
-/* ── 待办卡片网格 ── */
-.todo-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  grid-auto-rows: 1fr;         /* 关键：每行等高，让卡片内部 flex 布局生效 */
-  gap: 16px;
-}
-.todo-grid > * { height: 100%; }  /* 子元素（TodoCard）撑满网格单元格 */
-.todo-empty { grid-column: 1 / -1; text-align: center; padding: 30px; color: var(--qn-ink-3); font-size: calc(13px * var(--qn-fs-scale)); }
-
-/* ── 归档 ── */
-.archive-summary { background: var(--qn-paper); border-radius: var(--qn-r-sm); padding: 12px 16px; margin-bottom: 12px; font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink-2); }
-.archive-summary strong { color: var(--qn-emerald); font-weight: 600; }
-.archive-list { display: flex; flex-direction: column; gap: 8px; }
-/* ⚠️ border 已删 */
-.archive-day { background: var(--qn-surface); border-radius: var(--qn-r-sm); overflow: hidden; }
-.archive-day-head {
-  padding: 12px 16px; cursor: pointer;
-  display: flex; gap: 14px; align-items: center; font-size: calc(13px * var(--qn-fs-scale));
-  transition: background 0.15s;
-}
-.archive-day-head:hover { background: var(--qn-paper); }
-.archive-date { font-weight: 600; color: var(--qn-emerald); font-family: var(--font-mono); }
-.archive-todo-count { color: var(--qn-ink-2); }
-.archive-fb-count { color: var(--qn-ink-3); margin-left: auto; font-size: calc(12px * var(--qn-fs-scale)); }
-.archive-day-body { padding: 8px 16px 16px; border-top: 1px solid var(--qn-line); background: var(--qn-paper); }
-.archive-todo {
-  display: flex; gap: 10px; align-items: center;
-  padding: 6px 8px; font-size: calc(12px * var(--qn-fs-scale));
-  border-radius: 4px;
-}
-.archive-todo-title { flex: 1; color: var(--qn-ink); }
-.archive-exec { font-size: calc(11px * var(--qn-fs-scale)); padding: 1px 6px; border-radius: 3px; font-weight: 500; }
-.archive-exec.exec-done { background: rgba(67,160,71,0.1); color: var(--wuxing-wood); }
-.archive-exec.exec-partial { background: rgba(212,160,23,0.1); color: var(--wuxing-earth); }
-.archive-exec.exec-skipped { background: rgba(107,114,119,0.1); color: var(--qn-ink-3); }
-.archive-exec.exec-failed { background: rgba(216,67,21,0.1); color: var(--wuxing-fire); }
-.archive-exec.exec-null { background: var(--qn-paper); color: var(--qn-ink-3); }
-.archive-fb { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
+/* M7 今日生活建议 → modules/LifeAdviceCard.vue scoped */
 
 /* M11 漂移矢量表格 → modules/DriftVectorCard.vue scoped */
 .placeholder { color: var(--qn-ink-3); text-align: center; padding: 40px 16px; font-size: calc(13px * var(--qn-fs-scale)); }
@@ -1502,22 +1425,15 @@ function _applyLifestyleResult(d) {
 @media (max-width: 1024px) {
   .top-row { grid-template-columns: 1fr; }
   .chart-card { min-height: 0; }
-  .todo-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
-  /* M4 英雄卡响应式 → HeroTodoCard.vue + HeroDailyTipsCard.vue scoped */
-  /* M10 体质趋势响应式 → modules/TrendRadarCard.vue scoped */
-  /* M2 / M11 响应式 → modules/* scoped */
+  /* 所有模块响应式 → 各模块 scoped */
 }
-/* —— 小屏字体再压一下 — 归并到 480px 档位（原 640px） —— */
+/* —— 小屏字体再压一下 — 归并到 480px 档位 —— */
 @media (max-width: 480px) {
-  /* M1 / M2 / M4 / M10 / M11 响应式 → 各模块 scoped */
+  /* 所有模块响应式 → 各模块 scoped */
   .anchor-grid { gap: 8px; }
   .ag-cell { padding: 10px 8px; }
   .ag-val { font-size: calc(13px * var(--qn-fs-scale)); }
-  .todo-grid { grid-template-columns: 1fr; }
   .anchor-timeline { flex-direction: column; gap: 10px; }
-  .seg-control { width: 100%; }
-  .seg-btn { flex: 1; padding: 7px 8px; text-align: center; }
-  .rem-lists { grid-template-columns: 1fr; }
 }
 
 /* ═══════════════════════════════════════════════════════════

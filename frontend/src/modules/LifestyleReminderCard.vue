@@ -17,7 +17,7 @@
     update:activeTab   切 Tab
 ══════════════════════════════════════════════════════════════ -->
 <template>
-  <div v-if="maturityStage >= 2" class="card reminders-mini">
+  <div v-if="maturityStage >= 2" class="card reminders-mini scroll-target-life">
     <button class="rem-collapse" @click="$emit('update:expanded', !expanded)">
       <span class="rem-collapse-text">展开全部提醒与禁忌（{{ remTotal }} 条 · 含绝对禁忌与矿物避忌）</span>
       <span class="rem-chevron" :class="{ open: expanded }">›</span>
