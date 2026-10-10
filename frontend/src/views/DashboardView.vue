@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <!-- ══ M1 下拉刷新 + 页面容器
        手势/动画已抽离 → modules/PullRefreshBar.vue ══ -->
   <section class="page home">
@@ -94,111 +94,22 @@
 
     <!-- ════ 第二行：体质调理曲线 + 今日时空锚点（横屏并列） ════ -->
     <div class="top-row">
-      <!-- 左：体质调理曲线（仅当前用户数据） -->
-      <div class="card chart-card">
-        <div class="card-head">
-          <h2>体质曲线</h2>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <div class="view-mode-tabs">
-              <button
-                class="tab-btn"
-                :class="{ active: chartMode === 'current' }"
-                @click="chartMode = 'current'"
-              >当前观测</button>
-              <button
-                class="tab-btn"
-                :class="{ active: chartMode === 'lifetime' }"
-                :disabled="!vectorStore.lifetimeTrajectory"
-                :title="vectorStore.lifetimeTrajectory ? '八字大运+流年终身推演' : '等待推演数据...'"
-                @click="chartMode = 'lifetime'"
-              >终身推演</button>
-            </div>
-            <span class="chip-dv">
-              {{ chartMode === 'lifetime'
-                ? (vectorStore.lifetimeTrajectory?.stateFlags?.length
-                  ? `${vectorStore.lifetimeTrajectory.stateFlags.filter(s => s === 'disease').length}个疾病态`
-                  : '八字推演')
-                : (driftTrajectory ? '综合健康得分' : ('ΔV ' + vectorStore.trendStateLabel)) }}
-            </span>
-          </div>
-        </div>
-        <DriftChart
-          v-if="driftTrajectory || driftSeries.length"
-          :trajectory="driftTrajectory"
-          :series="driftSeries"
-          height="320px"
-          class="curve-chart"
-        />
-        <p v-else class="placeholder curve-empty">暂无观测数据 · 完成一次数据采集后生成调理曲线</p>
-        <!-- ⭐ 2026-10-08: 体质曲线四视图模块入口 -->
-        <div class="chart-footer">
-          <button class="chart-footer-btn" @click="$router.push({ name: 'trajectory' })">
-            <span class="cfb-icon">🌀</span>
-            查看完整体质曲线模块
-            <span class="cfb-arrow">→</span>
-          </button>
-          <span class="chart-footer-hint">SPUM 四视图：终身推演 · 流年气运 · 节气属性 · 调节视图</span>
-        </div>
-      </div>
+      <!-- 左：体质调理曲线 → modules/ConstitutionCurveCard.vue -->
+      <ConstitutionCurveCard
+        v-model:chart-mode="chartMode"
+        :drift-trajectory="driftTrajectory"
+        :drift-series="driftSeries"
+        :lifetime-available="!!vectorStore.lifetimeTrajectory"
+        :chip-text="chartChipText"
+        @navigate="$router.push({ name: 'trajectory' })"
+      />
 
-      <!-- 右：时空锚点（可点 → AI 大白话解读） -->
-      <div class="card chart-card anchor-card clickable" @click="openAnchorExplain">
-        <div class="card-head">
-          <h2><QIcon name="anchor" :size="15" /> 今日时空锚点</h2>
-          <span class="anchor-sub">{{ anchorSafe.ganzhi }} · <span class="ai-hint">点我 AI 解读</span></span>
-        </div>
-        <div class="anchor-grid">
-          <div class="ag-cell">
-            <span class="ag-label">当令时辰</span>
-            <span class="ag-val">{{ anchorSafe.dangling }}</span>
-          </div>
-          <div class="ag-cell">
-            <span class="ag-label">流飞星</span>
-            <span class="ag-val">{{ anchorSafe.feixing }}</span>
-          </div>
-          <div class="ag-cell">
-            <span class="ag-label">十二建除</span>
-            <span class="ag-val">{{ anchorSafe.jianchu }}</span>
-          </div>
-          <div class="ag-cell">
-            <span class="ag-label">冲煞</span>
-            <span class="ag-val warn">{{ anchorSafe.chong }}</span>
-          </div>
-          <div class="ag-cell">
-            <span class="ag-label">煞方</span>
-            <span class="ag-val">{{ anchorSafe.shaxiang }}</span>
-          </div>
-          <div class="ag-cell">
-            <span class="ag-label">值日星辰</span>
-            <span class="ag-val">{{ anchorSafe.richuxing }}</span>
-          </div>
-        </div>
-
-        <!-- 彭祖百忌 + 二十八宿 -->
-        <div class="anchor-extras">
-          <div class="ae-row" v-if="anchorSafe.pengzu">
-            <span class="ae-label">彭祖百忌</span>
-            <span class="ae-val">{{ anchorSafe.pengzu }}</span>
-          </div>
-          <div class="ae-row" v-if="anchorSafe.su">
-            <span class="ae-label">二十八宿</span>
-            <span class="ae-val">{{ anchorSafe.su }}宿</span>
-          </div>
-        </div>
-
-        <!-- ⭐ 2026-10-05 新增：玉匣记摘录条 -->
-        <div v-if="anchorSafe.yuxiaji" class="anchor-yuxiaji">
-          <span class="yxj-quote">{{ anchorSafe.yuxiaji }}</span>
-        </div>
-
-        <!-- 时辰节律线：三段式 -->
-        <div class="anchor-timeline">
-          <div class="tl-seg" v-for="s in rhythmSegments" :key="s.range" :class="s.color">
-            <span class="tl-bar"></span>
-            <span class="tl-text">{{ s.range }} {{ s.label }}</span>
-          </div>
-        </div>
-      </div>
+      <!-- 右：时空锚点 → modules/AnchorTimelineCard.vue -->
+      <AnchorTimelineCard
+        :anchor-safe="anchorSafe"
+        :rhythm-segments="rhythmSegments"
+        @explain="openAnchorExplain"
+      />
     </div>
 
     <!-- ════ 生活提醒：Stage 2+ 才显示
@@ -237,97 +148,25 @@
       @open-detail="openDetailModal"
     />
 
-    <!-- ════ 打卡弹窗（v-if/v-else 链之外，独立渲染） ════ -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div v-if="punchModal.todo" class="punch-modal-backdrop" @click.self="closePunchModal">
-          <div class="punch-modal">
-            <div class="pm-head">
-              <div class="pm-title-wrap">
-                <span class="pm-tag">{{ punchModal.isEdit ? '修改执行反馈' : '今日打卡' }}</span>
-                <h3 class="pm-title">{{ punchModal.todo.title }}</h3>
-                <p v-if="punchModal.todo.due" class="pm-due">🕐 {{ punchModal.todo.due }}</p>
-              </div>
-              <button class="pm-close" @click="closePunchModal" aria-label="关闭">✕</button>
-            </div>
+    <!-- ════ M8 打卡弹窗 → modules/PunchModal.vue（props 进、emit 出） ════ -->
+    <PunchModal
+      :todo="punchModal.todo"
+      :feedbacks="punchModal.feedbacks"
+      :is-edit="punchModal.isEdit"
+      :submitting="punchModal.submitting"
+      :exec-label-fn="execLabel"
+      @close="closePunchModal"
+      @submit="handlePunchSubmit"
+    />
 
-            <div class="pm-section">
-              <label class="pm-label">执行状态</label>
-              <div class="pm-exec-btns">
-                <button class="pm-exec" :class="{ active: punchModal.execStatus === 'done' }"
-                        @click="punchModal.execStatus = 'done'">已完成</button>
-                <button class="pm-exec" :class="{ active: punchModal.execStatus === 'partial' }"
-                        @click="punchModal.execStatus = 'partial'">部分执行</button>
-                <button class="pm-exec" :class="{ active: punchModal.execStatus === 'skipped' }"
-                        @click="punchModal.execStatus = 'skipped'">跳过</button>
-                <button class="pm-exec" :class="{ active: punchModal.execStatus === 'failed' }"
-                        @click="punchModal.execStatus = 'failed'">未执行</button>
-              </div>
-            </div>
-
-            <div v-if="punchModal.feedbacks?.length" class="pm-section">
-              <label class="pm-label">历史反馈（{{ punchModal.feedbacks.length }}）</label>
-              <div v-for="(fb, i) in punchModal.feedbacks" :key="i" class="pm-fb-item">
-                <span class="pm-fb-date">{{ fb.date }}</span>
-                <span class="pm-fb-status" :class="'pm-fb-' + fb.status">{{ execLabel(fb.status) }}</span>
-                <span v-if="fb.note" class="pm-fb-note">{{ fb.note }}</span>
-              </div>
-            </div>
-
-            <div class="pm-section">
-              <label class="pm-label">反馈（可选）</label>
-              <textarea v-model="punchModal.note" placeholder="执行细节、感受或遇到的问题…" rows="3"></textarea>
-            </div>
-
-            <div class="pm-foot">
-              <button class="pm-cancel" @click="closePunchModal">取消</button>
-              <button class="pm-submit" @click="submitPunch" :disabled="punchModal.submitting">
-                <span v-if="punchModal.submitting">提交中…</span>
-                <span v-else>提交</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
-
-    <!-- ════ 详情弹窗（替代手风琴展开） ════ -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div v-if="detailModal" class="punch-modal-backdrop" @click.self="closeDetailModal">
-          <div class="punch-modal">
-            <div class="pm-head">
-              <div class="pm-title-wrap">
-                <span class="pm-tag">今日建议</span>
-                <h3 class="pm-title">{{ detailModal.title }}</h3>
-                <p v-if="detailModal.remind" class="pm-desc">{{ detailModal.remind }}</p>
-              </div>
-              <button class="pm-close" @click="closeDetailModal" aria-label="关闭">✕</button>
-            </div>
-
-            <div v-if="dmDetail" class="pm-section">
-              <label class="pm-label">📋 做法</label>
-              <p class="pm-text">{{ dmDetail }}</p>
-            </div>
-
-            <div class="pm-section">
-              <label class="pm-label">💡 推荐原因</label>
-              <p class="pm-text">{{ dmReason }}</p>
-            </div>
-
-            <div v-if="detailModal.source_ref" class="pm-section">
-              <label class="pm-label">📚 出处</label>
-              <p class="pm-text source-text">{{ detailModal.source_ref }}</p>
-            </div>
-
-            <div class="pm-foot">
-              <button class="pm-cancel" @click="closeDetailModal">关闭</button>
-              <button class="pm-submit" @click="askDetailQA">💬 问问青囊管家</button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <!-- ════ M9 详情弹窗 → modules/DetailModal.vue ════ -->
+    <DetailModal
+      :modal="detailModal"
+      :detail="dmDetail"
+      :reason="dmReason"
+      @close="closeDetailModal"
+      @ask-qa="askDetailQA"
+    />
 
     <!-- ════ 第三行：体质趋势（雷达图） ════
          已抽离 → modules/TrendRadarCard.vue -->
@@ -343,46 +182,13 @@
          已抽离 → modules/DriftVectorCard.vue ════ -->
     <DriftVectorCard :rows="deltaTable" />
 
-    <!-- ════ AI 大白话解读 Modal ════ -->
-    <div v-if="anchorModal.show" class="modal-backdrop" @click.self="anchorModal.show = false">
-      <div class="modal-card anchor-explain-modal">
-        <div class="modal-head">
-          <h3>🌿 今日时空锚点 · 大白话解读</h3>
-          <button class="modal-close" @click="anchorModal.show = false">✕</button>
-        </div>
-        <div class="modal-body">
-          <!-- 加载中 -->
-          <div v-if="anchorModal.loading" class="ae-loading">
-            <div class="ae-spinner"></div>
-            <p>青檬引擎正在翻译术语…</p>
-            <p class="muted small">（先解读每个术语是什么意思，再结合你的体质给建议）</p>
-          </div>
-          <!-- 错误 -->
-          <div v-else-if="anchorModal.error" class="ae-error">
-            <p>抱歉，AI 解读暂时不可用</p>
-            <p class="muted small">{{ anchorModal.error }}</p>
-          </div>
-          <!-- 结果：用 markdown-like 渲染 -->
-          <div v-else class="ae-content">
-            <!-- 引擎标记 -->
-            <div class="ae-engine-tag" v-if="anchorModal.engine">
-              {{ anchorModal.engine === 'qingmeng' ? '⚡ 青檬引擎生成' : anchorModal.engine === 'deepseek' ? '⚡ DeepSeek 生成' : '📖 本地术语词典' }}
-            </div>
-            <div class="ae-markdown" v-html="renderMarkdown(anchorModal.text)"></div>
-
-            <!-- ⭐ 和管家继续聊 -->
-            <div class="ae-footer">
-              <div class="ae-footer-hint">想继续深入？把这段解读交给青囊管家，基于此展开对话</div>
-              <button class="ae-chat-btn" @click="continueWithAssistant">
-                <span class="ae-chat-icon">💬</span>
-                <span>和青囊管家继续聊</span>
-                <span class="ae-chat-arrow">→</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- ════ M12 AI 大白话解读 Modal → modules/AiExplainModal.vue ════ -->
+    <AiExplainModal
+      :modal="anchorModal"
+      :render-markdown-fn="renderMarkdown"
+      @close="anchorModal.show = false"
+      @ask-assistant="continueWithAssistant"
+    />
     </PullRefreshBar>
   </section>
 </template>
@@ -406,6 +212,11 @@ import HeroTodoCard from '../modules/HeroTodoCard.vue'
 import HeroDailyTipsCard from '../modules/HeroDailyTipsCard.vue'
 import LifestyleReminderCard from '../modules/LifestyleReminderCard.vue'
 import LifeAdviceCard from '../modules/LifeAdviceCard.vue'
+import ConstitutionCurveCard from '../modules/ConstitutionCurveCard.vue'
+import AnchorTimelineCard from '../modules/AnchorTimelineCard.vue'
+import PunchModal from '../modules/PunchModal.vue'
+import DetailModal from '../modules/DetailModal.vue'
+import AiExplainModal from '../modules/AiExplainModal.vue'
 // mock 数据已移除——所有内容从后端 API / reasoning 端点实时获取
 // 后端不可达时为空占位，不展示任何其他用户的病历数据
 
@@ -582,6 +393,18 @@ const driftTrajectory = computed(() => {
 const vBase = computed(() => vectorStore.vBase)
 const latestObs = computed(() => vectorStore.latestObs)
 const driftSeries = computed(() => vectorStore.driftSeries)
+
+/* 体质曲线 chip 标签（原模板里的复杂三元表达式 → 移到 computed 纯函数） */
+const chartChipText = computed(() => {
+  if (chartMode.value === 'lifetime') {
+    const lf = vectorStore.lifetimeTrajectory
+    if (lf?.stateFlags?.length) {
+      return `${lf.stateFlags.filter(s => s === 'disease').length}个疾病态`
+    }
+    return '八字推演'
+  }
+  return driftTrajectory.value ? '综合健康得分' : ('ΔV ' + vectorStore.trendStateLabel)
+})
 
 // 🎖️ 四阶段节点定义（图标 + 短名），与后端 STAGE_DEFS 对齐
 const STAGE_NODES = [
@@ -828,17 +651,16 @@ function closePunchModal() {
   document.body.style.overflow = ''
 }
 
-function submitPunch() {
+/* 由 PunchModal emit('submit', payload) 触发，payload = { execStatus, note } */
+function handlePunchSubmit({ execStatus, note }) {
   punchModal.submitting = true
   const fb = {
-    status: punchModal.execStatus || 'done',
-    note: punchModal.note.trim(),
+    status: execStatus || 'done',
+    note: note.trim(),
     date: new Date().toISOString().slice(0, 16).replace('T', ' '),
     todo_id: punchModal.todo.id
   }
-  // 1) 保存反馈
   handleFeedback(fb)
-  // 2) 标记完成（如果还没完成）
   if (!punchModal.todo.done) {
     toggleTodo(punchModal.todo.id)
   }
@@ -1257,162 +1079,17 @@ function _applyLifestyleResult(d) {
   .hero-row { grid-template-columns: 1fr; gap: 12px; }
 }
 
-/* ── 卡头（体质调理曲线 / 时空锚点共用）── */
-.card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--qn-line); }
-.card-head h2 { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; border: none; }
-.chip-dv { font-size: calc(12px * var(--qn-fs-scale)); font-weight: 500; color: var(--qn-emerald); background: rgba(var(--qn-emerald-rgb),0.08); border-radius: 12px; padding: 3px 10px; }
-/* ── 视图模式 tab 切换 ── */
-.view-mode-tabs { display: flex; gap: 2px; background: var(--qn-bg-2); border-radius: 8px; padding: 2px; }
-.tab-btn {
-  font-size: calc(11px * var(--qn-fs-scale));
-  font-weight: 500;
-  padding: 3px 10px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--qn-ink-3);
-  cursor: pointer;
-  transition: all .15s;
-}
-.tab-btn:hover:not(:disabled) { color: var(--qn-ink); }
-.tab-btn.active {
-  background: var(--qn-bg);
-  color: var(--qn-emerald);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-}
-.tab-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.anchor-sub { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); font-weight: 400; }
-.anchor-card .anchor-grid { grid-template-columns: repeat(3, 1fr); }
-
-/* 时空锚点可点击 + AI hint */
-.anchor-card.clickable { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
-.anchor-card.clickable:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
-.anchor-card.clickable:active { transform: translateY(0); }
-.ai-hint {
-  display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 10px;
-  background: rgba(var(--qn-emerald-rgb),0.1); color: var(--qn-emerald);
-  font-size: calc(11px * var(--qn-fs-scale)); font-weight: 500;
-}
-
-/* ════ Modal（AI 大白话解读） ════ */
-.modal-backdrop {
-  position: fixed; inset: 0; background: rgba(26,43,26,0.45);
-  display: flex; align-items: center; justify-content: center; z-index: 200;
-  padding: 20px; animation: fadeIn 0.18s ease;
-}
-@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
-.modal-card {
-  background: var(--qn-surface); border-radius: var(--radius-lg);
-  max-width: 560px; width: 100%; max-height: 80vh;
-  display: flex; flex-direction: column; overflow: hidden;
-  box-shadow: 0 16px 48px rgba(0,0,0,0.18);
-  animation: slideUp 0.22s ease;
-}
-@keyframes slideUp { from { transform: translateY(20px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
-.modal-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 18px 22px; border-bottom: 1px solid var(--qn-line);
-}
-.modal-head h3 { font-size: calc(16px * var(--qn-fs-scale)); margin: 0; color: var(--qn-ink); font-weight: 600; }
-.modal-close {
-  width: 32px; height: 32px; border: none; background: transparent;
-  font-size: calc(18px * var(--qn-fs-scale)); color: var(--qn-ink-3); cursor: pointer;
-  border-radius: 50%; transition: all 0.15s;
-}
-.modal-close:hover { background: var(--qn-line); color: var(--qn-ink); }
-.modal-body { padding: 22px; overflow-y: auto; flex: 1; }
-
-/* Loading */
-.ae-loading { text-align: center; padding: 32px 0; }
-.ae-spinner {
-  width: 36px; height: 36px; border: 3px solid var(--qn-line);
-  border-top-color: var(--qn-emerald); border-radius: 50%;
-  margin: 0 auto 16px; animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg) } }
-.ae-loading p { margin: 4px 0; }
-
-/* Error */
-.ae-error { text-align: center; padding: 16px; color: var(--qn-fire); }
-
-/* Content */
-.ae-engine-tag {
-  display: inline-block; margin-bottom: 14px; padding: 3px 10px; border-radius: 12px;
-  background: var(--qn-paper); color: var(--qn-ink-2);
-  font-size: calc(11px * var(--qn-fs-scale)); font-weight: 500;
-}
-.ae-markdown {
-  font-size: calc(14px * var(--qn-fs-scale)); color: var(--qn-ink); line-height: 1.8;
-}
-.ae-markdown strong { color: var(--qn-emerald); font-weight: 600; }
-.ae-markdown p { margin: 0 0 12px; }
-.ae-hr { border: none; border-top: 1px dashed var(--qn-line); margin: 16px 0; }
-
-/* 继续聊按钮 */
-.ae-footer {
-  margin-top: 20px; padding-top: 18px;
-  border-top: 1px dashed var(--qn-line);
-}
-.ae-footer-hint {
-  font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3);
-  margin: 0 0 12px; text-align: center;
-}
-.ae-chat-btn {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  width: 100%; padding: 14px 18px;
-  background: linear-gradient(135deg, var(--qn-emerald) 0%, var(--qn-emerald-light) 100%);
-  color: #fff; border: none; border-radius: var(--qn-r-lg);
-  font-size: calc(14px * var(--qn-fs-scale)); font-weight: 600;
-  cursor: pointer; transition: all 0.18s;
-  box-shadow: 0 4px 14px rgba(var(--qn-emerald-rgb),0.25);
-}
-.ae-chat-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(var(--qn-emerald-rgb),0.35); }
-.ae-chat-btn:active { transform: translateY(0); }
-.ae-chat-icon { font-size: calc(18px * var(--qn-fs-scale)); }
-.ae-chat-arrow { opacity: 0.7; font-size: calc(16px * var(--qn-fs-scale)); }
-
-/* 响应式 — 归并到 480px 档位（原 600px） */
-@media (max-width: 480px) {
-  .modal-card { max-height: 88vh; border-radius: var(--qn-r-lg); }
-  .modal-body { padding: 16px 18px; }
-}
+/* M5 ConstitutionCurveCard → modules/ConstitutionCurveCard.vue scoped */
+/* M5b AnchorTimelineCard → modules/AnchorTimelineCard.vue scoped */
+/* M12 AiExplainModal → modules/AiExplainModal.vue scoped */
 
 /* ── 顶部并列 ── */
 .top-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; align-items: stretch; }
 /* ⚠️ .card 基础样式已统一到 App.vue 全局（无 border、shadow-only、圆角 16）
    Dashboard 独有：只覆盖 h2 的 margin-bottom */
 .card h2 { margin-bottom: 12px; }
-.chart-card { min-height: 300px; display: flex; flex-direction: column; }
-.chart-card :deep(.radar-chart), .chart-card :deep(.drift-chart) { flex: 1; }
-
-/* ── 体质调理曲线（top-row 左侧） ── */
-.curve-chart { flex: 1; min-height: 260px; }
-.curve-empty { color: var(--qn-ink-3); text-align: center; padding: 50px 16px; font-size: calc(13px * var(--qn-fs-scale)); }
-
-/* ⭐ 体质曲线四视图模块入口 */
-.chart-footer {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; margin-top: 10px; padding-top: 10px;
-  border-top: 1px dashed var(--qn-line);
-  flex-wrap: wrap;
-}
-.chart-footer-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: calc(12px * var(--qn-fs-scale)); font-weight: 500;
-  padding: 6px 14px; border-radius: 20px;
-  border: 1px solid var(--qn-primary, #17534C);
-  background: transparent;
-  color: var(--qn-primary, #17534C);
-  cursor: pointer; transition: all 0.15s;
-}
-.chart-footer-btn:hover {
-  background: var(--qn-primary, #17534C); color: #fff;
-}
-.cfb-icon { font-size: 14px; }
-.cfb-arrow { font-size: 14px; opacity: 0.7; }
-.chart-footer-hint {
-  font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3);
-}
+/* M5 ConstitutionCurveCard → scoped 已有 */
+/* .chart-card / .curve-chart / .chart-footer / .cfb-* 均已移至 ConstitutionCurveCard.vue scoped */
 
 /* M10 体质趋势雷达 → modules/TrendRadarCard.vue scoped */
 
@@ -1424,206 +1101,15 @@ function _applyLifestyleResult(d) {
 /* ── 响应式：竖屏 / 窄窗修复 — 归并到 1024px 档位（原 960px） ── */
 @media (max-width: 1024px) {
   .top-row { grid-template-columns: 1fr; }
-  .chart-card { min-height: 0; }
   /* 所有模块响应式 → 各模块 scoped */
 }
 /* —— 小屏字体再压一下 — 归并到 480px 档位 —— */
 @media (max-width: 480px) {
   /* 所有模块响应式 → 各模块 scoped */
-  .anchor-grid { gap: 8px; }
-  .ag-cell { padding: 10px 8px; }
-  .ag-val { font-size: calc(13px * var(--qn-fs-scale)); }
-  .anchor-timeline { flex-direction: column; gap: 10px; }
 }
-
-/* ═══════════════════════════════════════════════════════════
-   今日时空锚点：三格指标条 + 三段节律线
-   ═══════════════════════════════════════════════════════════ */
-.anchor-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
-.ag-cell { background: var(--qn-paper); border: none; border-radius: 12px; padding: 10px 12px; text-align: left; min-height: 60px; display: flex; flex-direction: column; justify-content: center; }
-.ag-label { display: block; font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin-bottom: 4px; }
-.ag-val { font-size: calc(16px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-ink); line-height: 1.2; }
-.ag-val.warn { color: var(--wuxing-fire, var(--qn-cinnabar)); }
-/* ══ 彭祖百忌 + 二十八宿（2026-10-05 新增）══ */
-.anchor-extras { border-top: 1px dashed rgba(26,43,26,0.12); padding-top: 8px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px; }
-.ae-row { display: flex; font-size: calc(12px * var(--qn-fs-scale)); }
-.ae-label { color: var(--qn-ink-3); flex-shrink: 0; width: 72px; }
-.ae-val { color: var(--qn-ink-2); }
-/* ══ 玉匣记摘录条（2026-10-05 新增）══ */
-.anchor-yuxiaji {
-  background: rgba(168, 68, 47, 0.06);
-  border-left: 3px solid var(--qn-cinnabar);
-  border-radius: 0 8px 8px 0;
-  padding: 8px 12px;
-  margin-bottom: 4px;
-}
-.yxj-quote { font-family: "STKaiti", "KaiTi", serif; font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-cinnabar); letter-spacing: 0.5px; }
-
-.anchor-timeline { display: flex; gap: 8px; }
-.tl-seg { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.tl-bar { display: block; height: 4px; border-radius: 2px; }
-.tl-seg.calm .tl-bar { background: #C9D8D2; }
-.tl-seg.active .tl-bar { background: var(--qn-emerald); }
-.tl-seg.rest .tl-bar { background: var(--wuxing-earth, var(--qn-earth)); }
-.tl-text { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tl-seg.active .tl-text { color: var(--qn-emerald); font-weight: 500; }
-.tl-seg.rest .tl-text { color: var(--wuxing-earth, #B8860B); }
-
+/* M5b AnchorTimelineCard → modules/AnchorTimelineCard.vue scoped */
 /* M6 生活提醒 → modules/LifestyleReminderCard.vue scoped */
-
-/* ═══════════════════════════════════════════
-   打卡弹窗（全屏遮罩 + 居中卡片）
-   ═══════════════════════════════════════════ */
-.punch-modal-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(16, 24, 40, 0.45);
-  backdrop-filter: blur(3px);
-  z-index: 9999;
-  display: flex; align-items: center; justify-content: center;
-  padding: 20px;
-}
-.punch-modal {
-  background: var(--qn-surface);
-  border-radius: 16px;
-  width: 100%; max-width: 520px;
-  max-height: 92vh;
-  overflow-y: auto;
-  padding: 24px;
-  box-shadow: 0 20px 60px rgba(16, 24, 40, 0.25);
-  animation: pm-slide-up 0.25s ease-out;
-}
-@keyframes pm-slide-up {
-  from { opacity: 0; transform: translateY(16px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-/* 弹窗头部 */
-.pm-head {
-  display: flex; justify-content: space-between; align-items: flex-start;
-  margin-bottom: 20px; padding-bottom: 14px;
-  border-bottom: 1px solid var(--qn-line);
-}
-.pm-title-wrap { display: flex; flex-direction: column; gap: 4px; flex: 1; }
-.pm-tag {
-  display: inline-block; width: fit-content;
-  font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-emerald);
-  background: rgba(var(--qn-emerald-rgb),0.08);
-  padding: 2px 10px; border-radius: 10px;
-  letter-spacing: 1px; font-weight: 500;
-}
-.pm-title { font-size: calc(18px * var(--qn-fs-scale)); color: var(--qn-ink); margin: 0; font-weight: 600; line-height: 1.35; }
-.pm-due { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin: 0; }
-.pm-close {
-  width: 32px; height: 32px; border-radius: 50%;
-  border: 1px solid var(--qn-line); background: var(--qn-surface);
-  color: var(--qn-ink-3); font-size: calc(14px * var(--qn-fs-scale)); line-height: 1;
-  cursor: pointer; transition: all 0.15s;
-  flex-shrink: 0; margin-left: 12px;
-}
-.pm-close:hover { color: var(--wuxing-fire); border-color: var(--wuxing-fire); }
-
-/* section */
-.pm-section { margin-bottom: 18px; }
-.pm-label {
-  font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3);
-  display: block; margin-bottom: 8px; font-weight: 500;
-}
-
-/* 执行状态按钮 */
-.pm-exec-btns { display: flex; gap: 8px; flex-wrap: wrap; }
-.pm-exec {
-  font-size: calc(13px * var(--qn-fs-scale)); padding: 7px 16px;
-  border-radius: 20px;
-  border: 1px solid var(--qn-line);
-  background: var(--qn-surface); color: var(--qn-ink-2);
-  cursor: pointer; transition: all 0.15s;
-}
-.pm-exec:hover { border-color: var(--qn-emerald); color: var(--qn-emerald); }
-.pm-exec.active {
-  background: var(--qn-emerald); border-color: var(--qn-emerald);
-  color: #fff; box-shadow: 0 2px 6px rgba(var(--qn-emerald-rgb), 0.25);
-}
-
-/* 历史反馈 */
-.pm-fb-item {
-  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-  font-size: calc(12px * var(--qn-fs-scale)); padding: 8px 10px; background: var(--qn-paper);
-  border-radius: 6px; margin-bottom: 6px;
-  border-left: 3px solid var(--qn-line);
-}
-.pm-fb-date { color: var(--qn-ink-3); font-family: var(--font-mono); font-size: calc(11px * var(--qn-fs-scale)); }
-.pm-fb-status { font-weight: 600; padding: 1px 8px; border-radius: 3px; font-size: calc(11px * var(--qn-fs-scale)); }
-.pm-fb-done { background: rgba(67,160,71,0.1); color: var(--wuxing-wood); }
-.pm-fb-partial { background: rgba(212,160,23,0.1); color: var(--wuxing-earth); }
-.pm-fb-skipped { background: rgba(107,114,119,0.1); color: var(--qn-ink-3); }
-.pm-fb-failed { background: rgba(216,67,21,0.1); color: var(--wuxing-fire); }
-.pm-fb-note { flex: 1 0 100%; color: var(--qn-ink-2); line-height: 1.5; margin-top: 3px; }
-
-/* 反馈输入 */
-.pm-section textarea {
-  width: 100%; border: 1px solid var(--qn-line); border-radius: 10px;
-  padding: 12px; font-size: calc(14px * var(--qn-fs-scale)); font-family: var(--qn-font-body);
-  resize: vertical; background: var(--qn-surface); color: var(--qn-ink);
-  line-height: 1.55; transition: border-color 0.15s;
-  box-sizing: border-box;
-}
-.pm-section textarea:focus { outline: none; border-color: var(--qn-emerald); }
-
-/* 底部按钮 */
-.pm-foot {
-  display: flex; justify-content: flex-end; gap: 10px;
-  margin-top: 22px; padding-top: 16px;
-  border-top: 1px solid var(--qn-line);
-}
-.pm-cancel {
-  padding: 9px 22px; border: 1px solid var(--qn-line); border-radius: var(--qn-r-pill);
-  background: var(--qn-surface); color: var(--qn-ink-2); font-size: calc(13px * var(--qn-fs-scale)); cursor: pointer;
-  transition: all 0.15s;
-}
-.pm-cancel:hover { color: var(--qn-ink); border-color: var(--qn-ink-3); }
-.pm-submit {
-  padding: 9px 24px; border: none; border-radius: var(--qn-r-pill);
-  background: var(--qn-emerald); color: var(--qn-paper);
-  font-size: calc(13px * var(--qn-fs-scale)); font-weight: 500; letter-spacing: 2px; cursor: pointer;
-  transition: all 0.15s;
-}
-.pm-submit:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(var(--qn-emerald-rgb), 0.3); }
-.pm-submit:disabled { opacity: 0.5; cursor: not-allowed; }
-
-/* 详情弹窗文本 */
-.pm-desc {
-  font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink-3);
-  margin: 4px 0 0; line-height: 1.55;
-}
-.pm-text {
-  font-size: calc(14px * var(--qn-fs-scale)); color: var(--qn-ink-2);
-  line-height: 1.7; margin: 0;
-}
-.pm-text.source-text {
-  font-family: 'STKaiti', 'KaiTi', '楷体', serif;
-  color: var(--qn-cinnabar);
-  border-left: 2px solid #B8392A;
-  padding-left: 10px;
-  font-size: calc(13px * var(--qn-fs-scale));
-}
-
-/* Transition */
-.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
-.fade-enter-active .punch-modal, .fade-leave-active .punch-modal { transition: transform 0.2s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
-.fade-enter-from .punch-modal, .fade-leave-to .punch-modal { transform: translateY(10px) scale(0.97); }
-
-/* 弹窗手机竖屏 */
-@media (max-width: 480px) {
-  .punch-modal-backdrop { padding: 0; }
-  .punch-modal {
-    max-width: 100%; max-height: 100vh; border-radius: 0;
-    padding: 20px;
-    animation: none;
-  }
-  .pm-title { font-size: calc(16px * var(--qn-fs-scale)); }
-  .pm-exec-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .pm-foot { gap: 8px; }
-  .pm-cancel, .pm-submit { flex: 1; padding: 11px 0; text-align: center; }
+/* M8 PunchModal → modules/PunchModal.vue scoped */
+/* M9 DetailModal → modules/DetailModal.vue scoped */
 }
 </style>
