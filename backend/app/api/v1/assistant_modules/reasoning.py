@@ -274,7 +274,7 @@ async def reasoning_lifestyle(body: LifestyleIn,
 
     ⭐ 2026-10-05：支持每次请求传 provider（ollama/deepseek），缓存 key 自动区分。
     """
-    from .notifications import _call_qingmeng_lifestyle
+    from ...notifications import _call_qingmeng_lifestyle
     payload = body.model_dump(exclude_none=True)
     payload = await _inject_user_context(payload, db, current)
     # ⭐ 把 body 里的 provider 也传给 qingmeng-engine
@@ -297,7 +297,7 @@ async def reasoning_lifestyle(body: LifestyleIn,
 
 async def _inject_user_context(payload: dict, db: Session, current: User) -> dict:
     """注入用户五形向量 + 年龄 + 健康标签上下文。无建档时用健康默认值优雅降级。"""
-    from .notifications import build_user_meta
+    from ...notifications import build_user_meta
 
     # ⭐ 注入用户城市（用于真实天气查询）
     if current.city and not payload.get("city"):
@@ -385,7 +385,7 @@ async def reasoning_lifestyle_stream(body: LifestyleIn,
         )
 
     # ── ⭐ 先查缓存（走统一入口 _call_qingmeng_lifestyle）──
-    from .notifications import _call_qingmeng_lifestyle
+    from ...notifications import _call_qingmeng_lifestyle
     import json as _json
     payload = body.model_dump(exclude_none=True)
     payload = await _inject_user_context(payload, db, current)
