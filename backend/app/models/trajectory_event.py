@@ -3,7 +3,7 @@
 生命周期事件：手术/药物/窗口期/转大运/外力/间断/波动
 前端事件编辑器写入，后端 trajectories 端点读取叠加到 SPUM 三曲线。
 """
-from sqlalchemy import Column, Integer, String, JSON, DateTime, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Boolean, JSON, DateTime, Text, ForeignKey
 from sqlalchemy.sql import func
 from ..database import Base
 
@@ -22,7 +22,13 @@ class TrajectoryEvent(Base):
     damage       = Column(JSON)                             # {"fire": 12, "metal": 10} 伤害量(正数)
     boost        = Column(JSON)                             # {"fire": 6} 增益量(正数)
     duration_days = Column(Integer, default=540)            # 冲击持续时间
-    source       = Column(String(16), default='manual')      # 'manual'|'auto_infer'|'preset_clinical'
+    source       = Column(String(16), default='manual')      # 'manual'|'auto_infer'|'preset_clinical'|'llm_proposed'|'llm_confirmed'
+
+    # 2026-10-11 人生轨迹信息提取：置信度 + 确认状态机
+    confidence   = Column(Float, default=0.0)                # 0~1 置信度
+    confirmed    = Column(Boolean, default=False)            # 用户已确认
+    pending      = Column(Boolean, default=True)             # 待确认标志
+    proposed_key = Column(String(64), index=True)            # 去重键 case_id:age:type:norm_label
 
     created_at   = Column(DateTime, server_default=func.now())
     updated_at   = Column(DateTime, server_default=func.now(), onupdate=func.now())

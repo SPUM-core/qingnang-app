@@ -340,6 +340,10 @@ def get_trajectories(db: Session = Depends(get_db),
                 'label': te.label or '',
                 'direction': te.direction or '—',
                 'source': te.source or 'manual',
+                # 2026-10-11 轨迹信息提取：待确认状态透传给前端
+                'pending': bool(te.pending),
+                'confirmed': bool(te.confirmed),
+                'confidence': te.confidence or 0.0,
             }
             if te.damage:
                 ev['isMedical'] = True

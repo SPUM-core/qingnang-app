@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 import httpx
 import json
+import logging
 import time
 
 from ....database import get_db
@@ -20,6 +21,7 @@ from ....utils.trajectory_algorithm import (
 from ....utils.wuxing import graph_diagnose as _graph_diagnose
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════
@@ -333,6 +335,28 @@ async def chat(body: ChatIn,
 
         system_prompt = "\n".join(brief_sections) + "\n" + system_prompt
 
+    # ── 4a. 注入待确认的人生轨迹事件（对话内确认机制）──
+    #      从该 case 读取 pending 事件的问题，让主 LLM 在本次回复中自然、温和地提问确认
+    try:
+        if case is not None:
+            from ....models import TrajectoryEvent as _TE2
+            _pending_qs = []
+            _pend = db.query(_TE2).filter(
+                _TE2.case_id == case.id,
+                _TE2.pending.is_(True),
+            ).all()
+            for _ev in _pend[:3]:
+                if getattr(_ev, "question", None):
+                    _pending_qs.append(f"- {_ev.age}岁{_ev.event_type}：「{_ev.label}」→ {_ev.question}")
+            if _pending_qs:
+                system_prompt += (
+                    "\n\n【待确认的档案信息】用户之前提到过以下事件，但还没确认。"
+                    "如果这次对话自然相关，请用轻松、关心的语气向用户确认（不要生硬盘问，一次最多问1条）：\n"
+                    + "\n".join(_pending_qs)
+                )
+    except Exception:
+        pass  # 待确认注入失败不影响对话
+
     # ── 4. 组装 messages ──
     messages = [{"role": "system", "content": system_prompt}]
     for h in (body.history or [])[-10:]:
@@ -533,6 +557,49 @@ async def chat(body: ChatIn,
         _asyncio.create_task(_compress_old_messages(current.id))
     except Exception:
         pass  # 后台任务创建失败不影响主流程
+
+    # ── 8i. 人生轨迹信息提取（异步，不阻塞对话）──
+    #      从用户消息提取关键健康/生活事件 → 落 pending 待确认；
+    #      同时用当前消息确认历史 pending 事件 → 确认后修正数字模型。
+    try:
+        from ....models import TrajectoryEvent as _TE  # noqa: F401
+        from .trajectory_extractor import (
+            extract_trajectory_events, upsert_pending_events, confirm_trajectory_event,
+        )
+
+        async def _trajectory_task(_db_session_factory=get_db, _case_id=case.id if case else None):
+            # 独立 session，避免与主请求 session 竞争
+            gen = _db_session_factory()
+            _db = next(gen) if hasattr(gen, "__next__") else gen
+            try:
+                evs = await extract_trajectory_events(body.message)
+                if _case_id and evs:
+                    _case = _db.query(Case).filter(Case.id == _case_id).first()
+                    if _case:
+                        questions = upsert_pending_events(_db, _case, evs)
+                        _db.commit()
+                        if questions:
+                            logger.info(f"[trajectory] {len(questions)} 条待确认事件入库")
+                if _case_id:
+                    _case = _db.query(Case).filter(Case.id == _case_id).first()
+                    if _case:
+                        await confirm_trajectory_event(_db, _case, body.message)
+                        _db.commit()
+            except Exception as _e:
+                logger.warning(f"[trajectory] 后台提取失败: {_e}")
+                try:
+                    _db.rollback()
+                except Exception:
+                    pass
+            finally:
+                try:
+                    _db.close()
+                except Exception:
+                    pass
+
+        _asyncio.create_task(_trajectory_task())
+    except Exception:
+        pass  # 轨迹提取不可用不影响对话
 
     # ── 9. Action Router + L2+ 模板合并 ──
     # 9a. 规则生成的 actions（兜底）
