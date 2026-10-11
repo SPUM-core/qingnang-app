@@ -120,7 +120,7 @@
 
     <div class="app-info">
       <p class="app-name">青囊生活管家</p>
-      <p class="app-ver">Version 1.0.0 · SPUM 范式引擎</p>
+      <p class="app-ver">Version {{ APP_VERSION }} · SPUM 范式引擎</p>
       <div class="legal-links">
         <a>用户协议</a><span>·</span>
         <a>隐私政策</a><span>·</span>
@@ -143,6 +143,7 @@ import { api } from '../api/client'
 import * as storage from '../utils/storage'
 import QIcon from '../components/ui/QIcon.vue'
 import { CHINA_PROVINCES, CHINA_CITIES } from '../constants/china-cities.js'
+import { APP_VERSION } from '../utils/appUpdater'
 
 const router = useRouter()
 const user   = useUserStore()

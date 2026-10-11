@@ -1,16 +1,25 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { readFileSync } from 'fs'
+import { fileURLToPath } from 'url'
 
-// 从 package.json 读版本号，注入到前端代码中
-const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
+// ── 版本号单一信源：根目录 version.json ──
+// 读不到时回退 package.json（防构建崩溃）；vite 以 frontend/ 为 cwd，../ 即项目根目录
+function readAppVersion() {
+  try {
+    const vj = JSON.parse(readFileSync(fileURLToPath(new URL('../version.json', import.meta.url)), 'utf-8'))
+    if (vj?.version) return String(vj.version)
+  } catch (e) { /* 回退 */ }
+  const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
+  return pkg.version
+}
 
 export default defineConfig({
   plugins: [vue()],
   define: {
     // 让前端代码可以用 import.meta.env.VITE_APP_VERSION 或全局变量 VITE_APP_VERSION
-    'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
-    VITE_APP_VERSION: JSON.stringify(pkg.version),
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(readAppVersion()),
+    VITE_APP_VERSION: JSON.stringify(readAppVersion()),
     VITE_API_BASE: JSON.stringify('http://localhost:8767'),
   },
   server: {

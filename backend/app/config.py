@@ -1,15 +1,28 @@
 """青囊后端配置 - 从环境变量或 .env 读取（敏感项必填，禁止硬编码默认值）"""
+import json
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent  # backend/
+ROOT_DIR = BASE_DIR.parent  # 项目根目录（version.json 单一信源所在）
+
+
+def _read_root_version() -> str:
+    """从根目录 version.json 读版本号（单一信源）。缺失/损坏回退 0.1.0。"""
+    try:
+        data = json.loads((ROOT_DIR / "version.json").read_text(encoding="utf-8"))
+        return str(data.get("version", "0.1.0"))
+    except Exception:
+        return "0.1.0"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
     # 服务
     APP_NAME: str = "青囊后端 · Qingnang Backend"
-    VERSION: str = "0.1.0"
+    # ⚠️ 版本号单一信源 = 根目录 version.json；.env 设 VERSION 可覆盖
+    VERSION: str = _read_root_version()
     APP_ENV: str = "development"   # development / production
     DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"
