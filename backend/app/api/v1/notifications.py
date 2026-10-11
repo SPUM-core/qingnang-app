@@ -216,54 +216,35 @@ async def _call_qingmeng_lifestyle(v_base: dict, v_current: dict | None = None,
     today = _dt_lib.datetime.now().strftime("%Y%m%d")
     v_hash = _v_base_hash(v_base)
     meta_h = _meta_hash(user_meta)  # 2026-10-06
-    # ⭐ 缓存 key 加 provider（不同 provider 分开缓存）
-    _prov_tag = provider or "default"
+    # ⭐ 缓存 key 不再按 provider 分文件（advisor 裁定：宜忌结论不随 provider 变，
+    #   按 provider 分缓存且项又是 LLM 自由生成 → 切换 provider 建议突变 = 双源矛盾）
+    _prov_tag = "unified"
 
-    # ── 1. 先查缓存 ──
+    # ── 0. 先跑 rule-based 引擎，得出确定性宜忌结论（不可覆写的输入约束）──
+    #      架构原则3：确定性结论必须来自引擎注入，禁止通用 LLM 在 SPUM 上自由发挥
+    from .assistant import _fallback_lifestyle
+    rule_base = _fallback_lifestyle(v_base, {"city": city})
+
+    # ── 1. 先查缓存（统一 key）──
     cached = _read_cache(qingnang_id, today, v_hash, _prov_tag, meta_hash=meta_h)
     if cached is not None:
         logger.info(f"[notifications] lifestyle cache HIT for {qingnang_id} prov={_prov_tag}")
         return cached
 
-    # ── 2. 缓存未命中 → 调 LLM（DeepSeek 优先，青檬引擎兜底）──
+    # ── 2. 缓存未命中 → 第 1 级：DeepSeek 叙事包装（宜忌项受 rule_base 约束）──
     logger.info(f"[notifications] lifestyle cache MISS for {qingnang_id} prov={_prov_tag}")
-
-    # ── 第 1 级：DeepSeek 直连生成 ──
-    data = await _llm_lifestyle(v_base, v_current, city, user_meta)
+    data = await _llm_lifestyle(v_base, v_current, city, user_meta, rule_base=rule_base)
     if data is not None:
         logger.info(f"[notifications] DeepSeek lifestyle OK, engine={data.get('engine')}")
         _write_cache(qingnang_id, today, v_hash, data, _prov_tag, meta_hash=meta_h)
         return data
 
-    # ── 第 2 级：青檬引擎兜底 ──
-    payload = {"v_base": v_base, "v_current": v_current or v_base}
-    # ⭐ 带 city + provider + user_meta（年龄/慢性病/过敏）
-    if city:
-        payload["city"] = city
-    if provider:
-        payload["provider"] = provider
-    if user_meta:
-        payload["user_meta"] = user_meta
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.post(
-                f"{settings.QINGMENG_URL}/v1/reasoning/lifestyle",
-                json=payload,
-            )
-            if r.status_code == 200:
-                data = r.json()
-                logger.info(f"[notifications] qingmeng-engine lifestyle OK, engine={data.get('engine')}")
-                # ── 成功 → 写缓存（带 meta_hash）──
-                _write_cache(qingnang_id, today, v_hash, data, _prov_tag, meta_hash=meta_h)
-                return data
-            else:
-                logger.warning(f"[notifications] qingmeng-engine lifestyle HTTP {r.status_code}")
-    except Exception as e:
-        logger.warning(f"[notifications] qingmeng-engine lifestyle 不可达: {e}")
-
-    # ── 第 3 级：rule-based fallback（根据 v_base 五形 + 今日干支生成建议）──
-    from .assistant import _fallback_lifestyle
-    return _fallback_lifestyle(v_base, {"city": city})
+    # ── 兜底：青檬引擎 / rule-based（引擎不可达时直接回落）──
+    if not rule_base:
+        rule_base = _fallback_lifestyle(v_base, {"city": city})
+    rule_base["engine"] = "backend_fallback_rule"
+    _write_cache(qingnang_id, today, v_hash, rule_base, _prov_tag, meta_hash=meta_h)
+    return rule_base
 
 
 # ═══════════════════════════════════════════════════════
@@ -279,38 +260,54 @@ _LLM_LIFESTYLE_ALLOWED_KEYS = {
 async def _llm_lifestyle(v_base: dict,
                          v_current: dict | None = None,
                          city: str | None = None,
-                         user_meta: dict | None = None) -> dict | None:
-    """用 DeepSeek 直连生成 lifestyle JSON；任何失败返回 None（由调用方降级）。"""
+                         user_meta: dict | None = None,
+                         rule_base: dict | None = None) -> dict | None:
+    """用 DeepSeek 直连对 rule-based 引擎结论做叙事包装。
+
+    架构原则3（advisor 裁定）：确定性宜忌结论必须来自引擎注入，LLM 只负责补充
+    detail（做法）、source_ref（出处）、desc（描述），【禁止新增/删除/修改任何
+    宜忌项本身】——从结构上杜绝 LLM 在 SPUM 知识上自由发挥（幻觉不可能）。
+
+    返回 None 表示 LLM 不可用（由调用方落回 rule_base）。
+    """
     if not settings.DEEPSEEK_API_KEY:
         return None
 
+    rule_base = rule_base or {}
+    _rule_cloth = rule_base.get("cloth_good", []) + rule_base.get("cloth_bad", [])
+    _rule_food = rule_base.get("food_good", []) + rule_base.get("food_bad", [])
+    _rule_home = rule_base.get("home", [])
+
     system_prompt = (
-        '你是青囊 SPUM 中医体质系统的"今日生活提醒"生成器，只负责按体质五形向量与用户画像'
-        '生成 JSON 生活建议。必须严格输出一个 JSON 对象，键严格为：'
-        'anchor、timeline、cloth_reminders、food_good、food_bad、home_reminders、'
-        'absolute_avoid、relative_avoid、engine、note。其中 engine 固定为字符串 "llm"。\n'
-        '数组元素结构（可按当日干支与体质个性化填充 1~5 条，可为空数组 []）：\n'
-        '- anchor：{"ganzhi": str, "state": str, "yi": str, "ji": str, '
-        '"dangling_elem": str, "feixing": str}\n'
-        '- cloth_reminders / food_good / food_bad / home_reminders / absolute_avoid / '
-        'relative_avoid 内每项：{"id": str, "title": str, "desc": str, "reason": str, '
-        '"detail": str, "source_ref": str}（food/home/absolute/relative 可省略 reason）\n'
-        '- detail：具体的操作步骤，例如食物要写明做法（食材、用量、制作步骤、食用的时辰窗口）、'
-        '穿衣要写明怎么穿，住家要写明做什么，注意事项要写清楚（忌过量、体质禁忌等）\n'
-        '- source_ref：推荐依据的医书/经典出处，格式如「《本草纲目》谷部·粟米」「《千金要方》食治」'
-        '「《黄帝内经·素问》」，必须真实可查，宁缺毋滥，没有把握可省略或写「青囊五形理论」\n'
-        '- timeline 每项：{"time": str, "title": str, "desc": str}\n'
-        '禁止输出 JSON 之外的任何解释文字。若无法充分判断，各数组可为空，但 anchor 必须存在。'
+        '你是青囊 SPUM 中医体质系统的"今日生活提醒"排版员。'
+        '输入中已经给出了青囊引擎【计算好的确定性宜忌结论】（cloth/food/home 各项）。\n'
+        '你的职责【唯一】：为每一项补充叙事字段：detail（具体做法、食材用量、制作步骤、'
+        '时辰窗口、注意事项）、source_ref（出处，如「《本草纲目》」「《千金要方》」'
+        '「《黄帝内经·素问》」，宁缺毋滥）、desc（一句通俗描述）。\n'
+        '【硬性禁令】\n'
+        '- 不得新增任何宜忌项（LI/foi中未出现的事项一律不得加）\n'
+        '- 不得删除或跳过输入中已有的任何宜忌项\n'
+        '- 不得修改已有项的 title / 是宜还是忌 / 主食材\n'
+        '- 引擎给某项为空数组时，你【无权】自行补充该项\n'
+        '输出 JSON 键：anchor、timeline、cloth_reminders、food_good、food_bad、'
+        'home_reminders、note、engine。engine 固定为 "llm"。\n'
+        '禁止输出 JSON 之外的任何解释文字。'
     )
 
     v = v_base or {"wood": 50, "fire": 50, "earth": 50, "metal": 50, "water": 50}
     user_prompt = (
-        f"请为今天生成生活建议。\n"
+        f"青囊引擎已算好的当日宜忌结论（你必须逐条保留并补充叙事）：\n"
+        f"{_json.dumps({
+            'cloth_good': _rule_cloth,
+            'food_good': rule_base.get('food_good', []),
+            'food_bad': rule_base.get('food_bad', []),
+            'home': _rule_home,
+        }, ensure_ascii=False)}\n\n"
         f"用户体质五形基线 v_base:{_json.dumps(v, ensure_ascii=False)}\n"
         f"五形当前向量 v_current:{_json.dumps(v_current or v, ensure_ascii=False)}\n"
         f"所在城市(可选):{city or '未知'}\n"
         f"用户画像:{_json.dumps(user_meta or {}, ensure_ascii=False)}\n"
-        f"请输出 lifestyle JSON。"
+        f"请输出 narrative-style lifestyle JSON（宜忌项与输入一致）。"
     )
 
     try:
@@ -344,6 +341,17 @@ async def _llm_lifestyle(v_base: dict,
         return None
     if not data.get("anchor") and not data.get("food_good") and not data.get("food_bad"):
         return None
+
+    # ── 宜忌项对齐防线（advisor 裁定）：以 rule_base 的 title 集合为权威（幂等防线）──
+    #     即使 LLM 违约新增/修改了宜忌项，也在这里强制收敛回引擎结论。
+    #     键 -> 应保留的 title 集合
+    _rule_titles = {
+        "food_good": {x.get("title", "").strip() for x in rule_base.get("food_good", []) if isinstance(x, dict)},
+        "food_bad": {x.get("title", "").strip() for x in rule_base.get("food_bad", []) if isinstance(x, dict)},
+    }
+    for key, allowed in _rule_titles.items():
+        items = [x for x in data.get(key, []) if isinstance(x, dict) and x.get("title", "").strip() in allowed]
+        data[key] = items
 
     data["engine"] = "llm"
     data.setdefault("note", "由 DeepSeek LLM 生成")
