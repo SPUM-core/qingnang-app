@@ -10,6 +10,7 @@ python-multipart==0.0.9
 httpx==0.27.2
 aiofiles==24.1.0
 networkx>=3.0       # ⚠️ 五形耦合图论模拟必需
+numpy>=1.26         # ⚠️ 五形向量化运算必需（wuxing.py import numpy）
 
 # phase-0: PostgreSQL + Alembic migrations
 alembic==1.13.2
