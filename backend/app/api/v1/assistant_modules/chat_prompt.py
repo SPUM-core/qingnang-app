@@ -5,6 +5,7 @@ import time
 from ....models import User, Case, Observation, TreatmentPlan
 from ....utils.maturity import compute_maturity
 from ....utils.wuxing import graph_diagnose as _graph_diagnose
+from ....templates import build_response_schema_prompt
 from .chat_actions import _EXECUTE_WHITELIST
 
 # ═══════════════════════════════════════════════════════
