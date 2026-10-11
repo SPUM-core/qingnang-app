@@ -21,30 +21,6 @@ from ....utils.wuxing import graph_diagnose as _graph_diagnose
 
 router = APIRouter()
 
-"""assistant - 青囊管家 AI 对话代理（转发到本地 qingmeng-engine）"""
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, model_validator
-from sqlalchemy.orm import Session
-from sqlalchemy.sql import func
-import httpx
-import json
-import time
-
-from ....database import get_db
-from ....models import User, Case, Observation, TreatmentPlan, ChatMessage, LifeSignal
-from ....config import settings  # resolve_default_provider 已删除（全局 deepseek）
-from ...deps import get_current_user
-from ....utils.life_signal_extractor import extract_signals, signals_to_dict_list
-from ....utils.conversation_analyzer import analyze_conversation
-from ....utils.maturity import compute_maturity, STAGE_DEFS
-from ....utils.trajectory_algorithm import (
-    DIMS as _WU, detect_vector_scale as _detect_vector_scale, get_wu_thresholds as _get_wu_thresholds,
-)
-from ....utils.wuxing import graph_diagnose as _graph_diagnose
-
-router = APIRouter()
-
 
 # ═══════════════════════════════════════════════════════
 # 进程内轻量缓存（daily_brief 纯函数，T=24h 足够）
@@ -162,6 +138,7 @@ from .chat_prompt import build_system_prompt
 from .chat_actions import (
     _EXECUTE_WHITELIST, _register_execute, _generate_actions,
     _exec_add_reminder, _exec_update_chief_complaint, _exec_mark_mentality,
+    _brief_has_content, _user_asked_about_brief, _generate_generic_reply,
 )
 from .chat_shortcuts import _intent_shortcut
 from .chat_compress import (
@@ -169,23 +146,12 @@ from .chat_compress import (
     CHAT_HISTORY_MAX_BYTES, CHAT_HISTORY_BATCH_PAIRS, CHAT_HISTORY_KEEP_RECENT,
     EPISODIC_TTL_DAYS, PERMANENT_PER_USER_LIMIT,
 )
-
-
-# ═══════════════════════════════════════════════════════
-# 历史容量阈值压缩（512K 触发 → LLM 提炼 → 删原消息）
-# 独立模块：assistant_modules/chat_compress.py
-# ═══════════════════════════════════════════════════════
-from .chat_compress import (
-    _compress_old_messages,
-    CHAT_HISTORY_MAX_BYTES,
-    CHAT_HISTORY_BATCH_PAIRS,
-    CHAT_HISTORY_KEEP_RECENT,
-    EPISODIC_TTL_DAYS,
-    PERMANENT_PER_USER_LIMIT,
+# AI 响应模板（单一信源：app/templates 包）
+from ....templates import (
+    AIResponseTemplate, extract_json, normalize_parsed, _ACTION_ICONS,
 )
 
 
-# ═══════════════════════════════════════════════════════
 # 主路由 - /v1/assistant/chat
 # ═══════════════════════════════════════════════════════
 @router.post("/chat")
