@@ -15,6 +15,7 @@ import hashlib
 import json as _json
 import logging
 import os
+import re
 from pathlib import Path
 
 import httpx
@@ -224,8 +225,17 @@ async def _call_qingmeng_lifestyle(v_base: dict, v_current: dict | None = None,
         logger.info(f"[notifications] lifestyle cache HIT for {qingnang_id} prov={_prov_tag}")
         return cached
 
-    # ── 2. 缓存未命中 → 调 LLM ──
-    logger.info(f"[notifications] lifestyle cache MISS for {qingnang_id} prov={_prov_tag}, calling qingmeng-engine...")
+    # ── 2. 缓存未命中 → 调 LLM（DeepSeek 优先，青檬引擎兜底）──
+    logger.info(f"[notifications] lifestyle cache MISS for {qingnang_id} prov={_prov_tag}")
+
+    # ── 第 1 级：DeepSeek 直连生成 ──
+    data = await _llm_lifestyle(v_base, v_current, city, user_meta)
+    if data is not None:
+        logger.info(f"[notifications] DeepSeek lifestyle OK, engine={data.get('engine')}")
+        _write_cache(qingnang_id, today, v_hash, data, _prov_tag, meta_hash=meta_h)
+        return data
+
+    # ── 第 2 级：青檬引擎兜底 ──
     payload = {"v_base": v_base, "v_current": v_current or v_base}
     # ⭐ 带 city + provider + user_meta（年龄/慢性病/过敏）
     if city:
@@ -235,7 +245,7 @@ async def _call_qingmeng_lifestyle(v_base: dict, v_current: dict | None = None,
     if user_meta:
         payload["user_meta"] = user_meta
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.post(
                 f"{settings.QINGMENG_URL}/v1/reasoning/lifestyle",
                 json=payload,
@@ -243,7 +253,7 @@ async def _call_qingmeng_lifestyle(v_base: dict, v_current: dict | None = None,
             if r.status_code == 200:
                 data = r.json()
                 logger.info(f"[notifications] qingmeng-engine lifestyle OK, engine={data.get('engine')}")
-                # ── 3. LLM 成功 → 写缓存（带 meta_hash）──
+                # ── 成功 → 写缓存（带 meta_hash）──
                 _write_cache(qingnang_id, today, v_hash, data, _prov_tag, meta_hash=meta_h)
                 return data
             else:
@@ -251,9 +261,125 @@ async def _call_qingmeng_lifestyle(v_base: dict, v_current: dict | None = None,
     except Exception as e:
         logger.warning(f"[notifications] qingmeng-engine lifestyle 不可达: {e}")
 
-    # qingmeng-engine 不可达 → 用 rule-based fallback（根据 v_base 五形 + 今日干支生成建议）
+    # ── 第 3 级：rule-based fallback（根据 v_base 五形 + 今日干支生成建议）──
     from .assistant import _fallback_lifestyle
     return _fallback_lifestyle(v_base, {"city": city})
+
+
+# ═══════════════════════════════════════════════════════
+# DeepSeek 直连生成 lifestyle（替代青檬引擎）
+# ═══════════════════════════════════════════════════════
+_LLM_LIFESTYLE_ALLOWED_KEYS = {
+    "anchor", "timeline", "cloth_reminders", "food_good", "food_bad",
+    "home_reminders", "absolute_avoid", "relative_avoid", "note",
+}
+
+
+async def _llm_lifestyle(v_base: dict,
+                         v_current: dict | None = None,
+                         city: str | None = None,
+                         user_meta: dict | None = None) -> dict | None:
+    """用 DeepSeek 直连生成 lifestyle JSON；任何失败返回 None（由调用方降级）。"""
+    if not settings.DEEPSEEK_API_KEY:
+        return None
+
+    system_prompt = (
+        '你是青囊 SPUM 中医体质系统的"今日生活提醒"生成器，只负责按体质五形向量与用户画像'
+        '生成 JSON 生活建议。必须严格输出一个 JSON 对象，键严格为：'
+        'anchor、timeline、cloth_reminders、food_good、food_bad、home_reminders、'
+        'absolute_avoid、relative_avoid、engine、note。其中 engine 固定为字符串 "llm"。\n'
+        '数组元素结构（可按当日干支与体质个性化填充 1~5 条，可为空数组 []）：\n'
+        '- anchor：{"ganzhi": str, "state": str, "yi": str, "ji": str, '
+        '"dangling_elem": str, "feixing": str}\n'
+        '- cloth_reminders / food_good / food_bad / home_reminders / absolute_avoid / '
+        'relative_avoid 内每项：{"id": str, "title": str, "desc": str, "reason": str}'
+        '（food/home/absolute/relative 可省略 reason）\n'
+        '- timeline 每项：{"time": str, "title": str, "desc": str}\n'
+        '禁止输出 JSON 之外的任何解释文字。若无法充分判断，各数组可为空，但 anchor 必须存在。'
+    )
+
+    v = v_base or {"wood": 50, "fire": 50, "earth": 50, "metal": 50, "water": 50}
+    user_prompt = (
+        f"请为今天生成生活建议。\n"
+        f"用户体质五形基线 v_base:{_json.dumps(v, ensure_ascii=False)}\n"
+        f"五形当前向量 v_current:{_json.dumps(v_current or v, ensure_ascii=False)}\n"
+        f"所在城市(可选):{city or '未知'}\n"
+        f"用户画像:{_json.dumps(user_meta or {}, ensure_ascii=False)}\n"
+        f"请输出 lifestyle JSON。"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}"},
+                json={
+                    "model": settings.DEEPSEEK_MODEL,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "max_tokens": 2000,
+                }
+            )
+            if r.status_code != 200:
+                logger.warning(f"[notifications] DeepSeek lifestyle HTTP {r.status_code}")
+                return None
+            raw = r.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.warning(f"[notifications] DeepSeek lifestyle 不可达: {e}")
+        return None
+
+    data = _parse_lifestyle_json(raw)
+    if data is None:
+        return None
+
+    # 最小字段校验：anchor 必须存在，且 anchor 或 food 至少一个非空
+    if not data.get("anchor"):
+        return None
+    if not data.get("anchor") and not data.get("food_good") and not data.get("food_bad"):
+        return None
+
+    data["engine"] = "llm"
+    data.setdefault("note", "由 DeepSeek LLM 生成")
+    return data
+
+
+def _parse_lifestyle_json(raw: str) -> dict | None:
+    """解析 LLM 输出的 lifestyle JSON（剥离代码块、容错切片、键白名单净化）。"""
+    text = (raw or "").strip()
+    if not text:
+        return None
+
+    # 1. 尝试剥离 ```json ... ``` 代码块
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    candidate = m.group(1) if m else None
+    # 2. 无代码块 → 从首个 { 到末尾 } 切片
+    if candidate is None:
+        s = text.find("{")
+        e = text.rfind("}")
+        if s != -1 and e != -1 and e > s:
+            candidate = text[s:e + 1]
+    if candidate is None:
+        return None
+
+    try:
+        data = _json.loads(candidate)
+    except Exception as e:
+        logger.warning(f"[notifications] DeepSeek lifestyle JSON 解析失败: {e}")
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    # 键白名单净化
+    cleaned = {k: v for k, v in data.items() if k in _LLM_LIFESTYLE_ALLOWED_KEYS}
+    # 再把 engine 之外的必要键补齐为数组（若缺则给空数组）
+    for k in ("timeline", "cloth_reminders", "food_good", "food_bad",
+              "home_reminders", "absolute_avoid", "relative_avoid"):
+        if k not in cleaned or not isinstance(cleaned.get(k), list):
+            cleaned[k] = []
+    return cleaned
 
 
 async def _generate_reminders(v_base: dict) -> dict:
