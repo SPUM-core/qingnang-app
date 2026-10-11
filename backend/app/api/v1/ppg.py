@@ -506,21 +506,21 @@ def upload_ppg(body: PpgUpload, db: Session = Depends(get_db),
                 engine_result = resp.json()
                 ob.s_graph = engine_result.get("S_graph")
                 # 引擎有病理标签用引擎的，否则用 bridge 的（主证+兼证）
-                ob.pathologies = engine_result.get("pathologies") or bridge_pathos
+                ob.topology_states = engine_result.get("pathologies") or bridge_pathos
                 ob.diagnosis_summary = engine_result.get("summary", "")
                 # 引擎没 summary 但 bridge 有 → fallback
                 if not ob.diagnosis_summary:
                     ob.diagnosis_summary = bridge_summary
                 ob.syndrome_hint = ob.diagnosis_summary or bridge_summary
-                logger.info(f"[ppg] 引擎诊断完成: {ob.diagnosis_summary}, 病理={ob.pathologies}")
+                logger.info(f"[ppg] 引擎诊断完成: {ob.diagnosis_summary}, 拓扑状态={ob.topology_states}")
             else:
                 logger.warning(f"[ppg] 引擎返回 {resp.status_code}: {resp.text[:200]}")
                 # 引擎失败 → bridge pathos + summary 兜底
-                ob.pathologies = bridge_pathos
+                ob.topology_states = bridge_pathos
     except Exception as exc:
         logger.warning(f"[ppg] 引擎调用失败: {exc} — 波形分析仍可返回")
         # 引擎失败 → bridge pathos + summary 兜底
-        ob.pathologies = bridge_pathos
+        ob.topology_states = bridge_pathos
 
     if not ob.diagnosis_summary:
         ob.diagnosis_summary = bridge_summary
@@ -539,7 +539,7 @@ def upload_ppg(body: PpgUpload, db: Session = Depends(get_db),
         "id": ob.id, "observation_id": ob.id, "case_id": case.id,
         "status": ob.status, "sqi": ob.sqi,
         "v_obs": ob.v_obs, "delta_f": ob.delta_f,
-        "s_graph": ob.s_graph, "pathologies": ob.pathologies,
+        "s_graph": ob.s_graph, "topology_states": ob.topology_states,
         "diagnosis_summary": ob.diagnosis_summary or ob.syndrome_hint,
         "engine_result": engine_result,
     }
@@ -555,7 +555,7 @@ def get_observation(obs_id: int, db: Session = Depends(get_db),
     return {
         "id": ob.id, "status": ob.status, "sqi": ob.sqi,
         "v_obs": ob.v_obs, "delta_f": ob.delta_f,
-        "s_graph": ob.s_graph, "pathologies": ob.pathologies,
+        "s_graph": ob.s_graph, "topology_states": ob.topology_states,
         "diagnosis_summary": ob.diagnosis_summary,
         "syndrome_hint": ob.syndrome_hint,
         "observed_at": ob.observed_at.isoformat() if ob.observed_at else None,

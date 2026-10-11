@@ -490,9 +490,9 @@ async def chat(body: ChatIn,
         analysis_result = None
         try:
             # ── 优先：从 parsed_template（第一次 LLM 调用的 JSON 槽位）取 ──
-            if parsed_template and parsed_template.pathologies:
+            if parsed_template and parsed_template.topology_states:
                 analysis_result = {
-                    "pathologies": [p.model_dump() if hasattr(p, 'model_dump') else p for p in parsed_template.pathologies],
+                    "topology_states": [p.model_dump() if hasattr(p, 'model_dump') else p for p in parsed_template.topology_states],
                     "suggestions": [s.model_dump() if hasattr(s, 'model_dump') else s for s in (parsed_template.suggestions or [])],
                     "signals": [sg.model_dump() if hasattr(sg, 'model_dump') else sg for sg in (parsed_template.signals or [])],
                     "chief_complaint": parsed_template.chief_complaint,
@@ -697,7 +697,7 @@ async def chat(body: ChatIn,
         "actions": actions,
         # ── LLM 深度解析结果（结构化给前端直接消费）──
         "analysis": {
-            "pathologies": (analysis_result or {}).get("pathologies", []),
+            "topology_states": (analysis_result or {}).get("topology_states") or (analysis_result or {}).get("pathologies", []),
             "suggestions": (analysis_result or {}).get("suggestions", []),
             "chief_complaint": (analysis_result or {}).get("chief_complaint", ""),
         } if analysis_result else None,

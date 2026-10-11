@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="page">
     <div class="page__header">
       <a class="back-link" @click.prevent="$router.back()" aria-label="返回">
@@ -110,9 +110,9 @@
             </div>
           </div>
         </div>
-        <div v-if="analysisResult.pathologies?.length" class="pathos-row">
-          <span class="pathos-label">病理标签</span>
-          <span class="pathos-tag" v-for="p in analysisResult.pathologies" :key="p">{{ p }}</span>
+        <div v-if="analysisResult.topology_states?.length || analysisResult.pathologies?.length" class="pathos-row">
+          <span class="pathos-label">当前拓扑状态</span>
+          <span class="pathos-tag" v-for="p in analysisResult.topology_states || analysisResult.pathologies" :key="p">{{ p }}</span>
         </div>
         <p v-if="analysisResult.diagnosis_summary" class="report-summary">{{ analysisResult.diagnosis_summary }}</p>
         <div class="report-actions">
@@ -518,9 +518,9 @@ async function upload() {
     analysisResult.value = d
     const recId = d?.observation_id ?? d?.id
     const summary = d?.diagnosis_summary || ''
-    const pathos = d?.pathologies?.length ? d.pathologies.join('·') : ''
+    const pathos = d?.topology_states?.length ? d.topology_states.join('·') : (d?.pathologies?.length ? d.pathologies.join('·') : '')
     const suffix = recId ? ` · 记录 ${recId}` : ''
-    const extra = summary ? `\n${summary}` : (pathos ? `\n病理标签：${pathos}` : '')
+    const extra = summary ? `\n${summary}` : (pathos ? `\n当前拓扑状态：${pathos}` : '')
     _showUploadMsg(`✓ 解析完成${suffix}${extra}`, true)
     uploaded.value = true
   } catch (e) {

@@ -298,6 +298,17 @@ def graph_diagnose(
     strong_ranked = sorted(disc_delta.items(), key=lambda x: x[1])
     strong = [w for w, d in strong_ranked if d < -0.5]
 
+    # ── 互斥强制（2026-10-11）：同一形不得同时出现在偏弱与偏强 ──
+    #     「强」= 断开崩得最狠（本体核心定义）；「弱」为连接受益但非强形的形。
+    #     避免出现「金既偏弱又偏强」的自相矛盾（LLM 推理层已采信并上报冲突）。
+    if strong:
+        strong_set = set(strong)
+        weak = [w for w in weak if w not in strong_set]
+        if not weak:
+            # 全被强形占用时，弱保底取连接受益最大且非强形的最高者
+            fallback = [w for w, _ in weak_ranked if w not in strong_set]
+            weak = fallback[:1]
+
     # ── 漂移: baseline vs current 各自演化后的差异 ──
     drift = []
     baseline_state = None

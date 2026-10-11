@@ -26,7 +26,7 @@ class Observation(Base):
     status        = Column(String(20), default="uploading")
     # uploading → analyzing → analyzed / failed
     s_graph       = Column(JSON)              # {"wood": 0.32, "fire": 0.18, ...} 拓扑层五形 0-1
-    pathologies   = Column(JSON)              # ["木僵", "金亢", ...] 病理标签
+    topology_states = Column(JSON)             # ["木偏僵", "金偏亢", ...] 当前拓扑状态标签（2026-10-11 由 pathologies 更名）
     diagnosis_summary = Column(String(500))   # 引擎一句话诊断
 
     # P0-2 联动：身高必录（单位：米，如 1.70；缺省/非法值时算法链路按"未测量"处理）

@@ -267,6 +267,28 @@ S(t) = S_base(birth) + ΔS_节气 + ΔS_日干支 + ΔS_时辰 + ΔS_观测漂�
         f"基线→当前演化方向差: {' '.join(drift) if drift else '无显著结构张力'}",
     ]
 
+    # ── 置信度闸（2026-10-11，LLM 推理层上报冲突二）──
+    #    无任何 PPG/观测样本时，数据全为八字推算 → 只能给方向性建议，禁止具体数值调理
+    try:
+        _obs_count = db.query(Observation).filter(Observation.case_id == case.id).count()
+    except Exception:
+        _obs_count = 0
+    if _obs_count == 0:
+        parts.append(
+            "\n【置信度闸】当前没有采集过任何 PPG/实测观测（obs_count=0），"
+            "你手上的数据全是八字推算值，不是实测。此时你【只能给方向性建议】"
+            "（如「水形链偏弱，宜养肾收藏」），【禁止】给出需要实测支撑的具体数值调理"
+            "（如「火形高于健康区间 0.30，请服药」）。语气要诚实：承认尚未实测，"
+            "引导用户先做第一次 PPG 采集建立基线。"
+        )
+
+    # ── 青囊判定字典（K-REASON，2026-10-11）── 始终注入：方向语义 + 五形映射 + 失效边界
+    try:
+        from ...utils.reasoning_dict import build_guidance_block
+        parts.append(build_guidance_block())
+    except Exception:
+        pass
+
     # ── L2+ 模板架构：注入 schema 描述，告诉 LLM 它有填空位可填 ──
     # L3: 从 _EXECUTE_WHITELIST 读 stage_min（单一信源，消除 _STAGE_MIN_MAP 重复）
     parts.append(build_response_schema_prompt(whitelist=_EXECUTE_WHITELIST))

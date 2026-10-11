@@ -7,7 +7,7 @@
       {"tag": "sweat", "label": "动则多汗", "confidence": 0.9},
       ...
     ],
-    "pathologies": [     # AI 从信号里反推的病理标签
+    "topology_states": [     # AI 从信号里反推的拓扑状态标签（不是"病"）
       {"label": "卫气不固", "base": "脾肺偏弱"},
       {"label": "湿遏肠腑", "base": "水行不化"},
       ...
@@ -47,8 +47,8 @@ _ANALYSIS_SYSTEM = """你是结构化数据抽取器。下面是一段用户和�
   other（其他）
 每条格式 {"tag": "...", "label": "...", "confidence": 0.0-1.0}
 
-## 2. 病理标签 pathologies
-从信号反推的中医病理，用生活化表达：
+## 2. 拓扑状态标签 topology_states
+从信号反推的拓扑状态（节点网络平衡度），用生活化表达，避免"病"字：
   {"label": "卫气不固", "base": "脾肺偏弱"}
   {"label": "湿遏肠腑", "base": "水行不化"}
 标签控制在 1-3 个，base 写依据。
@@ -136,7 +136,7 @@ async def analyze_conversation(
         data = json.loads(raw)
         return {
             "signals": data.get("signals", []) or [],
-            "pathologies": data.get("pathologies", []) or [],
+            "topology_states": data.get("topology_states") or data.get("pathologies", []) or [],
             "suggestions": data.get("suggestions", []) or [],
             "chief_complaint": data.get("chief_complaint", "") or "",
             "_llm_parsed_at": int(time.time()),
@@ -151,7 +151,7 @@ async def analyze_conversation(
                      "matched_keywords": s.matched_keywords}
                     for s in rule_signals
                 ],
-                "pathologies": [],
+                "topology_states": [],
                 "suggestions": [],
                 "chief_complaint": "",
                 "_llm_parsed_at": None,

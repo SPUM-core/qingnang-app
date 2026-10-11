@@ -89,7 +89,7 @@ class BriefCardFill(BaseModel):
     food_highlight: Optional[str] = Field(None, description="重点推荐的那道菜")
 
 
-class PathologyFill(BaseModel):
+class TopologyStateFill(BaseModel):
     """AI 从 S 向量和对话读出来的拓扑状态（不是"病"，是关系网络状态）"""
     label: str = Field(..., description="拓扑状态标签，如'S_火偏强 0.30（梯度场活跃）'")
     base: Optional[str] = Field(None, description="依据：对应哪个 S 向量偏移或对话细节")
@@ -116,7 +116,7 @@ class AIResponseTemplate(BaseModel):
     brief_card: Optional[BriefCardFill] = Field(None, description="想展示今日宜忌卡片时填")
     suggested_actions: Optional[list[ActionSuggestion]] = Field(None, description="建议执行的操作")
     # ── 2026-10-04 P2 新增：让 LLM 一次输出所有结构化数据，省掉第二次 LLM 调用 ──
-    pathologies: Optional[list[PathologyFill]] = Field(None, description="病理标签（1-3个）")
+    topology_states: Optional[list[TopologyStateFill]] = Field(None, description="拓扑状态标签（1-3个）")
     suggestions: Optional[list[SuggestionFill]] = Field(None, description="调理建议（3-5条）")
     chief_complaint: Optional[str] = Field(None, description="一句话主诉")
     signals: Optional[list[SignalFill]] = Field(None, description="用户自述里的生活信号")
@@ -153,8 +153,8 @@ def build_response_schema_prompt(whitelist: dict | None = None) -> str:
                 label="把入睡困难标记到我的数字模型",
             ),
         ],
-        pathologies=[
-            PathologyFill(label="S_火偏强 0.30（梯度场活跃，能量流偏急）", base="脉搏采集 fire:32 高于健康区间"),
+        topology_states=[
+            TopologyStateFill(label="S_火偏强 0.30（梯度场活跃，能量流偏急）", base="脉搏采集 fire:32 高于健康区间"),
         ],
         suggestions=[
             SuggestionFill(category="lifestyle", title="戌时泡脚 40℃ 15分钟", detail="顺应戌时心包经开阖窗口，帮助火形梯度降下来", priority="high"),
@@ -202,7 +202,7 @@ def build_response_schema_prompt(whitelist: dict | None = None) -> str:
 
 SPUM 对齐的卡片语义（帮你判断什么时候填什么）：
 
-【pathologies — 状态梳理】
+【topology_states — 当前拓扑状态】
   从用户的 S 向量和对话里读出来的拓扑状态。
   说的是关系网络的状态，不是"病"。例：
     "S_火 偏强 0.30（梯度场活跃，能量流偏急）"
@@ -330,10 +330,13 @@ def normalize_parsed(data: dict) -> AIResponseTemplate | None:
         normalized["suggested_actions"] = [
             a for a in sa if isinstance(a, dict) and a.get("action_id")
         ]
-    # pathologies：防御性修复（label 必须 str）
-    p = data.get("pathologies")
+    # topology_states：防御性修复（label 必须 str）
+    # 2026-10-11：兼容旧键 pathologies（历史消息/旧模板缓存），新键为 topology_states
+    p = data.get("topology_states")
+    if not isinstance(p, list):
+        p = data.get("pathologies")  # 兼容旧契约
     if isinstance(p, list):
-        normalized["pathologies"] = [
+        normalized["topology_states"] = [
             x for x in p
             if isinstance(x, dict) and isinstance(x.get("label"), str) and x["label"].strip()
         ]

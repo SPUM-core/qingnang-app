@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
   <div class="assistant-root" ref="rootRef" :style="fabPosStyle">
     <!-- 悬浮触发按钮（可拖动） -->
     <button class="fab" :class="{ minimized: isOpen, dragging: isDragging }"
@@ -150,11 +150,11 @@
                       <span class="action-arrow">→</span>
                     </button>
                   </div>
-                  <!-- 📊 AI 深度解析摘要（病理 + 建议） -->
-                  <div v-if="m.analysis?.pathologies?.length || m.analysis?.suggestions?.length" class="analysis-card">
-                    <div v-if="m.analysis.pathologies?.length" class="ana-section">
+                  <!-- 📊 AI 深度解析摘要（拓扑状态 + 建议） -->
+                  <div v-if="m.analysis?.topology_states?.length || m.analysis?.pathologies?.length || m.analysis?.suggestions?.length" class="analysis-card">
+                    <div v-if="m.analysis.topology_states?.length || m.analysis.pathologies?.length" class="ana-section">
                       <span class="ana-tag">📌 状态梳理</span>
-                      <span v-for="(p, pi) in m.analysis.pathologies" :key="pi" class="ana-path">
+                      <span v-for="(p, pi) in (m.analysis.topology_states || m.analysis.pathologies)" :key="pi" class="ana-path">
                         {{ p.label }}<span v-if="p.base" class="ana-base">（{{ p.base }}）</span>
                       </span>
                     </div>
