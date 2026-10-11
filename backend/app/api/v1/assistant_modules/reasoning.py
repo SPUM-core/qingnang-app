@@ -167,6 +167,9 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
         "title": f"多穿{WX_COLOR[weak]}系",
         "desc": f"补{WX_CN[weak]}形，抑制{WX_CN[strong]}形过旺",
         "reason": f"v_base {WX_CN[weak]}={scores[weak]:.0f}（最低），{WX_CN[strong]}={scores[strong]:.0f}（最高）",
+        "detail": f"以{WX_COLOR[weak]}色的上衣、围巾或配饰为主，贴身层优先{WX_COLOR[weak]}色；"
+                  f"避开{WX_COLOR[strong]}系大面积穿搭。",
+        "source_ref": "《黄帝内经·素问》——五色入五脏",
     }]
     cloth_bad = []
     if day_elem == strong:
@@ -175,6 +178,8 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
             "title": f"忌穿{WX_COLOR[day_elem]}系",
             "desc": f"今日{WX_CN[day_elem]}主气，穿同色助旺过甚",
             "reason": f"今日干支 {ln['g']}{ln['z']} 主气 {WX_CN[day_elem]}",
+            "detail": f"今日避免{WX_COLOR[day_elem]}色整体穿搭；若衣柜所限，可用其他颜色配饰做中和。",
+            "source_ref": "《千金要方》——随四时五行调节起居服色",
         })
 
     # 4. 饮食建议
@@ -183,12 +188,18 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
         "title": f"宜吃{WEAK_FOOD[weak][0]}等补{WX_CN[weak]}食物",
         "desc": "、".join(WEAK_FOOD[weak]) + f" — 按相生律补{WX_CN[weak]}形",
         "reason": f"五形相生：弱{WX_CN[weak]}需要滋养",
+        "detail": f"选其中1-2样，少量多次、细嚼慢咽；以煮、蒸、炖为主，避免煎炸油腻；"
+                  f"建议安排在辰时（7-9点）或午时（11-13点）食用。",
+        "source_ref": f"《本草纲目》——{WX_CN[weak]}类食材补益说明",
     }]
     food_bad = [{
         "id": "food-bad-1",
         "title": f"忌{STRONG_AVOID[strong][0]}",
         "desc": "、".join(STRONG_AVOID[strong]) + f" — 避免助{WX_CN[strong]}形过旺",
         "reason": f"{WX_CN[strong]}形分数 {scores[strong]:.0f} 最高",
+        "detail": f"今日少吃或不吃上述食物；若偶尔摄入，注意控制分量，一次不超过一拳体积；"
+                  f"出现腹胀、口干等不适立即停止。",
+        "source_ref": f"《黄帝内经·素问》——五味入五脏，过食则伤",
     }]
 
     # 5. 今日宜忌（干支 + v_base 综合）
@@ -198,11 +209,19 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
     # 6. 住房/作息提醒
     home = []
     if strong == "fire":
-        home.append({"id": "home-1", "title": "午后宜独处静养", "desc": "火形旺易焦躁，避开午后阳气盛时段"})
+        home.append({"id": "home-1", "title": "午后宜独处静养", "desc": "火形旺易焦躁，避开午后阳气盛时段",
+                     "detail": "13:00-15:00 尽量安排安静活动，避免高强度社交与争论；可闭目养神10分钟。",
+                     "source_ref": "《黄帝内经·素问》——阳气者，一日而主外，日中而阳气隆"})
     if weak == "water":
-        home.append({"id": "home-2", "title": "亥时泡脚养肾", "desc": "21:00-23:00 是肾经主时，泡脚 40℃/15min"})
+        home.append({"id": "home-2", "title": "亥时泡脚养肾", "desc": "21:00-23:00 是肾经主时，泡脚 40℃/15min",
+                     "detail": "用40℃左右温水，水位没过踝关节，泡15分钟微微出汗即可；"
+                               "泡后注意保暖，忌立即吹风；有糖尿病足或静脉曲张者慎泡。",
+                     "source_ref": "《千金要方》——以冷水暖足浴，以肾经相应"})
     if weak == "earth":
-        home.append({"id": "home-3", "title": "辰时养胃", "desc": "7:00-9:00 辰时脾经旺，宜温热早餐"})
+        home.append({"id": "home-3", "title": "辰时养胃", "desc": "7:00-9:00 辰时脾经旺，宜温热早餐",
+                     "detail": "辰时（7-9点）吃温热早餐，以小米粥、山药、南瓜等易消化为主；"
+                               "忌空腹冰饮、忌过量。",
+                     "source_ref": "《伤寒杂病论》——脾胃为后天之本"})
 
     # 7. 禁忌
     absolute = []

@@ -272,6 +272,7 @@ async def _call_qingmeng_lifestyle(v_base: dict, v_current: dict | None = None,
 _LLM_LIFESTYLE_ALLOWED_KEYS = {
     "anchor", "timeline", "cloth_reminders", "food_good", "food_bad",
     "home_reminders", "absolute_avoid", "relative_avoid", "note",
+    "detail", "source_ref",
 }
 
 
@@ -292,8 +293,12 @@ async def _llm_lifestyle(v_base: dict,
         '- anchor：{"ganzhi": str, "state": str, "yi": str, "ji": str, '
         '"dangling_elem": str, "feixing": str}\n'
         '- cloth_reminders / food_good / food_bad / home_reminders / absolute_avoid / '
-        'relative_avoid 内每项：{"id": str, "title": str, "desc": str, "reason": str}'
-        '（food/home/absolute/relative 可省略 reason）\n'
+        'relative_avoid 内每项：{"id": str, "title": str, "desc": str, "reason": str, '
+        '"detail": str, "source_ref": str}（food/home/absolute/relative 可省略 reason）\n'
+        '- detail：具体的操作步骤，例如食物要写明做法（食材、用量、制作步骤、食用的时辰窗口）、'
+        '穿衣要写明怎么穿，住家要写明做什么，注意事项要写清楚（忌过量、体质禁忌等）\n'
+        '- source_ref：推荐依据的医书/经典出处，格式如「《本草纲目》谷部·粟米」「《千金要方》食治」'
+        '「《黄帝内经·素问》」，必须真实可查，宁缺毋滥，没有把握可省略或写「青囊五形理论」\n'
         '- timeline 每项：{"time": str, "title": str, "desc": str}\n'
         '禁止输出 JSON 之外的任何解释文字。若无法充分判断，各数组可为空，但 anchor 必须存在。'
     )
