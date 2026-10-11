@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
   <div class="assistant-root" ref="rootRef" :style="fabPosStyle">
     <!-- 悬浮触发按钮（可拖动） -->
     <button class="fab" :class="{ minimized: isOpen, dragging: isDragging }"
@@ -74,7 +74,15 @@
             <QIcon name="history" :size="16" />
           </button>
           <div class="head-info">
-            <h3>{{ headerTitle }}</h3>
+            <!-- LLM 健康状态徽章（错误诊断） -->
+            <div class="llm-status" :class="llmState">
+              <span class="llm-dot"></span>
+              <span class="llm-text">{{ llmStatusText }}</span>
+              <span v-if="llmState === 'error' && llmErrorCode" class="llm-code">
+                · ERR {{ llmErrorCode }}
+              </span>
+            </div>
+            <p class="head-sub">{{ headerSub }}</p>
           </div>
           <button class="head-btn" @click="clearChat" title="新对话" aria-label="新对话">
             <QIcon name="refresh" :size="16" />
@@ -283,6 +291,10 @@ const messages = ref([])
 const input = ref('')
 const thinking = ref(false)
 const unread = ref(0)
+// ═══ LLM 健康状态（表头诊断） ═══
+// states: 'connecting' | 'online' | 'local' | 'error' | 'unauth'
+const llmState = ref('connecting')
+const llmErrorCode = ref(null)
 const msgAreaRef = ref(null)
 const taRef = ref(null)
 const rootRef = ref(null)
@@ -614,11 +626,22 @@ const archiveInfo = computed(() => {
     age: cp.age || '',
   }
 })
-// ⭐ 2026-10-07：修复硬编码 "晴晴·6岁" → 动态读取当前登录用户
-const headerTitle = computed(() => {
+// ⭐ 2026-10-11：表头改为 LLM 状态诊断，用户名/年龄降为副标题
+const headerSub = computed(() => {
   const { name, age } = archiveInfo.value
   if (!name) return '青囊管家'
-  return age ? `${name}·${age}岁` : name
+  return age ? `${name} · ${age}岁` : name
+})
+// LLM 健康状态的显示文案
+const llmStatusText = computed(() => {
+  const map = {
+    connecting: 'LLM 连接中…',
+    online: 'LLM 正常',
+    local: 'LLM 离线 · 本地规则',
+    error: 'LLM 错误',
+    unauth: '未登录',
+  }
+  return map[llmState.value] || 'LLM 连接中…'
 })
 const ctxWeakLabels = computed(() => {
   const v = userStore.caseData?.v_current || userStore.caseData?.v_baseline || {}
@@ -925,16 +948,28 @@ const send = async (text, voiceData = null) => {
 
     if (eng === 'local_fallback' || !r.data?.llm_online) {
       footnote = `${engLabel} · 仅供参考，不作为医疗诊断`
+      // LLM 健康状态：降级为本地规则引擎（离线）
+      llmState.value = 'local'
+      llmErrorCode.value = null
     } else {
       const modelTag = modelName && !modelName.includes('fallback') ? `（${modelName}）` : ''
       footnote = `由 ${engLabel}${modelTag} 推理 · 仅供参考，不作为医疗诊断`
+      // LLM 健康状态：云端 LLM 在线
+      llmState.value = 'online'
+      llmErrorCode.value = null
     }
   } catch (e) {
     const code = e.response?.status
     if (code === 401 || code === 403) {
       replyText = '需要先登录才能使用青囊管家。'
+      // 未登录：灰态，清空错误码
+      llmState.value = 'unauth'
+      llmErrorCode.value = null
     } else {
       replyText = '青囊管家暂时无法连接，请稍后再试。'
+      // 崩溃/断连：红态，带上错误码供诊断
+      llmState.value = 'error'
+      llmErrorCode.value = code ?? '0'
     }
     footnote = '仅供参考，不作为医疗诊断'
   }
@@ -1286,6 +1321,24 @@ function showToast(text) {
 
 .head-info { flex: 1; }
 .head-info h3 { margin: 0; font-size: calc(14px * var(--qn-fs-scale)); font-weight: 600; }
+/* ⭐ 2026-10-11：LLM 健康状态徽章（表头错误诊断） */
+.llm-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: calc(13px * var(--qn-fs-scale)); font-weight: 600;
+  color: rgba(255,255,255,0.92); font-variant-numeric: tabular-nums;
+}
+.llm-status .llm-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: #94a3b8; box-shadow: 0 0 0 2px rgba(148,163,184,0.25);
+}
+.llm-status .llm-code { font-weight: 500; font-size: 11px; color: #fbbf24; }
+.llm-status.connecting .llm-dot { background: #f5c26b; animation: llm-pulse 1.2s ease-in-out infinite; }
+.llm-status.online    .llm-dot { background: #4ade80; box-shadow: 0 0 0 2px rgba(74,222,128,0.3); }
+.llm-status.local     .llm-dot { background: #fbbf24; box-shadow: 0 0 0 2px rgba(251,191,36,0.3); }
+.llm-status.error     .llm-dot { background: #f87171; box-shadow: 0 0 0 2px rgba(248,113,113,0.35); }
+.llm-status.error     .llm-text { color: #fca5a5; }
+.llm-status.unauth    .llm-dot { background: #94a3b8; }
+@keyframes llm-pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.35 } }
 .head-sub { margin: 1px 0 0; font-size: calc(10px * var(--qn-fs-scale)); color: rgba(255,255,255,0.6); letter-spacing: 0.5px; }
 .head-btn {
   width: 32px; height: 32px; border-radius: 50%;
