@@ -42,6 +42,8 @@ function refreshPalette() {
 // 初始化一次（为了首次 render 前 pal 可用）
 refreshPalette()
 const DIMS = ['wood', 'fire', 'earth', 'metal', 'water']
+// 五行健康区间（与后端 HEALTH_POLYTOPE 一致 · 单一信源见 trajectory_algorithm/_constants.py）
+const POLY = { wood: [35,65], fire: [30,70], earth: [40,60], metal: [38,62], water: [35,65] }
 // ⚠️ 注意：C/NURBS/GRID/AXIS/TEXT/WHITE 这些名字是在 render 函数内
 // 通过 refreshPalette() 后重新 const { ... } = pal 解构获取的。
 // 顶层不做一次性解构，避免 render 时拿到陈旧值。
@@ -415,6 +417,43 @@ function renderYinYang () {
         { xAxis: i, itemStyle: { color: withAlpha(color, '38'), borderWidth: 0 } },
         { xAxis: Math.min(i + 0.99, n - 1) },
       ])
+    }
+  }
+
+  // ─── 当前年龄竖线（年视图专用，借鉴 tizhi-curve/lifetime_1987.html）───
+  // 用出生年 + 当前年份推出当前年龄，落在哪一帧就把竖线画在哪
+  let currentAgeLine = null
+  if (_isYearView && traj.birth_year) {
+    const curAge = Math.max(0, new Date().getFullYear() - traj.birth_year)
+    const idx = elems.findIndex(p => (p.age ?? 0) >= curAge)
+    if (idx >= 0) {
+      currentAgeLine = {
+        xAxis: idx,
+        lineStyle: { color: '#FFA726', width: 2, type: 'solid', opacity: 0.9 },
+        label: { show: true, position: 'insideStartTop', color: '#FFA726', fontSize: fs(10),
+          formatter: `← ${curAge}岁·当前` }
+      }
+    }
+  }
+
+  // ─── violation 热力背景（年视图：polytope OUT 段 → 红色虚线热力区，借鉴沙盒 L269-286）───
+  // APP 原有点级 markPoint；段级热力把连续 OUT 段染红，危险区间一眼可见
+  const violationAreas = []
+  if (_isYearView && polytopeStatuses.length === n) {
+    let segStart = 0
+    let lastStatus = polytopeStatuses[0]
+    for (let i = 1; i <= n; i++) {
+      const s = i < n ? polytopeStatuses[i] : null
+      if (s !== lastStatus || i === n) {
+        if (lastStatus === 'OUT') {
+          violationAreas.push([
+            { xAxis: segStart, itemStyle: { color: 'rgba(229,115,115,0.08)', borderColor: 'rgba(229,115,115,0.2)', borderWidth: 1, borderType: 'dashed' } },
+            { xAxis: Math.max(segStart, i - 1) },
+          ])
+        }
+        segStart = i
+        lastStatus = s
+      }
     }
   }
 
@@ -886,18 +925,31 @@ function renderYinYang () {
     ],
     series: [
       // ═══ 年视图：五条五行曲线（右轴 0~100，z=3 在 SPUM 曲线下方、markArea 上方）═══
-      ...(_isYearView ? DIMS.map((k) => ({
-        name: C[k].label,
-        type: 'line', smooth: 0.5,
-        symbol: 'none',
-        showInLegend: true,
-        lineStyle: { width: 1.6, color: C[k].color, opacity: 0.72 },
-        itemStyle: { color: C[k].color },
-        emphasis: { lineStyle: { width: 2.5, opacity: 1 } },
-        data: elems.map(p => Math.round((p[k] ?? 50) * 10) / 10),
-        yAxisIndex: 1,
-        z: 3,
-      })) : []),
+      ...(_isYearView ? DIMS.map((k) => {
+        const [lo, hi] = POLY[k] || [35, 65]
+        return {
+          name: C[k].label,
+          type: 'line', smooth: 0.5,
+          symbol: 'none',
+          showInLegend: true,
+          lineStyle: { width: 1.6, color: C[k].color, opacity: 0.72 },
+          itemStyle: { color: C[k].color },
+          emphasis: { lineStyle: { width: 2.5, opacity: 1 } },
+          data: elems.map(p => Math.round((p[k] ?? 50) * 10) / 10),
+          yAxisIndex: 1,
+          z: 3,
+          // ═══ 健康区间 [lo,hi] 虚线（借鉴沙盒 lifetime_1987.html wuxingSeries markLine）═══
+          // 单条曲线越出本维健康带 → 一眼可判哪维失衡
+          markLine: {
+            silent: true, symbol: 'none',
+            lineStyle: { type: 'dashed', color: C[k].color + '66', width: 1 },
+            data: [
+              { yAxis: lo, label: { show: false } },
+              { yAxis: hi, label: { show: false } },
+            ]
+          },
+        }
+      }) : []),
       // ═══ 阳界（动态虚线）═══
       {
         name: '阳界',
@@ -908,12 +960,13 @@ function renderYinYang () {
         lineStyle: { width: 1.5, color: dominantColor, type: 'dashed', opacity: 0.75 },
         data: yangLine,
         z: 5,
-        // 逐年流年底图 + 大运分段（年视图渲染）
-        markArea: (liunianMarkArea.length || hasDayunData) ? {
+        // 逐年流年底图 + 大运分段 + violation 热力区（年视图渲染）
+        markArea: (liunianMarkArea.length || hasDayunData || violationAreas.length) ? {
           silent: true, label: { show: false },
           data: [
             ...(_isYearView ? liunianMarkArea : []),   // 最底层：逐年流年五行色
             ...(hasDayunData ? dayunMarkArea : []),    // 上层：大运分段渐变
+            ...(_isYearView ? violationAreas : []),    // 最上层：OUT 越界段热力区
           ],
         } : undefined,
       },
@@ -943,7 +996,7 @@ function renderYinYang () {
         },
         data: driftData,
         z: 10,
-        // ═══ markLine: 中轴 + 医疗事件（固定边界已改为 yangLine/yinLine series）═══
+        // ═══ markLine: 中轴 + 医疗事件 + 当前年龄竖线（固定边界已改为 yangLine/yinLine series）═══
         markLine: {
           silent: true, symbol: 'none',
           label: { show: true, fontSize: fs(10), fontWeight: 600 },
@@ -956,6 +1009,8 @@ function renderYinYang () {
             },
             // 医疗事件竖虚线
             ...medMarkLines,
+            // 当前年龄竖线（年视图）
+            ...(currentAgeLine ? [currentAgeLine] : []),
           ]
         },
         markPoint: {

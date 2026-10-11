@@ -1165,11 +1165,31 @@ async def get_today_todos(db: Session = Depends(get_db),
         group.sort(key=lambda x: priority_order.get(x["priority"], 9))
         cat_limited.extend(group[:lim])
 
-    # 阶段 4：总量排序 → 按 priority + 分源（AI vs lifestyle 平衡）→ 截 12
+    # 阶段 4：总量排序 → 按 priority + 分源（AI vs lifestyle 平衡）+ 时段时效 → 截 12
+    # 🆕 2026-10-11 按时间推荐：hero 主卡片永远推荐"现在该做的事"，
+    #    已过时辰的建议沉底（早晨任务下午不再占据第一位）
+    now_h = datetime.now().hour  # 本地时间小时（0-23）
+    # 各时间槽窗口 [start, end)：start 到点才算进入当下，end 过后即沉底
+    _SLOT_WINDOW = {
+        "morning": (5, 11),     # 早晨 5-11 点（卯辰巳）
+        "noon":    (11, 17),    # 午后 11-17 点（午未申）
+        "evening": (17, 21),    # 傍晚 17-21 点（酉戌）
+        "night":   (21, 24),    # 夜间 21-24 点（亥子时）
+        "any":     (0, 24),     # 全天适用
+    }
+
+    def _time_rank(t):
+        start_h, end_h = _SLOT_WINDOW.get(t.get("time_slot", "any"), (0, 24))
+        if now_h >= end_h:
+            return 3   # 已过时辰 → 沉底（今天的早晨任务，下午不再推荐）
+        if start_h <= now_h < end_h:
+            return 0   # 当下时辰 → 最优先（现在就该做）
+        return 1       # 未到时辰 → 次优先（今天稍后安排）
+
     def _score(t):
         p = priority_order.get(t["priority"], 9)
         src_bonus = 0 if t.get("source_type") == "lifestyle" else 1
-        return (p, src_bonus)
+        return (_time_rank(t), p, src_bonus)
 
     cat_limited.sort(key=_score)
     final_todos = cat_limited[:_TOTAL_CAP]
