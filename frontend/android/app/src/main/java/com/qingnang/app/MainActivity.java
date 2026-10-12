@@ -4,7 +4,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
-import android.view.WindowInsetsController;
+import android.view.WindowInsets;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -16,44 +17,54 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Edge-to-edge：透明状态栏 + WebView 延伸到状态栏后面
+        // 1) Edge-to-edge：内容铺满，让 WindowInsets 决定谁让开
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
-        WindowInsetsControllerCompat wic = WindowCompat.getInsetsController(
-            getWindow(), getWindow().getDecorView());
+        // 2) 图标明暗（浅背景 → 深色图标）
+        WindowInsetsControllerCompat wic =
+            WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
         if (wic != null) {
             wic.setAppearanceLightStatusBars(true);
             wic.setAppearanceLightNavigationBars(true);
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            getWindow().setNavigationBarContrastEnforced(false);
-        }
+        // 3) 实时监听 WindowInsets → 传给 JS
+        //    覆盖状态栏 + 挖孔 + 导航栏 + 手势条
+        //    旋转/分屏/折叠屏/沉浸式切换 → 自动重触发
+        ViewCompat.setOnApplyWindowInsetsListener(
+            getWindow().getDecorView(),
+            (v, insetsCompat) -> {
+                android.view.WindowInsets raw = insetsCompat.toWindowInsets();
+                if (raw == null) return insetsCompat;
 
-        // ⚠️ 关键：原生计算状态栏高度 → 传给 CSS 变量
-        // env(safe-area-inset-top) 在部分 ROM（MIUI/HyperOS）返回 0
-        // 直接用资源值算最可靠
-        int statusBarH = calcStatusBarHeight();
-        int navBarH    = calcNavBarHeight();
-        final String js =
-            "document.documentElement.style.setProperty('--status-bar-height', '" + statusBarH + "px');" +
-            "document.documentElement.style.setProperty('--nav-bar-height', '"    + navBarH    + "px');";
-        // 等 WebView ready 再 evaluate（post 到主线程队列末尾）
-        if (getBridge() != null && getBridge().getWebView() != null) {
-            getBridge().getWebView().post(() ->
-                getBridge().getWebView().evaluateJavascript(js, null));
-        }
-    }
+                int top, bottom, left, right;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    // Android 11+：用更干净的 WindowInsets.getInsets(Type)
+                    top    = raw.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()).top;
+                    bottom = raw.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()).bottom;
+                    left   = raw.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()).left;
+                    right  = raw.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()).right;
+                } else {
+                    // 旧版：systemWindowInset 已经包含状态栏，
+                    // cutout 在 API 28 以下不存在，这里 fallback
+                    top    = raw.getSystemWindowInsetTop();
+                    bottom = raw.getSystemWindowInsetBottom();
+                    left   = raw.getSystemWindowInsetLeft();
+                    right  = raw.getSystemWindowInsetRight();
+                }
 
-    /** 反射读取系统 status_bar_height 资源（几乎所有 ROM 都有） */
-    private int calcStatusBarHeight() {
-        int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        return resId > 0 ? getResources().getDimensionPixelSize(resId) : 0;
-    }
-
-    /** 反射读取系统 navigation_bar_height 资源 */
-    private int calcNavBarHeight() {
-        int resId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
-        return resId > 0 ? getResources().getDimensionPixelSize(resId) : 0;
+                String js =
+                    "document.documentElement.style.setProperty('--status-bar-height', '" + top    + "px');" +
+                    "document.documentElement.style.setProperty('--nav-bar-height',    '" + bottom + "px');" +
+                    "document.documentElement.style.setProperty('--safe-left',         '" + left   + "px');" +
+                    "document.documentElement.style.setProperty('--safe-right',        '" + right  + "px');";
+                runOnUiThread(() -> {
+                    if (getBridge() != null && getBridge().getWebView() != null) {
+                        getBridge().getWebView().evaluateJavascript(js, null);
+                    }
+                });
+                return insetsCompat;
+            }
+        );
     }
 }
