@@ -333,14 +333,22 @@ function skipTrajectory(tpId) {
 async function retryWithManual() {
   if (!currentReportId.value || !manualNotesFallback.value.trim()) return
   processing.value = true
+  currentResult.value = null
+  // 把手写文字先存 manual_notes 同时触发 AI 重解析
   try {
-    await api.put(`/api/v1/assistant/report/${currentReportId.value}`, {
-      manual_notes: manualNotesFallback.value
+    const r = await api.put(`/api/v1/assistant/report/${currentReportId.value}`, {
+      manual_notes: manualNotesFallback.value,
+      reparse: true,
     })
-    // 目前后端还没"手动文本重试 LLM"的接口，先提示
-    alert('已保存手写备注。AI 重试提取接口待后端补充。')
-  } catch (e) { alert(e.message) }
-  processing.value = false
+    const body = r.data || {}
+    if (body.status === 'reparsing') {
+      // 触发轮询等它跑完
+      startPolling(currentReportId.value)
+    } else {
+      processing.value = false
+      alert('重试已提交，请刷新查看')
+    }
+  } catch (e) { alert(e.message); processing.value = false }
 }
 
 function reset() {

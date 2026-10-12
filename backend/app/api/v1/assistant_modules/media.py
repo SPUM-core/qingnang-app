@@ -598,7 +598,12 @@ async def update_medical_report(
     db: Session = Depends(get_db),
     current: User = Depends(get_current_user),
 ):
-    """手动更新报告 metadata"""
+    """手动更新报告 metadata + 可选触发 LLM 重跑（reparse）
+
+    body 字段：
+      - report_title / report_type / report_date / manual_notes / spum_note / summary — 直接更新
+      - reparse: true — 用 manual_notes 里的文字重新跑 LLM 结构化提取
+    """
     from app.models.chat import MedicalReport
     from datetime import datetime
     mr = db.query(MedicalReport).filter(
@@ -611,8 +616,89 @@ async def update_medical_report(
                   "manual_notes", "spum_note", "summary"]:
         if field in body: setattr(mr, field, body[field])
     mr.updated_at = datetime.utcnow()
+
+    # ── reparse: 用 manual_notes 里的文字重新跑 LLM ──
+    if body.get("reparse") and mr.manual_notes and mr.manual_notes.strip():
+        mr.provider = "pending"
+        mr.recognized = False
+        mr.summary = "手动重试中…"
+        mr.structured = None
+        mr.raw_text = mr.manual_notes
+        db.commit()
+        # 直接派发 asyncio task（跳过文件解析，manual_notes 就是 text_content）
+        import asyncio as _aio
+        task = _aio.create_task(_process_report_from_text(report_id, mr.manual_notes.strip(), user_id=current.id))
+        _RUNNING_TASKS[report_id] = task
+        def _cleanup(t, _id=report_id): _RUNNING_TASKS.pop(_id, None)
+        task.add_done_callback(_cleanup)
+        return {"ok": True, "id": mr.id, "status": "reparsing", "message": "已触发 AI 重试提取，请稍后刷新"}
+
     db.commit()
     return {"ok": True, "id": mr.id}
+
+
+async def _process_report_from_text(report_id: int, text_content: str, user_id: int):
+    """手动文字版流水线：跳过文件解析 → 直接 LLM 提取 → 写 DB + TrajectoryEvent
+
+    和 _process_report_async 的 LLM 后半段完全一致，共用 extract_report + trajectory 逻辑。
+    """
+    from app.models.chat import MedicalReport, Case
+    from app.models.user import User
+    from app.models.trajectory_event import TrajectoryEvent
+    from app.utils.report_llm import extract_report
+    from ....database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        mr = db.query(MedicalReport).filter(MedicalReport.id == report_id).first()
+        if not mr: return
+
+        mr.raw_text = text_content
+        llm_result = await extract_report(text_content)
+
+        mr.recognized = llm_result.get("ok", False)
+        mr.provider   = llm_result.get("provider", "llm")
+        mr.structured = llm_result.get("structured")
+
+        if llm_result.get("report_title") and not mr.report_title:
+            mr.report_title = llm_result["report_title"]
+        if llm_result.get("report_type") and mr.report_type == "other":
+            mr.report_type = llm_result["report_type"]
+        if llm_result.get("summary"):
+            mr.summary = llm_result["summary"] + ("（手动重解析）" if mr.manual_notes else "")
+
+        # ── trajectory_proposal ──
+        proposal = llm_result.get("trajectory_proposal")
+        if proposal and proposal.get("damage"):
+            case = db.query(Case).filter(Case.user_id == user_id).first()
+            if case:
+                from datetime import datetime as _dt2
+                te = TrajectoryEvent(
+                    case_id=case.id, age=proposal.get("age") or 0, day=None,
+                    event_type=proposal.get("event_type") or "波动",
+                    label=f"[手动重解析] {mr.report_title or '未知报告'}",
+                    direction=proposal.get("direction") or "注意",
+                    damage=proposal.get("damage"), boost=proposal.get("boost") or {},
+                    duration_days=365, source="report_archive",
+                    confidence=0.6, confirmed=False, pending=True,
+                )
+                db.add(te)
+
+        if llm_result.get("note"):
+            suffix = f"\n（{llm_result['note']}）"
+            mr.summary = (mr.summary or "") + suffix if mr.summary else suffix.strip()
+
+        db.commit()
+    except Exception as e:
+        try:
+            mr = db.query(MedicalReport).filter(MedicalReport.id == report_id).first()
+            if mr:
+                mr.summary = f"手动重解析异常：{e}"
+                mr.provider = "exception"
+                db.commit()
+        except Exception: pass
+    finally:
+        db.close()
 
 
 @router.delete("/report/{report_id}")
