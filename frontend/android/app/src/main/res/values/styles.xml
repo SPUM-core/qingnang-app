@@ -1,14 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!-- 启动闪屏主题 -->
+    <!-- ══════════════════════════════════════════════════════════════
+         启动闪屏主题（仅 onCreate 之前生效）
+         ══════════════════════════════════════════════════════════════ -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <!-- 启动瞬间也保持透明状态栏，避免切主题时「白条闪一下」 -->
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 
-    <!-- 运行时主题：NoActionBar + 透明状态栏 + edge-to-edge -->
-    <!-- 关键点：windowTranslucentStatus=false + windowDrawsSystemBarBackgrounds=true + fitsSystemWindows=true -->
-    <!-- 这样 WebView 里 env(safe-area-inset-top/bottom) 才能拿到正确值 -->
+    <!-- ══════════════════════════════════════════════════════════════
+         运行时主题基座：NoActionBar + 透明状态栏 + edge-to-edge
+         ══════════════════════════════════════════════════════════════ -->
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
@@ -22,7 +30,39 @@
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- 刘海/挖孔屏：让内容延伸到挖孔区（否则竖屏会被强行降级为 letterbox） -->
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <!-- 底部手势导航条同理：内容延伸到手势区 -->
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+    </style>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         ★★★ 关键修复（本页最重要的一行）★★★
+
+         Capacitor 的 BridgeActivity.onCreate() 会无条件执行：
+             getApplication().setTheme(R.style.AppTheme_NoActionBar);
+             setTheme(R.style.AppTheme_NoActionBar);
+
+         这里的 R 指向 **Capacitor 库自己的** R。而 Capacitor 库
+         （capacitor/src/main/res/values/styles.xml）恰好也定义了一个同名
+         「空壳」style：
+
+             <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.NoActionBar">
+                 <item name="windowActionBar">false</item>
+                 <item name="windowNoTitle">true</item>
+             </style>
+
+         如果本文件**不覆盖定义**它，资源合并后这个空壳就是最终生效的运行时主题
+         → 上面 AppTheme 里所有透明状态栏 / edge-to-edge / cutout 配置
+           **全部被丢弃**，无论改多少次都不会生效。
+
+         这正是「改了很多次、页面依旧压不住状态栏」的根因。
+         ══════════════════════════════════════════════════════════════ -->
+    <style name="AppTheme.NoActionBar" parent="AppTheme">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:background">@null</item>
     </style>
 
 </resources>

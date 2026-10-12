@@ -25,9 +25,13 @@ html {
   height: 100%;
   background: var(--qn-bg-light);
   color: var(--qn-ink);
-  /* ⚠️ Android 原生 bridge 会覆盖这两个值（MainActivity.calcStatusBarHeight）
-     env(safe-area-inset-top) 在 MIUI/HyperOS 等部分 ROM 返回 0，
-     必须用原生反射算资源值才可靠 */
+  /* ⚠️ 默认值只是「占位」。
+     Android 原生 bridge（MainActivity.pushInsetsToJs）会以 CSS px 覆盖它们；
+     iOS / 浏览器 走 env(safe-area-inset-*)。
+
+     ⚠️ 注意：不要再写成 var(--x, env(...)) 的形式 —— var() 只在变量
+     **未定义** 时才回退，值为 0px 依然算「已定义」，env() 会变成死代码。
+     正解是在 .page 里用 max() 取两者较大值（见下）。 */
   --status-bar-height: 0px;
   --nav-bar-height: 0px;
 }
@@ -98,11 +102,20 @@ html[data-theme="dark"] body {
 .page {
   max-width: 1200px;
   margin: 0 auto;
-  /* Android: 原生 bridge 传 --status-bar-height；iOS: env fallback */
-  padding-top: calc(var(--status-bar-height, env(safe-area-inset-top, 0px)) + 24px);
+  /* ⚠️ 必须用 max() 而不是 var(--x, env(...))：
+     var() 的第二个参数只在变量「未定义」时生效，而 --status-bar-height
+     在 html 上已声明为 0px → env() 永远拿不到，原生桥一旦失败就彻底失效。
+     max() 则同时兼容两条来源：
+       · Android 原生桥写入的值（含挖孔，最准）
+       · env(safe-area-inset-top)（iOS / 浏览器 / 未注入时兜底） */
+  padding-top: calc(
+    max(var(--status-bar-height, 0px), env(safe-area-inset-top, 0px)) + 24px
+  );
   padding-left: var(--qn-page-x);
   padding-right: var(--qn-page-x);
-  padding-bottom: calc(var(--nav-bar-height, env(safe-area-inset-bottom, 0px)) + 96px);
+  padding-bottom: calc(
+    max(var(--nav-bar-height, 0px), env(safe-area-inset-bottom, 0px)) + 96px
+  );
   width: 100%;
   overflow-x: hidden;
 }
