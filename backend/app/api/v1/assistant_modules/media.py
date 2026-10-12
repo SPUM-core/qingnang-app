@@ -139,6 +139,14 @@ async def upload_tongue_photo(
 
     try:
         result = _analyze(tmp.name)
+    except ImportError as e:
+        # OpenCV 未装：返回友好错误，不 500
+        if "cv2" in str(e).lower() or "opencv" in str(e).lower():
+            raise HTTPException(
+                status_code=503,
+                detail="舌象分析组件未就绪，请联系管理员安装 opencv-python-headless",
+            )
+        raise
     finally:
         try: os.remove(tmp.name)
         except Exception: pass

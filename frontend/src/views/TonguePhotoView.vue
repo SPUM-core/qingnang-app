@@ -84,11 +84,12 @@ async function upload() {
       image_base64: b64,
       format: ext,
     })
-    result.value = r
-    resultOk.value = true
-    resultConfClass.value = 'conf-' + (r.confidence || 'low')
+    const body = r.data || {}
+    result.value = body
+    resultOk.value = body.ok ?? true
+    resultConfClass.value = 'conf-' + (body.confidence || 'low')
   } catch (e) {
-    result.value = { error: e.message || '上传失败' }
+    result.value = { error: e.message || '上传失败，请检查网络或重试' }
     resultOk.value = false
   } finally {
     uploading.value = false
