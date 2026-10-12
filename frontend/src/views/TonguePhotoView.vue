@@ -71,6 +71,7 @@ const onFile = (e) => {
 }
 
 async function upload() {
+  console.log('[tongue] upload() called, previewUrl=', previewUrl.value?.slice?.(0, 40), 'uploading=', uploading.value)
   if (!previewUrl.value) return
   uploading.value = true
   result.value = null
@@ -79,16 +80,19 @@ async function upload() {
     // 从 dataURL 里取 base64
     const b64 = previewUrl.value.split(',')[1]
     const ext = fileName.value.split('.').pop()?.toLowerCase() || 'jpeg'
+    console.log('[tongue] b64 len=', b64?.length, 'ext=', ext, 'POSTing...')
 
     const r = await api.post('/api/v1/assistant/tongue/upload', {
       image_base64: b64,
       format: ext,
     })
+    console.log('[tongue] response.status=', r.status, 'response.data=', JSON.stringify(r.data)?.slice(0, 200))
     const body = r.data || {}
     result.value = body
     resultOk.value = body.ok ?? true
     resultConfClass.value = 'conf-' + (body.confidence || 'low')
   } catch (e) {
+    console.error('[tongue] upload FAILED:', e?.message || e, 'response=', e?.response?.data)
     result.value = { error: e.message || '上传失败，请检查网络或重试' }
     resultOk.value = false
   } finally {
