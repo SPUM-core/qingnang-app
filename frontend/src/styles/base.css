@@ -21,7 +21,16 @@
 *::before,
 *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { height: 100%; background: var(--qn-bg-light); color: var(--qn-ink); }
+html {
+  height: 100%;
+  background: var(--qn-bg-light);
+  color: var(--qn-ink);
+  /* ⚠️ Android 原生 bridge 会覆盖这两个值（MainActivity.calcStatusBarHeight）
+     env(safe-area-inset-top) 在 MIUI/HyperOS 等部分 ROM 返回 0，
+     必须用原生反射算资源值才可靠 */
+  --status-bar-height: 0px;
+  --nav-bar-height: 0px;
+}
 
 body, #app { min-height: 100%; }
 
@@ -89,12 +98,11 @@ html[data-theme="dark"] body {
 .page {
   max-width: 1200px;
   margin: 0 auto;
-  /* safe-area-inset-top 让 Android edge-to-edge / iOS 刘海屏避让状态栏 */
-  /* Android 原生已开启 fitsSystemWindows=true，WebView 能拿到正确值 */
-  padding-top: calc(24px + env(safe-area-inset-top, 0px));
+  /* Android: 原生 bridge 传 --status-bar-height；iOS: env fallback */
+  padding-top: calc(var(--status-bar-height, env(safe-area-inset-top, 0px)) + 24px);
   padding-left: var(--qn-page-x);
   padding-right: var(--qn-page-x);
-  padding-bottom: 96px;
+  padding-bottom: calc(var(--nav-bar-height, env(safe-area-inset-bottom, 0px)) + 96px);
   width: 100%;
   overflow-x: hidden;
 }

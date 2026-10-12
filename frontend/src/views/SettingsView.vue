@@ -645,7 +645,7 @@ html[data-theme="dark"] .select option {
   .row-label { font-size: calc(13px * var(--qn-fs-scale)); }
   .row-desc { font-size: calc(10px * var(--qn-fs-scale)); }
 
-  /* select 类型行：上下布局，label 在上 select 在下 */
+  /* select 类型行：上下布局，label 在上 select 在下，触发按钮满宽 */
   .setting-row.is-select {
     flex-wrap: wrap;
     align-items: flex-start;
@@ -654,10 +654,10 @@ html[data-theme="dark"] .select option {
   .setting-row.is-select .row-left {
     flex-basis: 100%;
   }
-  .setting-row.is-select .select {
+  .setting-row.is-select .qselect-trigger {
     flex-basis: 100%;
-    max-width: none;
     width: 100%;
+    max-width: none;
     box-sizing: border-box;
   }
 }
