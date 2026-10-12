@@ -21,6 +21,9 @@
       :info="updateInfo"
       @update:visible="updateVisible = $event"
     />
+
+    <!-- ═══ DEV ONLY: 页面调试角标（显示当前页面 data-page-id） ═══ -->
+    <DebugBadge v-if="isDev" />
   </div>
 </template>
 
@@ -32,6 +35,7 @@ import ComplianceBar from './components/ComplianceBar.vue'
 import QingnangAssistant from './components/QingnangAssistant.vue'
 import GuideOverlay from './components/GuideOverlay.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
+import DebugBadge from './components/ui/DebugBadge.vue'
 import { useUserStore } from './stores/user'
 import { useSettingsStore } from './stores/settings'
 import { runUpdateCheck } from './utils/appUpdater'
@@ -39,6 +43,7 @@ import { runUpdateCheck } from './utils/appUpdater'
 const route = useRoute()
 const user = useUserStore()
 const settings = useSettingsStore()
+const isDev = import.meta.env.DEV
 
 // ── APP 自动更新 ──
 const updateVisible = ref(false)

@@ -1,5 +1,14 @@
 <template>
   <section class="page inquiry" data-page-id="P10">
+    <!-- 顶部返回栏（固定在三个状态之前，任何阶段都可返回） -->
+    <div class="page__header">
+      <a class="back-link" @click.prevent="$router.back()" aria-label="返回">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        返回
+      </a>
+      <h1>问诊采集</h1>
+    </div>
+
     <!-- 未启动态 -->
     <div v-if="!sessionId" class="inquiry__start">
       <h2 class="page-title">📋 问诊采集</h2>
@@ -332,6 +341,7 @@ function resetSession() {
 
 <style scoped>
 .inquiry { max-width: 640px; margin: 0 auto; padding: 16px; }
+.page__header { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
 
 .inquiry__start { text-align: center; padding: 32px 20px; }
 .page-title { font-size: calc(22px * var(--qn-fs-scale)); font-weight: 600; margin-bottom: 8px; color: var(--qn-emerald); }
