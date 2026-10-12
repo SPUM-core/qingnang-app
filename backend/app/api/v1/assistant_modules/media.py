@@ -302,7 +302,7 @@ async def upload_medical_report(
         user_id=current.id,
         file_format=file_format or "unknown",
         file_size=len(raw_bytes),
-        image_data=raw_bytes if (file_format or "").startswith("image") else None,
+        image_data=raw_bytes,  # 通用化：所有格式的原始 bytes 都存 image_data（历史列名保留）
         report_title=body.get("report_title"),
         report_type=body.get("report_type", "other"),
         report_date=None,     # LLM 提取后回填
