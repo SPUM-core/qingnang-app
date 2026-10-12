@@ -34,6 +34,25 @@ html {
      正解是在 .page 里用 max() 取两者较大值（见下）。 */
   --status-bar-height: 0px;
   --nav-bar-height: 0px;
+
+  /* ⭐ 安全区「单一真相源」（2026-10-12 建立）
+     ───────────────────────────────────────────────────────────
+     所有需要避让系统栏的地方（页面 / 弹窗 / 抽屉 / 侧栏 / 底栏…）
+     一律只用这四个变量：
+        var(--safe-top) · var(--safe-bottom) · var(--safe-left) · var(--safe-right)
+
+     ⛔ 禁止再直接写 env(safe-area-inset-*)：
+        它在 Android WebView 上取值不确定（实测本机返回 44px，
+        但换机型 / 换 ROM 可能为 0），而原生桥写入的
+        --status-bar-height 才是可靠来源。这里用 max() 同时兼容两者。
+
+     实测（小米 Android 16 · WebView）：
+        --status-bar-height = 43.33px，env(safe-area-inset-top) = 44px
+        → --safe-top = max(43.33px, 44px) ✅ 两条路都通 */
+  --safe-top:    max(var(--status-bar-height, 0px), env(safe-area-inset-top, 0px));
+  --safe-bottom: max(var(--nav-bar-height, 0px), env(safe-area-inset-bottom, 0px));
+  --safe-left:   env(safe-area-inset-left, 0px);
+  --safe-right:  env(safe-area-inset-right, 0px);
 }
 
 body, #app { min-height: 100%; }
@@ -58,6 +77,29 @@ body, #app { min-height: 100%; }
    且因html 未设 height，不会把 body 变成滚动容器。 */
 body { overflow-x: clip; }
 .app-shell { max-width: 100vw; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ⚡ 全站状态栏避让 —— 一处覆盖所有页面
+   
+   为什么放 .app-root 而不是每个 .page：
+     · 登录/注册/建档初始化（全屏页）没有 .page 类 → 以前会漏掉
+     · 一处维护，改一处覆盖全站
+     · LayoutShell 的 header（导航栏吸顶）是 position: sticky
+       → 它会贴在 .app-root 的 padding-top 下缘，完美！
+
+   三层 fallback：
+     ① Android 原生 Bridge 注入的 --status-bar-height（最准，含挖孔，物理像素/dpr）
+     ② env(safe-area-inset-top)（iOS / Android 浏览器兜底）
+     ③ 0px（都拿不到时不偏移，让内容顶到状态栏）
+   
+   max() 保证两条来源取更大的那个（部分 ROM env() 返回 0 但原生有值）
+   ═══════════════════════════════════════════════════════════════ */
+.app-root {
+  padding-top: max(var(--status-bar-height, 0px), env(safe-area-inset-top, 0px));
+  min-height: 100vh;
+  min-height: 100dvh;
+  box-sizing: border-box;
+}
 
 img, svg { max-width: 100%; height: auto; }
 
@@ -97,29 +139,28 @@ html[data-theme="dark"] body {
 }
 
 /* ═════════════════════════════════════════════════════════════════
-   🔴 调试：状态栏高度可视化条（确认原生桥有没有推值过来）
-   如果手机上看到顶部有一条红色/绿色/灰色条 → 值有了；
-   完全没有任何条 → 原生桥根本没跑通
-   颜色含义：
-     · 灰底 + 红字 "status=0px"  → 没值（桥没通）
-     · 绿底 + 白字 "status=XXpx" → 桥通了，值正确
-   上线前记得删掉！
+   🔴 调试：右上角状态栏读数胶囊（确认原生桥有没有把值推过来）
+     · 显示 `sb=<值> / env=<值>`
+     · sb=32px 之类有值 → 原生桥通了
+     · sb=0px            → 桥没通（原生侧问题）
+     · 完全看不到胶囊     → 说明本行没生效，或被其它层盖住
+   ⚠️ 仅调试用，确认无误后删除整个 html::after 块（不要只删声明）。
    ═════════════════════════════════════════════════════════════════ */
-html::before {
-  content: 'status-bar=' var(--status-bar-height, env(safe-area-inset-top, 0px));
+html::after {
+  content: 'sb=' var(--status-bar-height, 0px)
+           ' env=' env(safe-area-inset-top, 0px);
   position: fixed;
-  top: 0; left: 0; right: 0;
-  height: calc(var(--status-bar-height, env(safe-area-inset-top, 0px)) + 18px);
-  background: color-mix(in srgb, var(--status-bar-height, 0px) > 0px ? #22c55e : #ef4444, 60%);
-  color: white;
+  top: 6px; right: 6px;
+  background: rgba(239, 68, 68, .88);
+  color: #fff;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 11px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding-bottom: 2px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 4px;
+  letter-spacing: .5px;
   z-index: 999999;
   pointer-events: none;
-  font-family: monospace;
 }
 
 /* ─────────────────────────────
@@ -128,20 +169,18 @@ html::before {
 .page {
   max-width: 1200px;
   margin: 0 auto;
-  /* ⚠️ 必须用 max() 而不是 var(--x, env(...))：
-     var() 的第二个参数只在变量「未定义」时生效，而 --status-bar-height
-     在 html 上已声明为 0px → env() 永远拿不到，原生桥一旦失败就彻底失效。
-     max() 则同时兼容两条来源：
-       · Android 原生桥写入的值（含挖孔，最准）
-       · env(safe-area-inset-top)（iOS / 浏览器 / 未注入时兜底） */
-  padding-top: calc(
-    max(var(--status-bar-height, 0px), env(safe-area-inset-top, 0px)) + 24px
-  );
+  /* ⭐ 2026-10-12 起：**系统栏避让已上移到根容器 .layout__main**
+     ────────────────────────────────────────────────────────────
+     原因：全项目 20 个页面里只有 14 个用 .page，另外 6 个
+     （知识卡片 / 体质曲线 / 商城 / 商城详情 / 登录 / 建档）
+     根本没用 .page，因此**完全没有避让**，顶部被状态栏吃掉。
+     「每个页面各自记得处理」这条路在结构上必然漏 —— 故改为
+     在唯一容器 .layout__main 上做一次避让（见文件末尾「根容器」节）。
+     .page 这里只保留**页面级设计留白**，不再承担系统栏避让。 */
+  padding-top: var(--page-top-extra, 24px);
   padding-left: var(--qn-page-x);
   padding-right: var(--qn-page-x);
-  padding-bottom: calc(
-    max(var(--nav-bar-height, 0px), env(safe-area-inset-bottom, 0px)) + 96px
-  );
+  padding-bottom: calc(var(--safe-bottom) + var(--page-bottom-extra, 96px));
   width: 100%;
   overflow-x: hidden;
 }
@@ -159,6 +198,26 @@ html::before {
   color: var(--qn-ink-3);
   font-size: calc(13px * var(--qn-fs-scale));
   margin-bottom: var(--qn-s4);
+}
+
+/* ─────────────────────────────
+   2b. 手机竖屏/窄屏：紧凑间距（原 App.vue 的规则迁到这里）
+   
+   🔴 关键：本块**必须**排在 .page 主规则之后，且只覆盖
+      「额外间距」变量与左右 padding；padding-top / padding-bottom 的
+      inset 避让由 .page 主规则统一计算，不在此处重写。
+   
+   ⛔ 禁止在任意组件里再写 `.page { padding: ... }` —— 组件样式
+      打包后排在 base.css 之后，会整条覆盖本节与主规则。
+      需要调整间距，请只改变量（--page-top-extra 等）。
+   ───────────────────────────── */
+@media (orientation: portrait), (max-width: 720px) {
+  .page {
+    --qn-page-x: 14px;          /* 左右紧凑（原 20px） */
+    --page-top-extra: 16px;     /* 状态栏 inset 之上再加 16px */
+    --page-bottom-extra: 24px;  /* 底部只留内容留白；
+                                   Tab Bar 避让由 LayoutShell .layout__main 负责 */
+  }
 }
 
 /* ─────────────────────────────
@@ -309,3 +368,99 @@ html::before {
    ⚠️ CSS 变量不能直接写在 @media 的 min-width 里（浏览器不支持）。
    实际写值，但语义必须对齐 --qn-bp-* 定义。
    ═══════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════
+   ⭐⭐⭐ 浮层安全区兜底（2026-10-12 建立）— 本库唯一的「强制避让」层
+   ───────────────────────────────────────────────────────────────────
+   为什么必须存在这一层：
+     排查「状态栏被内容吃掉」时发现**同一个病根反复出现 3 次**——
+       ① App.vue 竖屏 `.page { padding: 16px 14px }` 覆盖 base.css 的避让；
+       ② QingnangAssistant `.drawer-head { padding: 10px 14px }`（L1262）
+          排在 media query（L1167）之后，把 padding-top 避让整条盖掉；
+       ③ 同文件 `.input-area`(L1639) / `.disclaimer`(L1713) 同理。
+     三次共同点：**避让声明被「同特异性、但位置更靠后」的业务规则覆盖**。
+     这类 bug 肉眼极难发现（源码里避让明明写着），所以必须用机制兜住。
+
+   本层策略：
+     · 集中在此处声明所有「贴顶 / 贴底」浮层的避让；
+     · 用 `!important` 锁死 —— 安全区避让属系统级约束，不该被业务样式覆盖；
+     · 基准值与各组件原设计一致（桌面端 --safe-* 为 0 时结果不变，零副作用）。
+
+   ⚠️ 新增浮层时的约定：
+     · 组件内**优先**用 `var(--safe-top)` / `var(--safe-bottom)`；
+     · 若它是「贴边固定」的浮层，请把类名补进下面的表里（双保险）。
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════
+   ⭐ 根容器：所有「非全屏页面」的唯一避让点（2026-10-12 建立）
+   ───────────────────────────────────────────────────────────────────
+   拓扑：App.vue → .app-shell → LayoutShell → .layout__main → <router-view>
+   除 /login /register /onboarding（meta.fullScreen，故意全屏沉浸）
+   外，**全部页面都挂在这个 .layout__main 下面**。
+
+   所以系统栏避让只在这里做一次，页面自己完全不用管：
+     · 用 .page 的 14 个页面        → 自动避让
+     · 没用 .page 的 6 个页面
+       （知识卡片/体质曲线/商城/商城详情…）→ 也自动避让 ✅
+
+   ⚠️ 为什么仍然需要下面「变量式」的浮层兜底：
+     本容器靠 padding 生效，而 padding **管不住** position:fixed 的元素
+     （CSS 规范：fixed 的包含块是视口/ICB，与祖辈 padding 无关），
+     本项目还有 2 处 <Teleport to="body">（DetailModal/PunchModal）。
+     这两类"逃逸者"只能靠 --safe-* 变量各自避让 —— 无法用容器消除。
+   ═══════════════════════════════════════════════════════════════════ */
+.layout__main {
+  padding-top:   var(--safe-top)   !important;
+  padding-left:  var(--safe-left)  !important;
+  padding-right: var(--safe-right) !important;
+}
+
+/* —— 顶部贴边：全屏抽屉 / 侧栏 / 弹窗的头部 —— */
+.drawer-head  { padding-top: calc(var(--safe-top) + 10px) !important; } /* 青囊管家 · 对话抽屉 */
+.hs-head      { padding-top: calc(var(--safe-top) + 14px) !important; } /* 青囊管家 · 对话历史侧栏 */
+.pm-head      { padding-top: calc(var(--safe-top) + 0px)  !important; } /* 打卡 / 待办详情弹窗（手机端全屏） */
+.modal-head   { padding-top: calc(var(--safe-top) + 18px) !important; } /* AI 大白话解读弹窗 */
+.update-header{ padding-top: calc(var(--safe-top) + 18px) !important; } /* 版本更新弹窗 */
+
+/* —— 底部贴边：输入区 / 声明 / 合规条 / 底部 Tab —— */
+.input-area     { padding-bottom: calc(var(--safe-bottom) + 12px) !important; }
+.disclaimer     { padding-bottom: calc(var(--safe-bottom) + 8px)  !important; }
+.compliance-bar { padding-bottom: calc(var(--safe-bottom) + 10px) !important; }
+.tj-footer      { padding-bottom: calc(var(--safe-bottom) + 8px)  !important; } /* 体质曲线页脚 */
+
+/* —— 居中弹窗遮罩：整块遮罩让开安全区，内容再高也不会顶穿状态栏 —— */
+.punch-modal-backdrop   { padding-top: var(--safe-top)    !important;
+                          padding-bottom: var(--safe-bottom) !important; }
+.update-dialog          { padding-top: var(--safe-top)    !important;
+                          padding-bottom: var(--safe-bottom) !important; }
+.modal-overlay          { padding-top: calc(var(--safe-top) + 24px)    !important;
+                          padding-bottom: calc(var(--safe-bottom) + 24px) !important; } /* 体质档案弹窗 */
+.detail-overlay         { padding-top: calc(var(--safe-top) + 20px)    !important;
+                          padding-bottom: calc(var(--safe-bottom) + 20px) !important; } /* 报告归档详情 */
+.update-modal-backdrop  { padding-top: calc(var(--safe-top) + 20px)    !important;
+                          padding-bottom: calc(var(--safe-bottom) + 20px) !important; } /* 设置页更新弹窗 */
+.modal                  { padding-top: var(--safe-top)    !important;
+                          padding-bottom: var(--safe-bottom) !important; } /* 用户管理弹窗 */
+.feedback-modal         { padding-top: var(--safe-top)    !important;
+                          padding-bottom: var(--safe-bottom) !important; } /* 商城反馈弹窗 */
+.modal-backdrop         { padding-top: var(--safe-top)    !important;
+                          padding-bottom: var(--safe-bottom) !important; } /* AI 解读遮罩（与居中版并存） */
+
+/* —— 底部弹出层（QSelect 等）—— */
+.qselect-backdrop { padding-bottom: var(--safe-bottom) !important; }
+
+/* —— 移动端专属：底部 Tab Bar 与其预留空间 ——
+   ⚠️ 必须限定在移动端媒体查询内！此前误写成全局，
+      导致桌面端 .layout__main 白多出 64px 底部留白。 */
+@media (max-width: 720px), (max-height: 600px), (orientation: portrait) {
+  .layout__main { padding-bottom: calc(var(--safe-bottom) + 64px) !important; }
+  .mobile-tabbar {
+    height:         calc(var(--safe-bottom) + 64px) !important;
+    padding-bottom: var(--safe-bottom)              !important;
+  }
+}
+
+/* 极窄屏：底栏用 60px 基准（对齐 LayoutShell 原设计，避免兜底层改变视觉） */
+@media (max-width: 480px) {
+  .mobile-tabbar { height: calc(var(--safe-bottom) + 60px) !important; }
+}
