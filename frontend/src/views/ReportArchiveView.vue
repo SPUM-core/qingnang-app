@@ -213,7 +213,7 @@ onMounted(loadReports)
 async function loadReports() {
   try {
     const r = await api.get('/api/v1/assistant/report/list')
-    reports.value = r.reports || []
+    reports.value = r.data?.reports || []
   } catch (e) { console.error(e) }
 }
 
@@ -267,8 +267,8 @@ async function upload() {
       report_type: reportType.value,
       manual_notes: manualNotes.value || null,
     })
-    currentReportId.value = r.id
-    startPolling(r.id)
+    currentReportId.value = r.data?.id
+    startPolling(r.data?.id)
   } catch (e) {
     alert('上传失败：' + (e.message || e))
     processing.value = false
@@ -281,8 +281,8 @@ function startPolling(id) {
     count++
     try {
       const st = await api.get(`/api/v1/assistant/report/${id}/status`)
-      processingNote.value = st.note || 'AI 正在解析…'
-      if (st.status === 'done' || st.status === 'failed') {
+      processingNote.value = st.data?.note || 'AI 正在解析…'
+      if (st.data?.status === 'done' || st.data?.status === 'failed') {
         stopPolling()
         await showResult(id)
       } else if (count > 60) {   // 2 分钟超时
@@ -303,15 +303,16 @@ async function showResult(id) {
   processing.value = false
   try {
     const r = await api.get(`/api/v1/assistant/report/${id}`)
-    currentResult.value = r
+    const body = r.data || {}
+    currentResult.value = body
     // 把 structured 里的字段平铺出来方便模板用
-    if (r.structured) {
-      if (!r.report_title && r.structured.report_title) r.report_title = r.structured.report_title
-      if (!r.report_date && r.structured.report_date) r.report_date = r.structured.report_date
-      if (!r.report_type && r.structured.report_type) r.report_type = r.structured.report_type
-      if (!r.summary && r.structured.summary) r.summary = r.structured.summary
-      if (!r.items) r.items = r.structured.items || []
-      if (!r.abnormal_findings) r.abnormal_findings = r.structured.abnormal_findings || []
+    if (body.structured) {
+      if (!body.report_title && body.structured.report_title) body.report_title = body.structured.report_title
+      if (!body.report_date && body.structured.report_date) body.report_date = body.structured.report_date
+      if (!body.report_type && body.structured.report_type) body.report_type = body.structured.report_type
+      if (!body.summary && body.structured.summary) body.summary = body.structured.summary
+      if (!body.items) body.items = body.structured.items || []
+      if (!body.abnormal_findings) body.abnormal_findings = body.structured.abnormal_findings || []
     }
   } catch (e) { console.error(e) }
   await loadReports()
