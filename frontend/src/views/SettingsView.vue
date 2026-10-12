@@ -97,6 +97,18 @@
         </div>
       </div>
 
+      <!-- ⚠️ 通用确认/提示弹窗（替换原生 confirm/alert — Android WebView 原生 dialog 白屏） -->
+      <div v-if="dialog.visible" class="update-modal-backdrop" @click.self="dialog.reject?.()">
+        <div class="update-modal">
+          <h3>{{ dialog.title || '提示' }}</h3>
+          <p class="update-note" style="white-space: pre-wrap;">{{ dialog.message }}</p>
+          <div class="update-actions">
+            <button v-if="dialog.type === 'confirm'" class="row-btn" @click="dialog.reject?.()">{{ dialog.cancelText || '取消' }}</button>
+            <button class="row-btn primary" @click="dialog.resolve?.()">{{ dialog.confirmText || '确定' }}</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 手动检查按钮 -->
       <button v-if="updateState === 'idle'" class="row-btn" style="margin-bottom:12px;" @click="checkUpdate">
         检查更新
@@ -146,6 +158,31 @@ watch(() => settings.city, async (newCity, oldCity) => {
 // ── 状态 ──
 const busy     = ref(null)
 const caseData = ref(null)
+
+// ⚠️ 自定义 dialog（替换原生 confirm/alert — Android WebView 原生 dialog 白屏）
+const dialog = reactive({
+  visible: false, type: 'confirm', title: '', message: '',
+  confirmText: '确定', cancelText: '取消',
+  resolve: null, reject: null,
+})
+function showConfirm(message, title = '提示') {
+  return new Promise((resolve) => {
+    dialog.visible = true; dialog.type = 'confirm'
+    dialog.title = title; dialog.message = message
+    dialog.confirmText = '确定'; dialog.cancelText = '取消'
+    dialog.resolve = () => { dialog.visible = false; resolve(true) }
+    dialog.reject  = () => { dialog.visible = false; resolve(false) }
+  })
+}
+function showAlert(message, title = '提示') {
+  return new Promise((resolve) => {
+    dialog.visible = true; dialog.type = 'alert'
+    dialog.title = title; dialog.message = message
+    dialog.confirmText = '知道了'
+    dialog.resolve = () => { dialog.visible = false; resolve() }
+    dialog.reject  = null
+  })
+}
 // providerInfo / refreshHealth / llm_provider watch 已删除（全局 DeepSeek）
 
 // ── 版本更新状态 ──
@@ -365,36 +402,31 @@ async function handleAction(action) {
       break
 
     case 'logout': {
-      if (!confirm('确定退出登录？')) return
+      if (!(await showConfirm('确定退出登录？'))) return
       busy.value = 'logout'
       try {
         user.logout()
-        // 硬跳转：彻底重置 Pinia/Vue 状态，避免组件残留
         window.location.href = '/login?skip_splash=1'
       } finally { busy.value = null }
       break
     }
 
     case 'reinit': {
-      if (!confirm('重新开始将清除你的数字模型（体质档案、观测记录、调理方案），仅保留账号。继续？')) return
+      if (!(await showConfirm('重新开始将清除你的数字模型（体质档案、观测记录、调理方案），仅保留账号。继续？'))) return
       busy.value = 'reinit'
       try {
-        // 1. 清后端数据
         await api.post('/api/v1/cases/reset')
-        // 2. 清前端 Pinia 状态
         storage.setOnboarded(false)
         const u = storage.get('qn_user', {}) || {}
         u.is_onboarded = false
         storage.set('qn_user', u)
         user.isOnboarded = false
         caseData.value = null
-        // 3. 清前端 localStorage 缓存（今日建议、归档、反馈等）
         ;['qingnang_today', 'qingnang_archive', 'qingnang_feedbacks', 'qingnang_settings']
           .forEach(k => storage.remove(k))
-        // 4. 跳 onboarding
         window.location.href = '/onboarding'
       } catch (e) {
-        alert('重置失败：' + (e.response?.data?.detail || e.message))
+        await showAlert('重置失败：' + (e.response?.data?.detail || e.message))
       } finally { busy.value = null }
       break
     }
@@ -415,16 +447,16 @@ async function handleAction(action) {
         a.download = `qingnang-${user.qingnangId || 'user'}-${new Date().toISOString().slice(0,10)}.json`
         a.click()
       } catch (e) {
-        alert('导出失败：' + (e.response?.data?.detail || e.message))
+        await showAlert('导出失败：' + (e.response?.data?.detail || e.message))
       } finally { busy.value = null }
       break
     }
 
     case 'clear_cache': {
-      if (!confirm('清除本地缓存？这会重置通知偏好、今日待办等，云端数据不受影响。')) return
+      if (!(await showConfirm('清除本地缓存？这会重置通知偏好、今日待办等，云端数据不受影响。'))) return
       ;['qingnang_settings', 'qingnang_today', 'qingnang_archive', 'qingnang_feedbacks']
         .forEach(k => storage.remove(k))
-      alert('已清除，页面将刷新')
+      await showAlert('已清除，页面将刷新')
       location.reload()
       break
     }
@@ -506,7 +538,7 @@ async function handleAction(action) {
 .switch input:checked + .switch-track { background: var(--qn-emerald); }
 .switch input:checked + .switch-track::before { transform: translateX(20px); }
 
-/* 选择 */
+/* 选择 — Android WebView 必须显式给 option 加颜色（option 不继承父级 CSS 变量） */
 .select {
   font-size: calc(13px * var(--qn-fs-scale)); padding: 6px 28px 6px 10px;
   border: 1px solid var(--qn-line); border-radius: var(--qn-r-sm);
@@ -515,6 +547,15 @@ async function handleAction(action) {
   flex-shrink: 0; max-width: 60%;
 }
 .select:focus { outline: none; border-color: var(--qn-emerald); }
+/* ⚠️ 关键：Android WebView 下 <option> 不继承父级颜色，必须显式声明 */
+.select option {
+  background-color: #FFFFFF;
+  color: #33403B;
+}
+html[data-theme="dark"] .select option {
+  background-color: #242826;
+  color: #E8E5DD;
+}
 
 /* 按钮行 */
 .row-btn {
