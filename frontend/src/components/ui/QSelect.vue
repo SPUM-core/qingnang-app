@@ -95,7 +95,7 @@ function select(value) {
 .qselect-panel {
   background: var(--qn-surface);
   border-radius: var(--qn-r-lg) var(--qn-r-lg) 0 0;
-  width: 100%; max-width: 560px;
+  width: 100%;
   max-height: 70vh;
   display: flex; flex-direction: column;
   border-top: 1px solid var(--qn-line);
@@ -142,7 +142,8 @@ function select(value) {
   .qselect-backdrop { align-items: center; padding: 20px; }
   .qselect-panel {
     border-radius: var(--qn-r-lg);
-    width: 320px;
+    width: 360px;
+    max-width: 90vw;
     border: 1px solid var(--qn-line);
     box-shadow: 0 8px 32px rgba(0,0,0,0.2);
     max-height: 60vh;
