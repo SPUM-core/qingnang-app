@@ -120,7 +120,39 @@
 
     <div class="app-info">
       <p class="app-name">青囊生活管家</p>
-      <p class="app-ver">Version {{ APP_VERSION }} · SPUM 范式引擎</p>
+      <p class="app-ver">
+        Version {{ APP_VERSION }}
+        <span v-if="updateState === 'has_update'" class="update-badge" @click="checkUpdate">↑ 新版本 {{ updateInfo?.latest_version }}</span>
+        <span v-else-if="updateState === 'checking'" class="update-badge checking">检查中…</span>
+        <span v-else-if="updateState === 'latest'" class="update-badge latest">已是最新</span>
+        <span v-else-if="updateState === 'error'" class="update-badge error">检查失败</span>
+      </p>
+
+      <!-- 更新弹窗 -->
+      <div v-if="updateState === 'has_update'" class="update-modal-backdrop" @click.self="closeUpdateModal">
+        <div class="update-modal">
+          <h3>发现新版本 v{{ updateInfo?.latest_version }}</h3>
+          <p v-if="updateInfo?.update_note" class="update-note">{{ updateInfo.update_note }}</p>
+          <div class="update-meta">
+            <span v-if="updateInfo?.size_bytes">大小 {{ (updateInfo.size_bytes / 1048576).toFixed(1) }} MB</span>
+            <span v-if="updateInfo?.force_update" class="force-tag">· 强制更新</span>
+          </div>
+          <div class="update-actions">
+            <button v-if="!updateInfo?.force_update" class="row-btn" @click="closeUpdateModal">稍后</button>
+            <button class="row-btn primary" :disabled="busy === 'download_update'"
+                    @click="downloadUpdate">
+              <span v-if="busy === 'download_update'">下载中… {{ downloadProgress }}%</span>
+              <span v-else>立即更新</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 手动检查按钮 -->
+      <button v-if="updateState === 'idle'" class="row-btn" style="margin-bottom:12px;" @click="checkUpdate">
+        检查更新
+      </button>
+
       <div class="legal-links">
         <a>用户协议</a><span>·</span>
         <a>隐私政策</a><span>·</span>
@@ -167,6 +199,90 @@ watch(() => settings.city, async (newCity, oldCity) => {
 const busy     = ref(null)
 const caseData = ref(null)
 // providerInfo / refreshHealth / llm_provider watch 已删除（全局 DeepSeek）
+
+// ── 版本更新状态 ──
+const updateState    = ref('idle')       // idle | checking | has_update | latest | error
+const updateInfo     = ref(null)         // { latest_version, update_url, force_update, ... }
+const downloadProgress = ref(0)
+const _serverStatusText = ref('检测中…')
+
+// ── 检查更新（用 SettingsView 的 api 实例走统一 baseURL）──
+async function checkUpdate() {
+  updateState.value = 'checking'
+  try {
+    const platform = /android/i.test(navigator.userAgent) ? 'android' : 'web'
+    const r = await api.get('/api/v1/version/app-update', {
+      params: { version: APP_VERSION, platform },
+    })
+    const data = r.data?.data ?? r.data
+    if (data?.has_update) {
+      updateInfo.value = data
+      updateState.value = 'has_update'
+    } else {
+      updateState.value = 'latest'
+      updateInfo.value = null
+    }
+  } catch (e) {
+    console.warn('[Settings] 版本检查失败:', e?.message)
+    updateState.value = 'error'
+    updateInfo.value = null
+  }
+}
+
+function closeUpdateModal() {
+  if (!updateInfo.value?.force_update) updateState.value = updateInfo.value ? 'idle' : updateState.value
+}
+
+async function downloadUpdate() {
+  if (!updateInfo.value?.update_url) return
+  busy.value = 'download_update'
+  downloadProgress.value = 0
+  try {
+    // 简单可靠：直接 window.open 让系统下载 APK（Android 系统 DownloadManager + Intent 安装）
+    const url = updateInfo.value.update_url
+    console.log('[Settings] 打开下载 URL:', url)
+    // 原生环境：在新窗口打开；系统下载完成后会弹出安装提示
+    if (typeof window.Capacitor !== 'undefined') {
+      // Capacitor 环境：用 Capacitor App.openUrl 比 window.open 更可靠
+      try {
+        const { App } = window.Capacitor.Plugins
+        if (App?.openUrl) {
+          await App.openUrl({ url })
+        } else {
+          window.open(url, '_system')
+        }
+      } catch (_) {
+        window.open(url, '_system')
+      }
+    } else {
+      window.open(url, '_blank')
+    }
+    alert('下载已开始，安装包完成后请点击安装。')
+  } catch (e) {
+    alert('下载失败：' + (e?.message || '未知错误'))
+  } finally {
+    busy.value = null
+    downloadProgress.value = 0
+  }
+}
+
+// ── onMounted：静默检查版本 + 服务状态 ──
+onMounted(async () => {
+  // 1. 静默检查版本（不阻塞 UI）
+  checkUpdate()
+
+  // 2. 后端可达性探测（ping 任意轻量端点）
+  try {
+    const r = await api.get('/api/v1/version/app-update', {
+      params: { version: APP_VERSION, platform: 'web' },
+      timeout: 4000,
+    })
+    if (r.data?.disabled) _serverStatusText.value = '⚠️ 自动更新已关闭'
+    else _serverStatusText.value = '● 正常'
+  } catch (_) {
+    _serverStatusText.value = '⚠️ 离线'
+  }
+})
 
 // ── 出生地经纬度编辑（八字校准）──
 const birthProvince = ref('')      // 省 code
@@ -333,6 +449,14 @@ const groups = [
     items: [
       { type: 'button', icon: 'user', label: '我的好友', btnText: '前往', action: 'friends' },
       { type: 'button', icon: 'warn', label: '重新初始化建档', btnText: '重新开始', action: 'reinit', danger: true },
+    ]
+  },
+  {
+    key: 'about', icon: 'info', title: '关于与更新',
+    items: [
+      { key: 'app_version', type: 'readonly', icon: 'info', label: '当前版本', value: APP_VERSION },
+      { key: 'server_status', type: 'readonly', icon: 'chart', label: '服务状态',
+        value: () => _serverStatusText }
     ]
   }
 ]
@@ -525,7 +649,39 @@ async function handleAction(action) {
 /* 底部 */
 .app-info { text-align: center; padding: 30px 20px; margin-top: 20px; }
 .app-name { font-size: calc(16px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-emerald); margin: 0 0 6px; }
-.app-ver { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin: 0 0 14px; }
+.app-ver { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin: 0 0 14px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
+
+/* 版本状态 badge */
+.update-badge {
+  display: inline-block; font-size: calc(10px * var(--qn-fs-scale));
+  padding: 2px 8px; border-radius: 10px; font-weight: 500;
+  background: rgba(var(--qn-emerald-rgb), 0.1); color: var(--qn-emerald);
+  cursor: pointer; transition: background 0.15s;
+}
+.update-badge:hover { background: var(--qn-emerald); color: #fff; }
+.update-badge.checking { background: var(--qn-bg-2); color: var(--qn-ink-3); cursor: default; }
+.update-badge.latest   { background: rgba(76,175,80,0.1); color: #4CAF50; cursor: default; }
+.update-badge.error    { background: rgba(216,67,21,0.1); color: var(--wuxing-fire); cursor: pointer; }
+
+/* 更新弹窗 */
+.update-modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999; padding: 20px;
+}
+.update-modal {
+  background: var(--qn-surface); border-radius: var(--qn-r-lg);
+  padding: 24px; max-width: 360px; width: 100%;
+  border: 1px solid var(--qn-line);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+.update-modal h3 { margin: 0 0 12px; font-size: calc(16px * var(--qn-fs-scale)); color: var(--qn-emerald); }
+.update-note { font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink); margin: 0 0 12px; line-height: 1.5; }
+.update-meta { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin-bottom: 18px; }
+.force-tag { color: var(--wuxing-fire); font-weight: 500; }
+.update-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.row-btn.primary { background: var(--qn-emerald); color: #fff; border-color: var(--qn-emerald); }
+.row-btn.primary:hover:not(:disabled) { background: #2A6B60; }
 .legal-links { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin-bottom: 16px; }
 .legal-links a { color: var(--qn-ink-2); margin: 0 6px; cursor: pointer; }
 .legal-links a:hover { color: var(--qn-emerald); }
