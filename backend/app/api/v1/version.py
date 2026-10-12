@@ -33,7 +33,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.config import settings
@@ -104,8 +104,13 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _scan_updates_dir() -> Optional[AppManifest]:
-    """扫描 updates/ 目录下的 APK 文件，自动构建 manifest。找不到文件返回 None。"""
+def _scan_updates_dir(base_url: str = "") -> Optional[AppManifest]:
+    """扫描 updates/ 目录下的 APK 文件，自动构建 manifest。找不到文件返回 None。
+
+    Args:
+        base_url: APK 下载地址前缀（如 "http://110.40.143.164/updates"）。
+                  不传则用 settings.APP_UPDATE_BASE_URL（默认 localhost，仅开发用）。
+    """
     if not UPDATES_DIR.is_dir():
         return None
 
@@ -126,10 +131,12 @@ def _scan_updates_dir() -> Optional[AppManifest]:
     apk_versions.sort(key=lambda x: _parse_semver(x[0]))
     latest_ver, latest_path, size, sha = apk_versions[-1]
 
-    base = settings.APP_UPDATE_BASE_URL.rstrip("/")
+    # base_url 优先用传入的，否则回退到 config 默认值
+    base = (base_url or settings.APP_UPDATE_BASE_URL).rstrip("/")
     manifest = AppManifest(
         latest_version=latest_ver,
-        min_required_version=latest_ver,
+        # 默认不强制升级（用极低版本作底线，除非手动 manifest.json 覆盖）
+        min_required_version="0.1.0",
         force_update=False,
         platforms={
             "android": PlatformUpdate(
@@ -226,12 +233,30 @@ def get_manifest():
 
 
 @router.post("/manifest/regenerate", response_model=AppManifest)
-def regenerate_manifest():
-    """手动触发：重新扫描 updates/ 目录，根据 APK 文件名 + SHA256 重新生成 manifest.json。"""
+def regenerate_manifest(request: Request):
+    """手动触发：重新扫描 updates/ 目录，根据 APK 文件名 + SHA256 重新生成 manifest.json。
+
+    下载地址从当前请求的公网 URL 动态推导（优先 settings.APP_UPDATE_BASE_URL 环境变量），
+    确保手机端能正确访问到 APK。
+    """
     if not UPDATES_DIR.is_dir():
         UPDATES_DIR.mkdir(parents=True, exist_ok=True)
 
-    manifest = _scan_updates_dir()
+    # 推导 APK 下载基址：
+    # 1. 如果 settings.APP_UPDATE_BASE_URL 已显式配置（非默认 localhost），优先用它
+    # 2. 否则从当前 Request 动态拼：{scheme}://{host}/updates
+    #    （这样无论从哪个域名/端口进来 regenerate，生成的下载地址都是正确的公网地址）
+    default_localhost = "http://localhost:8767/updates"
+    configured = settings.APP_UPDATE_BASE_URL.rstrip("/")
+    if configured and configured != default_localhost.rstrip("/"):
+        updates_base = configured
+    else:
+        # 从 request.base_url 动态推导
+        # request.base_url = "http://110.40.143.164:8767/api/v1/version/manifest/regenerate"
+        # 我们只取 scheme + host，然后拼 /updates
+        updates_base = f"{request.url.scheme}://{request.url.netloc}/updates"
+
+    manifest = _scan_updates_dir(base_url=updates_base)
     if manifest is None:
         raise HTTPException(status_code=404, detail="No APK files found in updates/")
 
@@ -239,5 +264,5 @@ def regenerate_manifest():
         json.dumps(manifest.model_dump(), indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    logger.info("manifest 已重新生成: latest=%s", manifest.latest_version)
+    logger.info("manifest 已重新生成: latest=%s, base_url=%s", manifest.latest_version, updates_base)
     return manifest
