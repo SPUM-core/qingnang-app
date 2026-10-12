@@ -79,24 +79,23 @@ body { overflow-x: clip; }
 .app-shell { max-width: 100vw; }
 
 /* ═══════════════════════════════════════════════════════════════
-   ⚡ 全站状态栏避让 —— 一处覆盖所有页面
+   ⚠️ .app-root 不加任何 padding-top —— 避免叠加
    
-   为什么放 .app-root 而不是每个 .page：
-     · 登录/注册/建档初始化（全屏页）没有 .page 类 → 以前会漏掉
-     · 一处维护，改一处覆盖全站
-     · LayoutShell 的 header（导航栏吸顶）是 position: sticky
-       → 它会贴在 .app-root 的 padding-top 下缘，完美！
-
-   三层 fallback：
-     ① Android 原生 Bridge 注入的 --status-bar-height（最准，含挖孔，物理像素/dpr）
-     ② env(safe-area-inset-top)（iOS / Android 浏览器兜底）
-     ③ 0px（都拿不到时不偏移，让内容顶到状态栏）
-   
-   max() 保证两条来源取更大的那个（部分 ROM env() 返回 0 但原生有值）
+   状态栏避让策略（2026-10-12 最终版）：
+     · LayoutShell header（sticky 贴视口顶部）→ 自己加 padding-top: var(--safe-top)
+     · 全屏页（登录/注册，无 LayoutShell）→ .fullscreen-root 加 padding-top: var(--safe-top)
+     · 弹窗/抽屉（fixed 定位）→ 自己加 padding-top: var(--safe-top) ✅ 已加
+     · .page → 只留 24px 小间距（不再叠加状态栏）
    ═══════════════════════════════════════════════════════════════ */
 .app-root {
-  padding-top: max(var(--status-bar-height, 0px), env(safe-area-inset-top, 0px));
   min-height: 100vh;
+  min-height: 100dvh;
+  box-sizing: border-box;
+}
+
+/* 全屏页状态栏避让（登录/注册/建档初始化） */
+.fullscreen-root {
+  padding-top: var(--safe-top, 0px);
   min-height: 100dvh;
   box-sizing: border-box;
 }

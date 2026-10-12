@@ -9,8 +9,11 @@
       <QingnangAssistant v-if="!route.meta.fullScreen" />
     </div>
 
-    <!-- ═══ 全屏独占页（登录/注册/建档初始化） ═══ -->
-    <router-view v-if="route.meta.fullScreen" />
+    <!-- ═══ 全屏独占页（登录/注册/建档初始化） ═══
+         它们没有 LayoutShell header，需要自己避让状态栏 -->
+    <div v-if="route.meta.fullScreen" class="fullscreen-root">
+      <router-view />
+    </div>
 
     <!-- ═══ 引导（始终挂载，让从 fullScreen 页跳回主应用时 onMounted/watch 都能触发） ═══ -->
     <GuideOverlay />
@@ -103,10 +106,15 @@ onUnmounted(() => {
    本文件只保留 App 组件特有的、base.css 里没有或版本不同的样式块。
    ═══════════════════════════════════════════════════════════════ */
 
-/* 纵向屏：页面 padding 减小，让 grid 占更多宽度 */
-@media (orientation: portrait) {
-  .page { padding: 16px 14px; }
-}
+/* ⛔ 已移除：@media (orientation: portrait) { .page { padding: 16px 14px } }
+   ─────────────────────────────────────────────────────────────────
+   原因（2026-10-12）：本文件 <style> 无 scoped，打包后排在 base.css 之后，
+   同特异性选择器「后出现者胜」→ 竖屏时整条覆盖了 base.css 的
+     .page { padding-top: calc(max(--status-bar-height, env(...)) + Npx) }
+   导致状态栏避让 100% 失效（顶部内容被状态栏吃掉）。
+   现在竖屏紧凑逻辑已迁入 base.css 的 `.page` 规则之后，只调整
+   --qn-page-x / --page-top-extra / --page-bottom-extra 三个变量。
+   ⛔ 今后禁止在任何组件里写 `.page { padding: ... }`。 */
 
 /* ═══════════════════════════════════════════════════════
    🚧 以下全局原子类待逐页迁移至 base.css（版本不同，暂保留）

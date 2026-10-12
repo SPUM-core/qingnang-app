@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="layout">
     <!-- ═══ 顶部 Header（仅桌面端） ═══ -->
     <header class="layout__header">
@@ -80,7 +80,9 @@ const mobileNavs = [
 
 /* Header */
 .layout__header {
-  display: flex; align-items: center; gap: 24px; padding: 0 24px; height: 60px;
+  display: flex; align-items: center; gap: 24px;
+  padding: var(--safe-top, 0px) 24px 0 24px;
+  height: calc(60px + var(--safe-top, 0px));
   background: linear-gradient(135deg, var(--qn-emerald) 0%, var(--qn-emerald-dark) 100%);
   color: #fff; position: sticky; top: 0; z-index: 100;
   box-shadow: 0 2px 8px rgba(var(--qn-emerald-rgb), 0.2); overflow: hidden;
@@ -183,9 +185,9 @@ const mobileNavs = [
   /* Header 完全隐藏 */
   .layout__header { display: none; }
 
-  /* Main 预留 Tab Bar 高度 */
+  /* Main 预留 Tab Bar 高度（用统一安全区变量，勿裸用 env()） */
   .layout__main {
-    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+    padding-bottom: calc(64px + var(--safe-bottom));
   }
 
   /* Footer 隐藏 */
@@ -194,8 +196,8 @@ const mobileNavs = [
   /* 启用底部 Tab Bar（6 项） */
   .mobile-tabbar {
     display: flex; position: fixed; bottom: 0; left: 0; right: 0;
-    height: calc(64px + env(safe-area-inset-bottom));
-    padding-bottom: env(safe-area-inset-bottom);
+    height: calc(64px + var(--safe-bottom));
+    padding-bottom: var(--safe-bottom);
     background: var(--qn-surface);
     border-top: 1px solid var(--ink-line, #E8E4DA);
     box-shadow: 0 -2px 10px rgba(0,0,0,0.06);
@@ -226,7 +228,7 @@ const mobileNavs = [
 /* 极窄屏再压一下 — 归并到 480px 档位（原 420px） */
 @media (max-width: 480px) {
   .tab-label { font-size: calc(9px * var(--qn-fs-scale)); letter-spacing: 0; }
-  .mobile-tabbar { height: calc(60px + env(safe-area-inset-bottom)); }
+  .mobile-tabbar { height: calc(60px + var(--safe-bottom)); }
   .tab-item :deep(.q-icon) { font-size: calc(20px * var(--qn-fs-scale)) !important; }
 }
 </style>
