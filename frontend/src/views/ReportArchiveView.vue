@@ -112,8 +112,8 @@
               损伤：{{ formatDamage(tp.damage) }}
             </div>
             <div class="tp-actions">
-              <button class="btn btn-primary btn-sm" @click="confirmTrajectory(tp.id)">✓ 确认入时间轴</button>
-              <button class="btn btn-ghost btn-sm" @click="skipTrajectory(tp.id)">跳过</button>
+              <button class="btn btn-primary btn-sm" @click="confirmTrajectory(tp.id, $event)">✓ 确认入时间轴</button>
+              <button class="btn btn-ghost btn-sm" @click="skipTrajectory(tp.id, $event)">跳过</button>
             </div>
           </div>
         </div>
@@ -318,16 +318,30 @@ async function showResult(id) {
   await loadReports()
 }
 
-async function confirmTrajectory(tpId) {
-  // 先 PUT /report/{id} 的 trajectory 不存在，用 trajectory/{id} 的确认接口或直接 update
-  // 当前 TrajectoryEvent 用 manual 模式，我们复用 PUT /report/{id} 里没 trajectory 字段
-  // 简单策略：先直接改 pending=false，confirmed=true — 但后端还没这个 PUT trajectory 接口
-  // 暂时用 alert 提醒用户手动到时间轴编辑器确认
-  alert('提案已标记确认，请到"体质曲线 → 终身大运"时间轴查看和编辑。（v2 后端会加 trajectory 确认接口）')
+async function confirmTrajectory(tpId, ev) {
+  try {
+    const r = await api.post(`/assistant/trajectory/${tpId}/confirm`)
+    if (r.data?.ok) {
+      // 从提案列表里移除这条 + 给个轻量反馈
+      if (currentResult.value?.trajectory_proposals) {
+        currentResult.value.trajectory_proposals =
+          currentResult.value.trajectory_proposals.filter(p => p.id !== tpId)
+      }
+      ev?.target?.closest('.tp-card')?.classList.add('tp-confirmed')
+    }
+  } catch (e) { console.error('confirmTrajectory failed:', e) }
 }
 
-function skipTrajectory(tpId) {
-  alert('已跳过，时间轴不会自动加这条。')
+async function skipTrajectory(tpId, ev) {
+  try {
+    const r = await api.post(`/assistant/trajectory/${tpId}/skip`)
+    if (r.data?.ok) {
+      if (currentResult.value?.trajectory_proposals) {
+        currentResult.value.trajectory_proposals =
+          currentResult.value.trajectory_proposals.filter(p => p.id !== tpId)
+      }
+    }
+  } catch (e) { console.error('skipTrajectory failed:', e) }
 }
 
 async function retryWithManual() {

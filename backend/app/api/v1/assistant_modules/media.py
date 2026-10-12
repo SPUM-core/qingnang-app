@@ -506,40 +506,56 @@ def _try_resurrect(report_id: int, user_id: int, raw_bytes: bytes | None, filena
 async def list_medical_reports(
     db: Session = Depends(get_db),
     current: User = Depends(get_current_user),
-    limit: int = 30,
+    page: int = 1,
+    page_size: int = 30,
 ):
-    """用户报告列表（不含二进制）
+    """用户报告列表（不含二进制）— 支持分页。
 
     附带副作用：扫本用户前 5 条 pending 记录，孤儿自动重生。
     这样用户只是刷新列表页面就能让卡住的报告续跑，不依赖 startPolling。
     """
     from app.models.chat import MedicalReport
+
+    page = max(1, page)
+    page_size = min(max(1, page_size), 100)
+    offset = (page - 1) * page_size
+
+    total = db.query(func.count(MedicalReport.id)).filter(
+        MedicalReport.user_id == current.id
+    ).scalar() or 0
+
     reports = db.query(MedicalReport).filter(MedicalReport.user_id == current.id) \
-              .order_by(MedicalReport.created_at.desc()).limit(limit).all()
+              .order_by(MedicalReport.created_at.desc()) \
+              .offset(offset).limit(page_size).all()
 
     # ── 孤儿重生：对前 5 条 pending 记录尝试重生 ──
     if (_time.time() - _PROCESS_START) > 60:
         for r in reports[:5]:
             if r.provider == "pending" and r.id not in _RUNNING_TASKS:
-                # 能重生的前提：image_data 里有原始 bytes（pull 之后上传的新记录）
                 if r.image_data:
                     _try_resurrect(r.id, current.id, r.image_data, r.report_title)
 
+    items = [
+        {
+            "id": r.id,
+            "report_title": r.report_title,
+            "report_type": r.report_type,
+            "report_date": r.report_date.isoformat() if r.report_date else None,
+            "recognized": r.recognized,
+            "provider": r.provider,
+            "summary": r.summary,
+            "file_format": r.file_format,
+            "file_size": r.file_size,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        } for r in reports
+    ]
+
     return {
-        "reports": [
-            {
-                "id": r.id,
-                "report_title": r.report_title,
-                "report_type": r.report_type,
-                "report_date": r.report_date.isoformat() if r.report_date else None,
-                "recognized": r.recognized,
-                "provider": r.provider,
-                "summary": r.summary,
-                "file_format": r.file_format,
-                "file_size": r.file_size,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            } for r in reports
-        ],
+        "reports": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": (offset + page_size) < total,
     }
 
 
@@ -732,4 +748,67 @@ async def delete_medical_report(
         raise HTTPException(status_code=404, detail="报告不存在")
     db.delete(mr); db.commit()
     return {"ok": True}
+
+
+# ────────────────────────────────────────────────────
+# TrajectoryEvent 提案确认 / 跳过
+# ────────────────────────────────────────────────────
+
+@router.post("/trajectory/{event_id}/confirm")
+async def confirm_trajectory_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+    custom_age: int | None = None,
+):
+    """把 pending 的 TrajectoryEvent 标记为已确认（confirmed=True, pending=False）。
+
+    前端调用场景：报告详情弹层里点"✓ 确认入时间轴"。
+    可选 custom_age：用户手动修正了事件年龄。
+    """
+    from app.models.trajectory_event import TrajectoryEvent
+    from app.models.case import Case
+
+    # 校验归属
+    te = db.query(TrajectoryEvent).filter(TrajectoryEvent.id == event_id).first()
+    if not te:
+        raise HTTPException(status_code=404, detail="事件不存在")
+    case = db.query(Case).filter(Case.id == te.case_id, Case.user_id == current.id).first()
+    if not case:
+        raise HTTPException(status_code=403, detail="无权操作")
+
+    te.confirmed = True
+    te.pending = False
+    te.source = "llm_confirmed"
+    if custom_age is not None:
+        te.age = custom_age
+        te.day = custom_age * 365
+    db.commit()
+
+    return {"ok": True, "confirmed": True, "id": te.id}
+
+
+@router.post("/trajectory/{event_id}/skip")
+async def skip_trajectory_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """跳过 / 删除一个 pending 的 TrajectoryEvent 提案。
+
+    前端调用场景：报告详情弹层里点"跳过"。
+    """
+    from app.models.trajectory_event import TrajectoryEvent
+    from app.models.case import Case
+
+    te = db.query(TrajectoryEvent).filter(TrajectoryEvent.id == event_id).first()
+    if not te:
+        raise HTTPException(status_code=404, detail="事件不存在")
+    case = db.query(Case).filter(Case.id == te.case_id, Case.user_id == current.id).first()
+    if not case:
+        raise HTTPException(status_code=403, detail="无权操作")
+
+    db.delete(te)
+    db.commit()
+    return {"ok": True, "skipped": True, "id": te.id}
 
