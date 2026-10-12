@@ -409,7 +409,9 @@ html::after {
      这两类"逃逸者"只能靠 --safe-* 变量各自避让 —— 无法用容器消除。
    ═══════════════════════════════════════════════════════════════════ */
 .layout__main {
-  padding-top:   var(--safe-top)   !important;
+  /* ⛔ 不再加 safe-top padding —— 由 LayoutShell header 自己避让
+     header 是 position: sticky top:0，它的 padding-top: var(--safe-top)
+     已经让开了状态栏，.layout__main 紧跟在 header 下面，不需要再叠一层 */
   padding-left:  var(--safe-left)  !important;
   padding-right: var(--safe-right) !important;
 }
@@ -427,23 +429,17 @@ html::after {
 .compliance-bar { padding-bottom: calc(var(--safe-bottom) + 10px) !important; }
 .tj-footer      { padding-bottom: calc(var(--safe-bottom) + 8px)  !important; } /* 体质曲线页脚 */
 
-/* —— 居中弹窗遮罩：整块遮罩让开安全区，内容再高也不会顶穿状态栏 —— */
-.punch-modal-backdrop   { padding-top: var(--safe-top)    !important;
-                          padding-bottom: var(--safe-bottom) !important; }
-.update-dialog          { padding-top: var(--safe-top)    !important;
-                          padding-bottom: var(--safe-bottom) !important; }
-.modal-overlay          { padding-top: calc(var(--safe-top) + 24px)    !important;
-                          padding-bottom: calc(var(--safe-bottom) + 24px) !important; } /* 体质档案弹窗 */
-.detail-overlay         { padding-top: calc(var(--safe-top) + 20px)    !important;
-                          padding-bottom: calc(var(--safe-bottom) + 20px) !important; } /* 报告归档详情 */
-.update-modal-backdrop  { padding-top: calc(var(--safe-top) + 20px)    !important;
-                          padding-bottom: calc(var(--safe-bottom) + 20px) !important; } /* 设置页更新弹窗 */
-.modal                  { padding-top: var(--safe-top)    !important;
-                          padding-bottom: var(--safe-bottom) !important; } /* 用户管理弹窗 */
-.feedback-modal         { padding-top: var(--safe-top)    !important;
-                          padding-bottom: var(--safe-bottom) !important; } /* 商城反馈弹窗 */
-.modal-backdrop         { padding-top: var(--safe-top)    !important;
-                          padding-bottom: var(--safe-bottom) !important; } /* AI 解读遮罩（与居中版并存） */
+/* —— 居中弹窗遮罩：⛔ 删掉 safe-top padding
+   backdrop 是 position:fixed top:0 —— 应该覆盖状态栏区域全屏幕铺开
+   内部 modal 头部（.modal-head/.update-header/.modal 等）自己 padding-top: var(--safe-top) 让开 */
+.punch-modal-backdrop  { padding-bottom: var(--safe-bottom) !important; }
+.update-dialog         { padding-bottom: var(--safe-bottom) !important; }
+.modal-overlay         { padding-bottom: calc(var(--safe-bottom) + 24px) !important; }
+.detail-overlay        { padding-bottom: calc(var(--safe-bottom) + 20px) !important; }
+.update-modal-backdrop { padding-bottom: calc(var(--safe-bottom) + 20px) !important; }
+.modal                 { padding-bottom: var(--safe-bottom) !important; }
+.feedback-modal        { padding-bottom: var(--safe-bottom) !important; }
+.modal-backdrop        { padding-bottom: var(--safe-bottom) !important; }
 
 /* —— 底部弹出层（QSelect 等）—— */
 .qselect-backdrop { padding-bottom: var(--safe-bottom) !important; }
