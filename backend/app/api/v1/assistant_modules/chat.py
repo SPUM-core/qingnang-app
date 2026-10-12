@@ -154,6 +154,31 @@ from ....templates import (
 )
 
 
+def _strip_llm_header_noise(text: str) -> str:
+    """剥掉 LLM 偶发幻觉混入的 HTTP 响应头 / 状态行片段。
+
+    触发场景：DeepSeek JSON mode 偶发把 API 响应的 header 文本混入 content。
+    典型脏东西：Content-Type: application/json / HTTP/1.1 200 OK / date: / etc.
+    这些行在正常聊天回复里绝不该出现。
+    """
+    if not text:
+        return text
+    import re as _re
+    # HTTP 响应头：Xxx-Yyy: zzz 或 Xxx-Yyy:zzz（大小写混合、冒号后可选空格）
+    _header_line = _re.compile(r"^\s*[A-Za-z][A-Za-z0-9\-]+:\s*\S.*$")
+    # HTTP 状态行：HTTP/1.1 200 OK / HTTP/2 200 OK 等
+    _status_line = _re.compile(r"^\s*HTTP/\d\.\d\s+\d{3}\s*.*$")
+
+    cleaned = []
+    for line in text.split("\n"):
+        if _status_line.match(line):
+            continue
+        if _header_line.match(line) and not line.startswith(("【", "·", "-", "#", "。", "答", "你", "我", "今", "宜", "忌")):
+            continue
+        cleaned.append(line)
+    return "\n".join(cleaned).strip()
+
+
 # 主路由 - /v1/assistant/chat
 # ═══════════════════════════════════════════════════════
 @router.post("/chat")
@@ -411,6 +436,10 @@ async def chat(body: ChatIn,
         else:
             reply_text = _generate_generic_reply(current, db, body.message)
         latency_ms = latency_ms if latency_ms else 0
+
+    # ── 6b. 剥掉 LLM 幻觉混入的 HTTP 响应头 ──
+    # DeepSeek JSON mode 偶发：模型会在回复文本里混入 Content-Type / HTTP/1.1 / 状态行等
+    reply_text = _strip_llm_header_noise(reply_text)
 
     # ── 7. 合规后处理 ──
     reply_text = compliance_filter(reply_text, stage=maturity["stage"])
