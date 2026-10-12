@@ -507,10 +507,23 @@ async def list_medical_reports(
     current: User = Depends(get_current_user),
     limit: int = 30,
 ):
-    """用户报告列表（不含二进制）"""
+    """用户报告列表（不含二进制）
+
+    附带副作用：扫本用户前 5 条 pending 记录，孤儿自动重生。
+    这样用户只是刷新列表页面就能让卡住的报告续跑，不依赖 startPolling。
+    """
     from app.models.chat import MedicalReport
     reports = db.query(MedicalReport).filter(MedicalReport.user_id == current.id) \
               .order_by(MedicalReport.created_at.desc()).limit(limit).all()
+
+    # ── 孤儿重生：对前 5 条 pending 记录尝试重生 ──
+    if (_time.time() - _PROCESS_START) > 60:
+        for r in reports[:5]:
+            if r.provider == "pending" and r.id not in _RUNNING_TASKS:
+                # 能重生的前提：image_data 里有原始 bytes（pull 之后上传的新记录）
+                if r.image_data:
+                    _try_resurrect(r.id, current.id, r.image_data, r.report_title)
+
     return {
         "reports": [
             {
