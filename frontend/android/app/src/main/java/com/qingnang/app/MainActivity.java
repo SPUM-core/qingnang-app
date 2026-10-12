@@ -7,6 +7,7 @@ import android.os.Looper;
 import android.view.View;
 import android.webkit.WebView;
 import android.widget.Toast;
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -71,6 +72,32 @@ public class MainActivity extends BridgeActivity {
                 }
             }, delay);
         }
+
+        // 返回键：用 OnBackPressedDispatcher（AndroidX Activity 标准做法）
+        // BridgeActivity 可能在 onBackPressed 路径上先拦截，直接注册 dispatcher callback 优先级最高
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                WebView wv = findWebView();
+                if (wv != null && wv.canGoBack()) {
+                    wv.goBack();
+                    return;
+                }
+                // history 栈空 → 双击退出
+                long now = System.currentTimeMillis();
+                if (now - lastBackPressTime < EXIT_CONFIRM_WINDOW_MS) {
+                    cleanupAndFinish();
+                    return;
+                }
+                lastBackPressTime = now;
+                Toast.makeText(MainActivity.this, "再按一次退出青囊", Toast.LENGTH_SHORT).show();
+                if (resetBackPressRunnable != null) {
+                    mainHandler.removeCallbacks(resetBackPressRunnable);
+                }
+                resetBackPressRunnable = () -> lastBackPressTime = 0;
+                mainHandler.postDelayed(resetBackPressRunnable, EXIT_CONFIRM_WINDOW_MS);
+            }
+        });
     }
 
     /**
@@ -130,42 +157,6 @@ public class MainActivity extends BridgeActivity {
                 wv.evaluateJavascript(js, null);
             }
         });
-    }
-
-    /**
-     * 返回键逻辑：
-     *   1. WebView history 栈有记录 → goBack()（页面内路由回退）
-     *   2. history 栈空 → 双击退出（2s 内再按才退出）
-     *
-     * 为什么不依赖 Capacitor BridgeActivity 默认的 back handling？
-     *   因为 BridgeActivity 只有在 Bridge 完全初始化并注册了 back button
-     *   handler 时才会正确委托给 WebView。file:// + createWebHistory() 场景
-     *   下 Bridge handler 的注册时机不稳定，直接从 decorView 拿 WebView
-     *   自己处理更可靠。
-     */
-    @Override
-    public void onBackPressed() {
-        WebView wv = findWebView();
-        if (wv != null && wv.canGoBack()) {
-            // 页面有历史 → 走正常回退
-            wv.goBack();
-            return;
-        }
-        // 首页：双击退出
-        long now = System.currentTimeMillis();
-        if (now - lastBackPressTime < EXIT_CONFIRM_WINDOW_MS) {
-            // 第二次按 → 真退出
-            cleanupAndFinish();
-            return;
-        }
-        lastBackPressTime = now;
-        Toast.makeText(this, "再按一次退出青囊", Toast.LENGTH_SHORT).show();
-        // 超时自动重置（防止留状态）
-        if (resetBackPressRunnable != null) {
-            mainHandler.removeCallbacks(resetBackPressRunnable);
-        }
-        resetBackPressRunnable = () -> lastBackPressTime = 0;
-        mainHandler.postDelayed(resetBackPressRunnable, EXIT_CONFIRM_WINDOW_MS);
     }
 
     private void cleanupAndFinish() {
