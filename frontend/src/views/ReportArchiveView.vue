@@ -364,7 +364,7 @@ async function viewReport(id) {
   reset()
   try {
     const r = await api.get(`/api/v1/assistant/report/${id}`)
-    detail.value = r
+    detail.value = r.data
   } catch (e) { console.error(e) }
 }
 
