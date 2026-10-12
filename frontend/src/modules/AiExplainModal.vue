@@ -68,7 +68,9 @@ const engineLabel = computed(() => {
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(26,43,26,0.45);
   display: flex; align-items: center; justify-content: center; z-index: 200;
-  padding: 20px; animation: fadeIn 0.18s ease;
+  /* 遮罩留安全区：内容过高时不顶穿状态栏 / 手势条 */
+  padding: calc(var(--safe-top) + 20px) 20px calc(var(--safe-bottom) + 20px);
+  animation: fadeIn 0.18s ease;
 }
 @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
 .modal-card {
@@ -142,8 +144,16 @@ const engineLabel = computed(() => {
 .ae-chat-arrow { opacity: 0.7; font-size: calc(16px * var(--qn-fs-scale)); }
 
 /* 响应式 */
+/* 手机竖屏：保持弹窗居中浮动卡片形态
+   backdrop 的 safe-top padding 已经有了，只需调卡片尺寸 + 覆盖 base.css 的 modal-head safe-top */
 @media (max-width: 480px) {
-  .modal-card { max-height: 88vh; border-radius: var(--qn-r-lg); }
+  .modal-card {
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - var(--safe-top) - var(--safe-bottom) - 32px);
+    border-radius: 12px;
+  }
+  /* 覆盖 base.css 的 modal-head safe-top —— backdrop 已避让 */
+  .modal-head { padding-top: 18px !important; }
   .modal-body { padding: 16px 18px; }
 }
 </style>

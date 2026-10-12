@@ -151,15 +151,19 @@ defineEmits(['close', 'askQA'])
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 .fade-enter-from .punch-modal, .fade-leave-to .punch-modal { transform: translateY(10px) scale(0.97); }
 
-/* 弹窗手机竖屏（原 DashboardView L1289-1302 一字不差） */
+/* 手机竖屏：保持弹窗居中浮动卡片形态 */
 @media (max-width: 480px) {
-  .punch-modal-backdrop { padding: 0; }
+  .punch-modal-backdrop {
+    padding: calc(var(--safe-top) + 16px) 16px calc(var(--safe-bottom) + 16px);
+  }
   .punch-modal {
-    max-width: 100%; max-height: 100vh; border-radius: 0;
+    max-width: 100%; max-height: calc(100vh - var(--safe-top) - var(--safe-bottom) - 32px);
+    border-radius: 12px;
     padding: 20px;
     animation: none;
   }
-  .pm-head { margin-bottom: 16px; padding-bottom: 12px; }
+  /* 覆盖 base.css 的 pm-head safe-top —— backdrop 已避让 */
+  .pm-head { padding-top: 0 !important; margin-bottom: 16px; padding-bottom: 12px; }
   .pm-title { font-size: calc(16px * var(--qn-fs-scale)); }
   .pm-foot { gap: 8px; }
   .pm-cancel, .pm-submit { flex: 1; padding: 11px 0; text-align: center; }
