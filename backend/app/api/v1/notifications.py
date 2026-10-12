@@ -167,7 +167,7 @@ def _write_cache(qingnang_id: str, date_str: str, v_base_hash: str, data: dict, 
             "v_base_hash": v_base_hash,
             "meta_hash": meta_hash,  # 2026-10-06：用户画像 hash
             "created_at": _dt_lib.datetime.now().isoformat(),
-            "cache_version": 2,  # bump → 旧缓存全失效（今天要重跑）
+            "cache_version": 3,  # v3: 协纪辨方 + 玉匣记 + 黄历完整推演（timeline 12 时辰 / jianchu / pengzu / xiu / chong / sha / stone / travel / solutions）
         }
         with open(tmp_path, "w", encoding="utf-8") as f:
             _json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -455,23 +455,75 @@ async def today_reminders(db: Session = Depends(get_db),
     except Exception:
         user_reminders = []
 
+    # ════ 今日时空锚点（动态计算，优先 rule_base 的完整黄历）════
+    # 从 rule_base（而非 LLM）拿完整黄历字段——rule_base 确定性更强
+    from .assistant import _fallback_lifestyle
+    rule_base_today = _fallback_lifestyle(v, {"city": None})
+    rule_anchor = rule_base_today.get("anchor", {})
+    
+    now = _dt_lib.datetime.now()
+    shichen_index = (now.hour + 1) // 2 % 12
+    gz_year, gz_month, gz_day = _ganzhi_from_solar(now.year, now.month, now.day)
+
+    # anchor 优先用 rule_base 的完整黄历字段，补足缺失项
+    anchor = llm_data.get("anchor") or {}
+    if isinstance(anchor, str):
+        anchor = {}
+    
+    # 组装完整 anchor（rule_base 有就用 rule_base，LLM 有的补充）
+    full_anchor = {
+        # 基础
+        "ganzhi": f"{gz_year}年 {gz_month}月 {gz_day}日",
+        "ganzhi_short": rule_anchor.get("ganzhi", f"{gz_year}{gz_month}{gz_day}"),
+        "dangling": SHICHEN[shichen_index],
+        "dangling_elem": SHICHEN_ELEM[shichen_index],
+        "state": rule_anchor.get("state") or v_state,
+        "engine": rule_base_today.get("engine", "rule_almanac"),
+        # 黄历核心（来自 rule_base）
+        "yi_list": rule_anchor.get("yi", []) if isinstance(rule_anchor.get("yi"), list) else [],
+        "ji_list": rule_anchor.get("ji", []) if isinstance(rule_anchor.get("ji"), list) else [],
+        "jianchu": rule_anchor.get("jianchu", ""),
+        "chong": rule_anchor.get("chong", ""),
+        "sha": rule_anchor.get("sha", ""),
+        "xiu": rule_anchor.get("xiu", ""),
+        "pengzu": rule_anchor.get("pengzu", ""),
+        "feixing_day": rule_anchor.get("feixing", {}).get("day", ""),
+        "feixing_year": rule_anchor.get("feixing", {}).get("year", ""),
+        "na_yin_day": rule_anchor.get("na_yin", {}).get("day", ""),
+        "tianshen": rule_anchor.get("tianshen", ""),
+        "yuxiaji": rule_anchor.get("yuxiaji", ""),
+        # 兼容旧前端的 yi/ji 字符串
+        "yi": "、".join(rule_anchor.get("yi", [])[:6]) if isinstance(rule_anchor.get("yi"), list) else (rule_anchor.get("yi") or "养生·调理"),
+        "ji": "、".join(rule_anchor.get("ji", [])[:6]) if isinstance(rule_anchor.get("ji"), list) else (rule_anchor.get("ji") or "大动·辛辣"),
+    }
+
+    # AI 生成的用户自定义提醒（来自 LifeSignal tag='reminder'）
+    try:
+        from ...models import LifeSignal
+        user_reminders = [
+            {"title": ls.label, "source": ls.source or "chat_ai",
+             "at": ls.created_at.isoformat() if ls.created_at else None}
+            for ls in db.query(LifeSignal).filter(
+                LifeSignal.user_id == current.id,
+                LifeSignal.tag == "reminder",
+            ).order_by(LifeSignal.created_at.desc()).limit(10).all()
+        ]
+    except Exception:
+        user_reminders = []
+
     return {
-        "anchor": {
-            "ganzhi": f"{gz_year}年 {gz_month}月 {gz_day}日",
-            "dangling": SHICHEN[shichen_index],
-            "dangling_elem": SHICHEN_ELEM[shichen_index],
-            "yi": anchor.get("yi") or "养生·调理·静养",
-            "ji": anchor.get("ji") or "大动·辛辣·冷饮",
-            "state": v_state,
-            "engine": llm_data.get("engine", "llm"),
-        },
-        "timeline": llm_data.get("timeline", []),
-        "cloth_reminders": llm_data.get("cloth_reminders", []),
-        "food_good": llm_data.get("food_good", []),
-        "food_bad": llm_data.get("food_bad", []),
-        "home_reminders": llm_data.get("home_reminders", []),
-        "absolute_avoid": llm_data.get("absolute_avoid", []),
-        "relative_avoid": llm_data.get("relative_avoid", []),
+        "anchor": full_anchor,
+        # 所有板块优先用 rule_base 的完整数据，LLM 做了叙事包装的补充进来
+        "timeline": rule_base_today.get("timeline", []) or llm_data.get("timeline", []),
+        "cloth_reminders": rule_base_today.get("cloth_reminders", []) or llm_data.get("cloth_reminders", []),
+        "food_good": rule_base_today.get("food_good", []) or llm_data.get("food_good", []),
+        "food_bad": rule_base_today.get("food_bad", []) or llm_data.get("food_bad", []),
+        "home_reminders": rule_base_today.get("home_reminders", []) or llm_data.get("home_reminders", []),
+        "absolute_avoid": rule_base_today.get("absolute_avoid", []) or llm_data.get("absolute_avoid", []),
+        "relative_avoid": rule_base_today.get("relative_avoid", []) or llm_data.get("relative_avoid", []),
+        "stone": rule_base_today.get("stone", []),
+        "travel": rule_base_today.get("travel", []),
+        "solutions": rule_base_today.get("solutions", []),
         "user_reminders": user_reminders,
     }
 

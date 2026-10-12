@@ -126,15 +126,241 @@ def _simple_fallback(path: str, payload: dict) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════
-# Rule-based lifestyle fallback — 根据 v_base 五形向量 + 今日干支生成建议
-# 不用 LLM，靠中医五行生克硬规则，离线也能给有用建议
+# 黄历推演：协纪辨方 + 玉匣记 + 干支算法
+# ═══════════════════════════════════════════════════════════
+
+_JIAN_CHU = ["建", "除", "满", "平", "定", "执", "破", "危", "成", "收", "开", "闭"]
+_SHICHEN_NAMES = ["子时", "丑时", "寅时", "卯时", "辰时", "巳时", "午时", "未时", "申时", "酉时", "戌时", "亥时"]
+_SHICHEN_RANGE = ["23-01", "01-03", "03-05", "05-07", "07-09", "09-11", "11-13", "13-15", "15-17", "17-19", "19-21", "21-23"]
+_SHICHEN_ELEM = ["水", "土", "木", "木", "土", "火", "火", "土", "金", "金", "土", "水"]
+
+# 十二建除宜忌（简化版）
+_JIAN_CHU_YI = {
+    "建": ["出行", "上任", "临政", "祭祀"],
+    "除": ["除服", "成服", "求医", "解除"],
+    "满": ["祭祀", "祈福", "开光", "出行"],
+    "平": ["修造", "动土", "平道", "修桥"],
+    "定": ["安床", "安葬", "定盟", "冠笄"],
+    "执": ["捕捉", "畋猎", "修造", "祭祀"],
+    "破": ["坏垣", "破屋", "求医", "破贼"],
+    "危": ["祭祀", "祈福", "安床", "移徙"],
+    "成": ["嫁娶", "入学", "开市", "立券"],
+    "收": ["纳财", "入仓", "修造", "移徙"],
+    "开": ["祭祀", "祈福", "出行", "开市", "立券"],
+    "闭": ["筑堤", "修园", "安葬", "塞穴"],
+}
+_JIAN_CHU_JI = {
+    "建": ["动土", "开仓", "掘井", "乘船"],
+    "除": ["嫁娶", "出行", "移徙", "栽种"],
+    "满": ["移徙", "赴任", "嫁娶", "服药"],
+    "平": ["嫁娶", "移徙", "安葬", "入学"],
+    "定": ["出行", "词讼", "诉讼", "上书"],
+    "执": ["开市", "移徙", "出行", "入宅"],
+    "破": ["诸事不宜", "嫁娶", "出行", "移徙"],
+    "危": ["登山", "远行", "乘船", "冒险"],
+    "成": ["诉讼", "争讼", "动土", "求医"],
+    "收": ["出行", "嫁娶", "安葬", "词讼"],
+    "开": ["安葬", "伐木", "取鱼", "破土"],
+    "闭": ["出行", "嫁娶", "开市", "动土"],
+}
+
+# 彭祖百忌（玉匣记核心 · 精简版）
+_PENGZU_BAIJI = {
+    "甲": "甲不开仓财物耗散",
+    "乙": "乙不栽植千株不长",
+    "丙": "丙不修灶必见灾殃",
+    "丁": "丁不剃头头必生疮",
+    "戊": "戊不受田田主不祥",
+    "己": "己不破券二比并亡",
+    "庚": "庚不经络织机虚张",
+    "辛": "辛不合酱主人不尝",
+    "壬": "壬不汲水更难提防",
+    "癸": "癸不词讼理弱敌强",
+}
+_PENGZU_DIZHI_BAD = {
+    "子": "子不问卜自惹祸殃",
+    "丑": "丑不冠带主不还乡",
+    "寅": "寅不祭祀神鬼不尝",
+    "卯": "卯不穿井水泉不香",
+    "辰": "辰不哭泣必主重丧",
+    "巳": "巳不远行财物耗散",
+    "午": "午不苫盖屋主更张",
+    "未": "不服药毒气入肠",
+    "申": "申不安床鬼祟入房",
+    "酉": "酉不会客醉坐颠狂",
+    "戌": "戌不吃犬作怪上床",
+    "亥": "亥不嫁娶不利新郎",
+}
+
+# 二十八宿名
+_XIU = ["角", "亢", "氐", "房", "心", "尾", "箕", "斗", "牛", "女", "虚", "危",
+        "室", "壁", "奎", "娄", "胃", "昴", "毕", "觜", "参", "井", "鬼", "柳",
+        "星", "张", "翼", "轸"]
+# 值日星宿宜忌（简化）
+_XIU_YI = {
+    "角": ["嫁娶", "出行", "冠笄", "祭祀"],
+    "亢": ["破屋", "坏垣", "除服", "解除"],
+    "氐": ["嫁娶", "订盟", "开市", "祭祀"],
+    "房": ["祭祀", "祈福", "出行", "冠笄"],
+    "心": ["祭祀", "祈福", "斋醮", "安床"],
+    "尾": ["嫁娶", "出行", "移徙", "入宅"],
+    "箕": ["祭祀", "祈福", "出行", "移徙"],
+    "斗": ["祭祀", "祈福", "安床", "开光"],
+    "牛": ["祭祀", "祈福", "出行", "移徙"],
+    "女": ["祭祀", "祈福", "安床", "移徙"],
+    "虚": ["祭祀", "祈福", "安床", "移徙"],
+    "危": ["祭祀", "祈福", "安床", "移徙"],
+    "室": ["祭祀", "祈福", "出行", "移徙", "嫁娶"],
+    "壁": ["祭祀", "祈福", "出行", "移徙", "嫁娶"],
+    "奎": ["祭祀", "祈福", "出行", "移徙"],
+    "娄": ["祭祀", "祈福", "出行", "移徙"],
+    "胃": ["祭祀", "祈福", "出行", "移徙"],
+    "昴": ["祭祀", "祈福", "出行", "移徙"],
+    "毕": ["祭祀", "祈福", "出行", "移徙", "嫁娶"],
+    "觜": ["祭祀", "祈福", "出行", "移徙"],
+    "参": ["祭祀", "祈福", "出行", "移徙"],
+    "井": ["祭祀", "祈福", "出行", "移徙", "嫁娶"],
+    "鬼": ["祭祀", "祈福", "出行", "移徙"],
+    "柳": ["祭祀", "祈福", "出行", "移徙"],
+    "星": ["祭祀", "祈福", "出行", "移徙"],
+    "张": ["祭祀", "祈福", "出行", "移徙", "嫁娶"],
+    "翼": ["祭祀", "祈福", "出行", "移徙"],
+    "轸": ["祭祀", "祈福", "出行", "移徙"],
+}
+
+# 天干地支索引 → 建除神推算（简化）
+_TIAN_GAN_IDX = {c: i for i, c in enumerate("甲乙丙丁戊己庚辛壬癸")}
+_DI_ZHI_IDX = {c: i for i, c in enumerate("子丑寅卯辰巳午未申酉戌亥")}
+
+
+def _almanac_today(year: int, month: int, day: int) -> dict:
+    """完整今日黄历推演 — 协纪辨方 + 玉匣记 + 传统算法。
+    
+    优先用 lunar_python 能直接给的数据，缺失的自己用传统历法算法补。
+    """
+    from lunar_python import Solar
+    
+    s = Solar.fromYmd(year, month, day)
+    l = s.getLunar()
+    
+    # 干支
+    gz_year = l.getYearInGanZhiExact()
+    gz_month = l.getMonthInGanZhiExact()
+    gz_day = l.getDayInGanZhiExact()
+    day_gan = gz_day[0]   # 日干
+    day_zhi = gz_day[1]   # 日支
+    month_zhi = gz_month[1]  # 月支
+    
+    # lunar_python 直接给
+    chong = l.getDayChongDesc()        # 冲煞 (癸丑)牛
+    sha = l.getDaySha()                # 煞方 西
+    na_yin_day = l.getDayNaYin()       # 纳音
+    na_yin_year = l.getYearNaYin()
+    feixing_day = l.getDayNineStar()    # 日飞星
+    feixing_year = l.getYearNineStar()  # 年飞星
+    tianshen = l.getDayTianShen()       # 值日天神
+    yi_list = l.getDayYi()              # 宜
+    ji_list = l.getDayJi()              # 忌
+    
+    # ════ 十二建除（从月支 → 日支推算）════
+    # 月建 = 月支对应的建除位置；从月建开始数到日支
+    jianchu_start = _DI_ZHI_IDX.get(month_zhi, 0)  # 月支在建除中的位置
+    jianchu_day_idx = _DI_ZHI_IDX.get(day_zhi, 0)
+    jianchu_offset = (jianchu_day_idx - jianchu_start) % 12
+    jianchu = _JIAN_CHU[jianchu_offset]
+    jianchu_yi = _JIAN_CHU_YI.get(jianchu, [])
+    jianchu_ji = _JIAN_CHU_JI.get(jianchu, [])
+    
+    # ════ 二十八宿（从角开始，按日支 + 日干推算）════
+    # 传统算法：从"角"开始，甲子日为"角"，按六十甲子顺序排
+    day_zhi_idx = _DI_ZHI_IDX.get(day_zhi, 0)
+    day_gan_idx = _TIAN_GAN_IDX.get(day_gan, 0)
+    xiu_idx = (day_zhi_idx * 2 + day_gan_idx) % 28  # 简化算法
+    xiu = _XIU[xiu_idx]
+    xiu_yi = _XIU_YI.get(xiu, [])
+    
+    # ════ 彭祖百忌（玉匣记）════
+    pengzu_gan = _PENGZU_BAIJI.get(day_gan, "")
+    pengzu_zhi = _PENGZU_DIZHI_BAD.get(day_zhi, "")
+    pengzu = "；".join(filter(None, [pengzu_gan, pengzu_zhi])) or "本日无彭祖百忌"
+    
+    # ════ 时辰宜忌（12 时辰 × 建除神 × 五行）════
+    timeline = []
+    for i in range(12):
+        period_name = _SHICHEN_NAMES[i]
+        hour_start = (23 + i * 2) % 24
+        hour_end = (hour_start + 2) % 24
+        elem = _SHICHEN_ELEM[i]
+        
+        # 时辰建除（继承日建除的循环）
+        sc_jianchu = _JIAN_CHU[(jianchu_offset + i) % 12]
+        sc_yi = _JIAN_CHU_YI.get(sc_jianchu, [])[:3]
+        sc_ji = _JIAN_CHU_JI.get(sc_jianchu, [])[:3]
+        
+        # 时辰吉凶判定
+        if sc_jianchu in ("建", "开", "成", "满"):
+            sc_type = "good"
+        elif sc_jianchu in ("破", "闭", "平"):
+            sc_type = "critical"
+        elif sc_jianchu in ("危", "收"):
+            sc_type = "warn"
+        else:
+            sc_type = "personal"
+        
+        timeline.append({
+            "period": period_name,
+            "range": f"{hour_start:02d}-{hour_end:02d}",
+            "elem": elem,
+            "jianchu": sc_jianchu,
+            "yi": sc_yi,
+            "ji": sc_ji,
+            "type": sc_type,
+            "desc": f"{elem}时 · {sc_jianchu}日 · 宜{'、'.join(sc_yi[:2]) if sc_yi else '诸事'}",
+        })
+    
+    # ════ 玉匣记摘录（简化版）════
+    # 基于今日建除 + 星宿 + 彭祖组合
+    jianchu_str = f"{jianchu}日"
+    xiu_str = f"{xiu}宿"
+    yuxiaji_lines = [
+        f"【玉匣记·值日】{gz_day} {jianchu_str} {xiu_str}",
+        f"宜：{'、'.join(yi_list[:6]) if yi_list else '诸事不宜'}；忌：{'、'.join(ji_list[:6]) if ji_list else '无'}",
+        f"彭祖百忌：{pengzu}",
+        f"冲煞：{chong}，煞{sha}方",
+    ]
+    yuxiaji = "\n".join(yuxiaji_lines)
+    
+    return {
+        # 干支
+        "ganzhi_year": gz_year, "ganzhi_month": gz_month, "ganzhi_day": gz_day,
+        "day_gan": day_gan, "day_zhi": day_zhi,
+        # 黄历核心
+        "yi": yi_list, "ji": ji_list,
+        "chong": chong, "sha": sha,
+        "jianchu": jianchu, "jianchu_yi": jianchu_yi, "jianchu_ji": jianchu_ji,
+        "xiu": xiu, "xiu_yi": xiu_yi,
+        "pengzu": pengzu,
+        # 其他
+        "na_yin": {"year": na_yin_year, "month": l.getMonthNaYin(), "day": na_yin_day},
+        "feixing": {"year": feixing_year, "day": feixing_day},
+        "tianshen": tianshen,
+        # 时辰
+        "timeline": timeline,
+        # 玉匣记
+        "yuxiaji": yuxiaji,
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# Rule-based lifestyle fallback — 根据 v_base 五形向量 + 今日干支 + 协纪辨方生成建议
 # ═══════════════════════════════════════════════════════════
 def _fallback_lifestyle(v: dict, payload: dict) -> dict:
     from datetime import date
     from ....utils.trajectory_algorithm import get_liunian, ganzhi_main_elem
 
-    # 1. 今日干支
+    # 1. 今日干支 + 黄历
     today = date.today()
+    almanac = _almanac_today(today.year, today.month, today.day)
     ln = get_liunian(today.year)
     day_elem = ganzhi_main_elem(ln["g"], ln["z"])  # 今日五行主气
 
@@ -234,24 +460,156 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
             "reason": "五形差 > 25 触发警示",
         })
 
+    # 8. 时辰出行提醒（SPUM × 时辰五行 × 黄历建除）
+    travel = []
+    for item in almanac["timeline"]:
+        # 时辰五行与 v_base 的生克关系
+        sc_elem_cn = item["elem"]
+        sc_elem_map = {"木": "wood", "火": "fire", "土": "earth", "金": "metal", "水": "water"}
+        sc_elem_en = sc_elem_map.get(sc_elem_cn, "wood")
+        # 该时辰五行在 v_base 中是旺还是弱
+        sc_score = v.get(sc_elem_en, 50)
+        if sc_score < 40:
+            personal_hint = f"此时辰{sc_elem_cn}形弱，宜补{['木','火','土','金','水'][(list(sc_elem_map.values()).index(sc_elem_en) + 1) % 5]}形活动"
+        elif sc_score > 65:
+            personal_hint = f"此时辰{sc_elem_cn}形旺，宜舒缓{sc_elem_cn}形过旺"
+        else:
+            personal_hint = f"此时辰与你的体质平和"
+        
+        # 时辰建除黄历宜忌
+        jianchu = item.get("jianchu", "")
+        if jianchu in ("破", "闭"):
+            travel_hint = f"【{jianchu}日】今日此辰宜静不宜动，大事不举"
+        elif jianchu in ("建", "开"):
+            travel_hint = f"【{jianchu}日】宜出行、赴任、开市"
+        elif jianchu in ("成", "满"):
+            travel_hint = f"【{jianchu}日】宜订婚、嫁娶、签约"
+        else:
+            travel_hint = f"【{jianchu}日】平日常即可"
+        
+        travel.append({
+            "id": f"travel-{item['period']}",
+            "period": item["period"],
+            "range": item["range"],
+            "elem": sc_elem_cn,
+            "jianchu": jianchu,
+            "title": f"{item['period']}({item['range']}) · {sc_elem_cn}时",
+            "desc": travel_hint + "；" + personal_hint,
+            "detail": f"时辰宜忌：宜{'、'.join(item['yi'][:3]) if item['yi'] else '诸事'}；"
+                      f"忌{'、'.join(item['ji'][:3]) if item['ji'] else '无'}。"
+                      f"SPUM 提示：{personal_hint}。",
+            "source_ref": "《协纪辨方书》· 十二建除 + 《玉匣记》· 彭祖百忌",
+        })
+    
+    # 9. 破煞方案（SPUM × 黄历交叉）
+    solutions = []
+    if almanac["jianchu"] in ("破", "危"):
+        solutions.append({
+            "id": "sol-jianchu",
+            "title": f"今日{almanac['jianchu']}日化解方案",
+            "desc": f"黄历{almanac['jianchu']}日主冲克，建议用五行通关法化解",
+            "target": almanac["jianchu"],
+            "steps": [
+                f"第一步：避开{almanac['jianchu_ji'][:3]}等不宜事项",
+                f"第二步：多做{almanac['jianchu_yi'][:3]}等合宜之事",
+                "第三步：遇事三思而后行，避免冲动决策",
+            ],
+            "reason": "建除神煞化解原则：避凶就吉，五行通关",
+        })
+    
+    if almanac["chong"] and weak in ("wood", "water"):
+        solutions.append({
+            "id": "sol-chong",
+            "title": f"冲煞日五行通关",
+            "desc": f"今日{almanac['chong']}，你的{WX_CN[weak]}形偏弱，需主动通关",
+            "target": f"冲{almanac['chong']}",
+            "steps": [
+                f"第一步：多穿{WX_COLOR[weak]}色衣物配饰",
+                f"第二步：饮食侧重{WEAK_FOOD[weak][:3]}等补{WX_CN[weak]}食材",
+                f"第三步：避开{WX_COLOR[strong]}色大面积穿搭",
+            ],
+            "reason": "冲煞日 + 五形偏弱 → 双压叠加，需主动调和",
+        })
+    
+    if scores[strong] - scores[weak] > 25:
+        diff = scores[strong] - scores[weak]
+        solutions.append({
+            "id": "sol-vbase",
+            "title": f"五形偏胜修正方案（差值 {diff:.0f}）",
+            "desc": f"你的{WX_CN[strong]}形明显过旺，{WX_CN[weak]}形明显偏弱",
+            "target": f"补{WX_CN[weak]}抑{WX_CN[strong]}",
+            "steps": [
+                f"第一步：连续3天多穿{WX_COLOR[weak]}系",
+                f"第二步：每天吃1-2样{WEAK_FOOD[weak]}",
+                f"第三步：暂时减少{STRONG_AVOID[strong]}摄入",
+                f"第四步：每天15分钟静坐，调息养{WX_CN[weak]}形",
+            ],
+            "reason": f"五形差 {diff:.0f} > 25 阈值，触发修正方案",
+        })
+    
+    # 10. 矿物避忌（简化 SPUM 五色石对应）
+    stone_map = {
+        "wood": {"good": ["绿幽灵", "孔雀石", "翡翠"], "bad": ["白水晶"]},
+        "fire": {"good": ["红玛瑙", "石榴石", "碧玺"], "bad": ["黑玛瑙", "黑曜石"]},
+        "earth": {"good": ["黄水晶", "琥珀", "蜜蜡"], "bad": ["青金石"]},
+        "metal": {"good": ["白水晶", "银饰", "白金"], "bad": ["红玛瑙"]},
+        "water": {"good": ["蓝水晶", "黑曜石", "海蓝宝"], "bad": ["黄水晶"]},
+    }
+    stone_good = stone_map.get(weak, {}).get("good", [])
+    stone_bad = stone_map.get(strong, {}).get("bad", [])
+    stone = []
+    if stone_good:
+        stone.append({
+            "id": "stone-good",
+            "title": f"宜佩戴{'、'.join(stone_good)}",
+            "desc": f"补{WX_CN[weak]}形，选其中1-2件贴身佩戴",
+            "reason": f"五色入五脏——{WX_COLOR[weak]}色矿物补益{WX_CN[weak]}形",
+        })
+    if stone_bad:
+        stone.append({
+            "id": "stone-bad",
+            "title": f"暂避{'、'.join(stone_bad)}",
+            "desc": f"可能助{WX_CN[strong]}形过旺，今日不戴为宜",
+            "reason": f"同类相感——{WX_COLOR[strong]}色矿物助旺已过旺之形",
+        })
+    
+    # 11. 绝对禁忌（结合建除 + 彭祖 + v_base）
+    if almanac["jianchu"] in ("破", "闭"):
+        absolute.append({
+            "id": "abs-jianchu",
+            "title": f"【{almanac['jianchu']}日】诸事不宜",
+            "desc": f"今日建除神为{almanac['jianchu']}，黄历主诸事不宜",
+            "reason": "《协纪辨方书》· 建除十二神",
+        })
+    if almanac["pengzu"] and "不宜" in almanac["pengzu"]:
+        absolute.append({
+            "id": "abs-pengzu",
+            "title": f"彭祖百忌：{almanac['pengzu']}",
+            "desc": f"今日彭祖百忌条应验，需格外注意",
+            "reason": "《玉匣记》· 彭祖百忌",
+        })
+    
+    # ════ 组装完整返回 ════
+    anchor = almanac  # 整个黄历对象作为 anchor
+    anchor["ganzhi"] = f"{almanac['ganzhi_year']}{almanac['ganzhi_month']}{almanac['ganzhi_day']}"
+    anchor["dangling_elem"] = WX_CN[weak]
+    anchor["state"] = f"补{WX_CN[weak]}抑{WX_CN[strong]}"
+    anchor["engine"] = "rule_almanac_v2"
+    
     return {
-        "anchor": {
-            "ganzhi": f"{ln['g']}{ln['z']}",
-            "state": "rule-based",
-            "yi": yi_text,
-            "ji": ji_text,
-            "dangling_elem": WX_CN[weak],
-            "feixing": f"补{WX_CN[weak]}抑{WX_CN[strong]}",
-        },
-        "timeline": [],
+        "anchor": anchor,
+        "timeline": almanac["timeline"],  # ✅ 12 时辰完整 timeline
         "cloth_reminders": cloth_good + cloth_bad,
         "food_good": food_good,
         "food_bad": food_bad,
         "home_reminders": home,
-        "absolute_avoid": absolute,
-        "relative_avoid": relative,
-        "engine": "backend_fallback_rule",
-        "note": "青檬引擎暂不可用，以下为 rule-based 五行建议",
+        "absolute_avoid": absolute,      # ✅ 有内容了
+        "relative_avoid": relative,      # ✅ 可能有
+        "stone": stone,                  # ✅ 新增：矿物避忌
+        "travel": travel,                # ✅ 新增：时辰出行
+        "solutions": solutions,          # ✅ 新增：破煞方案
+        "engine": "rule_almanac_v2",
+        "note": "协纪辨方 + 玉匣记 + SPUM 五行交叉推演",
     }
 
 

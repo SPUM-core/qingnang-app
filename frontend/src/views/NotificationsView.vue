@@ -1,29 +1,57 @@
 <template>
   <section class="page reminders" data-page-id="P18">
-    <!-- 顶部：今日时空摘要 -->
+    <!-- 顶部：今日黄历摘要（协纪辨方 + 玉匣记 + SPUM） -->
     <div class="today-card">
+      <div class="today-header">
+        <span class="today-title">📅 {{ today.date }}</span>
+        <span class="today-yuxiaji" v-if="today.jianchu && today.xiu">
+          {{ today.jianchu }}日 · {{ today.xiu }}宿
+        </span>
+      </div>
       <div class="today-grid">
         <div class="tg-cell">
           <span class="tg-label">今日干支</span>
-          <span class="tg-val">{{ today.ganzhi }}</span>
+          <span class="tg-val">{{ today.ganzhi_short || today.ganzhi }}</span>
         </div>
         <div class="tg-cell">
           <span class="tg-label">当令时辰</span>
           <span class="tg-val">{{ today.dangling }} · 旺{{ today.dangling_elem }}</span>
         </div>
         <div class="tg-cell">
-          <span class="tg-label">流飞星</span>
-          <span class="tg-val">{{ today.feixing }}</span>
+          <span class="tg-label">值日天神</span>
+          <span class="tg-val">{{ today.tianshen || '—' }}</span>
         </div>
         <div class="tg-cell">
           <span class="tg-label">你的避忌</span>
           <span class="tg-val tg-warn">冲{{ today.chong }}</span>
         </div>
       </div>
+      <!-- 第二行：建除 + 二十八宿 + 彭祖 + 煞方 -->
+      <div class="today-grid today-grid-2">
+        <div class="tg-cell" v-if="today.jianchu">
+          <span class="tg-label">十二建除</span>
+          <span class="tg-val tg-subtle">{{ today.jianchu }}日</span>
+        </div>
+        <div class="tg-cell" v-if="today.xiu">
+          <span class="tg-label">值日星宿</span>
+          <span class="tg-val tg-subtle">{{ today.xiu }}宿</span>
+        </div>
+        <div class="tg-cell" v-if="today.sha">
+          <span class="tg-label">煞方</span>
+          <span class="tg-val tg-subtle">{{ today.sha }}方</span>
+        </div>
+        <div class="tg-cell" v-if="today.na_yin_day">
+          <span class="tg-label">纳音</span>
+          <span class="tg-val tg-subtle">{{ today.na_yin_day }}</span>
+        </div>
+      </div>
       <p class="today-note">
-        📅 {{ today.date }} · 丙戌月 · 今天宜<span class="good">{{ today.yi }}</span>，
-        忌<span class="bad">{{ today.ji }}</span>
+        今日<span class="good">宜{{ today.yi_list?.length ? '：' + today.yi_list.join('、') : today.yi }}</span>，
+        忌<span class="bad">{{ today.ji_list?.length ? '：' + today.ji_list.join('、') : today.ji }}</span>
       </p>
+      <!-- 彭祖百忌 + 飞星 -->
+      <div class="today-pengzu" v-if="today.pengzu">📜 彭祖百忌：{{ today.pengzu }}</div>
+      <div class="today-feixing" v-if="today.feixing">⭐ 流飞星：{{ today.feixing }}</div>
     </div>
 
     <!-- 分类 Tab -->
@@ -190,6 +218,11 @@ const today = ref({
   date: new Date().toISOString().slice(0, 10),
   ganzhi: '—', dangling: '—', dangling_elem: '—',
   feixing: '—', chong: '—', yi: '—', ji: '—',
+  // 黄历新字段（协纪辨方 + 玉匣记）
+  jianchu: '—', xiu: '—', pengzu: '—', tianshen: '—',
+  sha: '—', feixing_day: '—', feixing_year: '—',
+  na_yin_day: '—', yi_list: [], ji_list: [],
+  yuxiaji: '', state: '—',
 })
 const clothReminders = ref([])
 const foodGood = ref([])
@@ -207,19 +240,26 @@ onMounted(async () => {
   try {
     const r = await notifications.today()
     const d = r.data || {}
-    // 顶部时空锚点
-    if (d.anchor) Object.assign(today.value, d.anchor)
-    if (d.cloth_good)  clothReminders.value = d.cloth_good.map((r, i) => ({ id: 'cg'+i, icon: '👕', iconBg: 'var(--qn-wood)', level: 'ok', levelLabel: '宜', ...r }))
-    if (d.cloth_bad)   clothReminders.value.push(...d.cloth_bad.map((r, i) => ({ id: 'cb'+i, icon: '🧥', iconBg: 'var(--qn-emerald)', level: 'bad', levelLabel: '忌', ...r })))
+    // 顶部时空锚点（后端 anchor 现在包含完整黄历字段）
+    if (d.anchor) {
+      // 兼容：后端 feixing_day/feixing_year 替代旧 feixing
+      const a = { ...d.anchor }
+      if (!a.feixing) a.feixing = [a.feixing_year, a.feixing_day].filter(Boolean).join(' · ') || '—'
+      today.value = { ...today.value, ...a }
+    }
+    if (d.cloth_reminders) clothReminders.value = d.cloth_reminders.map((r, i) => ({ id: 'cr'+i, icon: r.level === 'bad' ? '🧥' : '👕', iconBg: r.level === 'bad' ? 'var(--qn-fire)' : 'var(--qn-wood)', level: r.level === 'bad' ? 'bad' : 'ok', levelLabel: r.level === 'bad' ? '忌' : '宜', ...r }))
+    if (d.cloth_good)  clothReminders.value.push(...d.cloth_good.map((r, i) => ({ id: 'cg'+i, icon: '👕', iconBg: 'var(--qn-wood)', level: 'ok', levelLabel: '宜', ...r })))
+    if (d.cloth_bad)   clothReminders.value.push(...d.cloth_bad.map((r, i) => ({ id: 'cb'+i, icon: '🧥', iconBg: 'var(--qn-fire)', level: 'bad', levelLabel: '忌', ...r })))
     if (d.food_good)   foodGood.value = d.food_good.map((r, i) => ({ id: 'fg'+i, ...r }))
     if (d.food_bad)    foodBad.value = d.food_bad.map((r, i) => ({ id: 'fb'+i, ...r }))
-    if (d.home)        homeReminders.value = d.home.map((r, i) => ({ id: 'h'+i, icon: '🏠', iconBg: 'var(--qn-emerald)', steps: [], ...r }))
+    if (d.home_reminders) homeReminders.value = d.home_reminders.map((r, i) => ({ id: 'h'+i, icon: '🏠', iconBg: 'var(--qn-earth)', steps: r.steps || [], ...r }))
+    if (d.home && !d.home_reminders) homeReminders.value = d.home.map((r, i) => ({ id: 'h'+i, icon: '🏠', iconBg: 'var(--qn-earth)', steps: [], ...r }))
     if (d.absolute_avoid)  absoluteAvoid.value = d.absolute_avoid.map((r, i) => ({ id: 'aa'+i, ...r }))
     if (d.relative_avoid)  relativeAvoid.value = d.relative_avoid.map((r, i) => ({ id: 'ra'+i, ...r }))
     if (d.stone)       stoneReminders.value = d.stone.map((r, i) => ({ id: 's'+i, ...r }))
-    if (d.timeline)    todayTimeline.value = d.timeline
+    if (d.timeline)    todayTimeline.value = d.timeline  // 现在是 12 时辰完整 timeline
     if (d.travel)      travelReminders.value = d.travel.map((r, i) => ({ id: 't'+i, ...r }))
-    if (d.solutions)   solutions.value = d.solutions.map((r, i) => ({ id: 'sol'+i, icon: '💡', iconBg: 'var(--qn-earth)', steps: [], ...r }))
+    if (d.solutions)   solutions.value = d.solutions.map((r, i) => ({ id: 'sol'+i, icon: '💡', iconBg: 'var(--qn-earth)', steps: r.steps || [], ...r }))
   } catch (e) {
     console.warn('[Notifications] 拉取失败，使用空态:', e.message)
   } finally {
@@ -248,14 +288,21 @@ const categories = computed(() => [
   border: 1px solid rgba(var(--qn-emerald-rgb),0.15); border-radius: var(--qn-r-lg);
   padding: 16px 20px; margin-bottom: 18px;
 }
+.today-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.today-title { font-size: calc(15px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-ink); }
+.today-yuxiaji { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-emerald); font-weight: 500; }
 .today-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 10px; }
+.today-grid-2 { margin-top: 4px; }
 .tg-cell { text-align: center; }
 .tg-label { display: block; font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 4px; }
 .tg-val { font-size: calc(14px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-emerald); font-family: var(--font-mono); }
+.tg-val.tg-subtle { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); }
 .tg-warn { color: var(--wuxing-fire); }
 .today-note { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); margin: 0; padding-top: 10px; border-top: 1px dashed rgba(var(--qn-emerald-rgb),0.15); }
 .today-note .good { color: var(--wuxing-wood); font-weight: 600; }
 .today-note .bad { color: var(--wuxing-fire); font-weight: 600; }
+.today-pengzu { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-earth); margin-top: 8px; padding: 6px 10px; background: rgba(212,160,23,0.08); border-radius: var(--qn-r-sm); line-height: 1.5; }
+.today-feixing { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin-top: 6px; line-height: 1.5; }
 
 /* Tab */
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
