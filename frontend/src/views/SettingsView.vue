@@ -40,12 +40,12 @@
             <span class="switch-track"></span>
           </label>
 
-          <!-- 选择 -->
-          <select v-else-if="item.type === 'select'" v-model="settings[item.key]" class="select">
-            <option v-for="opt in item.options" :key="opt.value" :value="opt.value">
-              {{ opt.label }}{{ opt.hint ? '  ' + (typeof opt.hint === 'function' ? opt.hint() : opt.hint) : '' }}
-            </option>
-          </select>
+          <!-- 选择 → QSelect（纯 Vue 渲染，Android WebView 原生 select 有白屏 bug） -->
+          <QSelect v-else-if="item.type === 'select'"
+                   v-model="settings[item.key]"
+                   :options="item.options"
+                   :placeholder="'请选择'"
+                   :title="item.label" />
 
           <!-- 只读值（动态计算） -->
           <span v-else-if="item.type === 'readonly'" class="row-value">
@@ -135,6 +135,7 @@ import { useSettingsStore } from '../stores/settings'
 import { api } from '../api/client'
 import * as storage from '../utils/storage'
 import QIcon from '../components/ui/QIcon.vue'
+import QSelect from '../components/ui/QSelect.vue'
 import { APP_VERSION } from '../utils/appUpdater'
 
 const router = useRouter()
