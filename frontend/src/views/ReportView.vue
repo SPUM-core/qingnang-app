@@ -1,5 +1,5 @@
-﻿<template>
-  <section class="page">
+<template>
+  <section class="page" data-page-id="P20">
     <h1>报告查看</h1>
     <p class="page__desc">历次推演报告 + 趋势观察提示（非医疗措辞）</p>
 

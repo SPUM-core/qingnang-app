@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="shop-detail" v-if="item">
+<template>
+  <div class="shop-detail" v-if="item" data-page-id="P16">
     <!-- 顶部免责 -->
     <div class="shop-disclaimer">
       <span class="disclaimer-icon">⚠️</span>
@@ -179,7 +179,7 @@
     </div>
   </div>
 
-  <div v-else class="shop-detail__notfound">
+  <div v-else class="shop-detail__notfound" data-page-id="P16-notfound">
     <p>😶 商品不存在</p>
     <a class="back-link" @click.prevent="$router.back()" aria-label="返回">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>

@@ -4,7 +4,7 @@
   → 零后端、零 store 依赖，独立验证每个模块
 ══════════════════════════════════════════════════════════════ -->
 <template>
-  <div class="lab">
+  <div class="lab" data-page-id="DEV01">
     <header class="lab-head">
       <h1>🧪 Module Lab · 青囊生活管家</h1>
       <span class="lab-badge">DEV ONLY</span>

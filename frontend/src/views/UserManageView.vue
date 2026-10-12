@@ -1,5 +1,5 @@
-﻿<template>
-  <section class="page friends">
+<template>
+  <section class="page friends" data-page-id="P17">
     <!-- 头部：自己的数字模型 + 邀请入口 -->
     <div class="friends-head">
       <div class="me-card">

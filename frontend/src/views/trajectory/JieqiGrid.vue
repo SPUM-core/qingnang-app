@@ -1,5 +1,5 @@
 <template>
-  <div class="panel-jieqi">
+  <div class="panel-jieqi" data-page-id="TP02">
     <!-- ═══ 24 节气卡片墙 ═══ -->
     <div class="jq-grid">
       <button

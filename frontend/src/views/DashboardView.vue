@@ -1,7 +1,7 @@
-﻿<template>
+<template>
   <!-- ══ M1 下拉刷新 + 页面容器
        手势/动画已抽离 → modules/PullRefreshBar.vue ══ -->
-  <section class="page home">
+  <section class="page home" data-page-id="P02">
     <PullRefreshBar :refresh-fn="_lightRefresh">
     <!-- 问候头部（已抽离 → modules/GreetingHeader.vue） -->
     <GreetingHeader

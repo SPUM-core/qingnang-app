@@ -1,5 +1,5 @@
 <template>
-  <section class="onboarding">
+  <section class="onboarding" data-page-id="P05">
     <!-- 步骤指示器 -->
     <div class="steps">
       <div v-for="s in steps" :key="s.idx"

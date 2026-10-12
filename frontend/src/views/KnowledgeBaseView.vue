@@ -1,5 +1,5 @@
 <template>
-  <div class="kb-head">
+  <div class="kb-head" data-page-id="P14">
       <div>
         <h1>知识卡片</h1>
         <p class="kb-desc">系统根据你的数字模型，为你推荐这些内容</p>

@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="shop-view">
+<template>
+  <div class="shop-view" data-page-id="P15">
     <!-- 顶部免责声明（常驻） -->
     <div class="shop-disclaimer">
       <span class="disclaimer-icon">⚠️</span>

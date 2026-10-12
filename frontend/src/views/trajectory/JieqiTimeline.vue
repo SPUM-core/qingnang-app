@@ -1,5 +1,5 @@
 <template>
-  <div class="panel-year">
+  <div class="panel-year" data-page-id="TP03">
     <!-- ═══ 年视图头部 ═══ -->
     <div class="yj-header">
       <div class="yj-year-card">

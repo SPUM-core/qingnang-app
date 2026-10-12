@@ -1,5 +1,5 @@
 <template>
-  <div class="panel-adjust">
+  <div class="panel-adjust" data-page-id="TP01">
     <!-- ═══ 方案卡片 ═══ -->
     <div v-if="data?.plan" class="adj-plan-card">
       <div class="adj-plan-left">

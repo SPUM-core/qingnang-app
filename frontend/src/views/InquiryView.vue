@@ -1,5 +1,5 @@
 <template>
-  <section class="page inquiry">
+  <section class="page inquiry" data-page-id="P10">
     <!-- 未启动态 -->
     <div v-if="!sessionId" class="inquiry__start">
       <h2 class="page-title">📋 问诊采集</h2>

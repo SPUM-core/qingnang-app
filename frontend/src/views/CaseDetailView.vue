@@ -1,5 +1,5 @@
-﻿<template>
-  <section class="page case">
+<template>
+  <section class="page case" data-page-id="P04">
     <!-- 顶部：数字模型总览 -->
     <div class="case-hero">
       <div class="hero-left">

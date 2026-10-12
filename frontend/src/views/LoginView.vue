@@ -1,5 +1,5 @@
 <template>
-  <section class="splash-root">
+  <section class="splash-root" data-page-id="P01">
     <!-- ═══════════════════════════════════════════════════
          舞台一：启动动画（正放 8s，结尾定格青囊 Logo 落版）
          宽屏不裁切：背后海报模糊铺底 + 前景完整海报居中

@@ -1,5 +1,5 @@
-﻿<template>
-  <section class="page discover">
+<template>
+  <section class="page discover" data-page-id="P13">
     <!-- 顶部双 Tab -->
     <div class="discover-tabs">
       <button class="dtab" :class="{ active: activeTab === 'knowledge' }"

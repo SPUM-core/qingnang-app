@@ -1,5 +1,5 @@
 <template>
-  <section class="page settings">
+  <section class="page settings" data-page-id="P19">
     <!-- 顶部：个人名片 -->
     <div class="profile-card">
       <div class="avatar">

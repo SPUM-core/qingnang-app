@@ -1,5 +1,5 @@
 <template>
-  <div class="panel-lifetime">
+  <div class="panel-lifetime" data-page-id="TP04">
     <div class="panel-info-bar">
       <span class="info-item">🗓️ 推演 {{ userBirth }} → 81 岁</span>
       <span class="info-item">🎯 {{ traj?.dayun?.length || 10 }} 段大运</span>

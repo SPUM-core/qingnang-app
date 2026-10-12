@@ -1,5 +1,5 @@
-﻿<template>
-  <section class="page reminders">
+<template>
+  <section class="page reminders" data-page-id="P18">
     <!-- 顶部：今日时空摘要 -->
     <div class="today-card">
       <div class="today-grid">

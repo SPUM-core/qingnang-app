@@ -1,5 +1,5 @@
 <template>
-  <div class="trajectory-page">
+  <div class="trajectory-page" data-page-id="P03">
     <!-- ═══ 顶栏 ═══ -->
     <div class="tj-header">
       <div class="tj-title-row">
