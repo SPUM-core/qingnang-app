@@ -654,7 +654,8 @@ html[data-theme="dark"] .select option {
   .setting-row.is-select .row-left {
     flex-basis: 100%;
   }
-  .setting-row.is-select .qselect-trigger {
+  /* ⚠️ :deep() 穿透 scoped 到子组件 QSelect 内部 */
+  .setting-row.is-select :deep(.qselect-trigger) {
     flex-basis: 100%;
     width: 100%;
     max-width: none;
