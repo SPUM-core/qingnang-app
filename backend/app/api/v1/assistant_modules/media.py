@@ -228,7 +228,42 @@ async def get_latest_tongue(
 
 # 模块级缓存：report_id → asyncio.Task（用于检查是否还在跑）
 import asyncio as _asyncio
+import time as _time
 _RUNNING_TASKS: dict[int, _asyncio.Task] = {}
+# 进程启动时间（用于判断 pending 记录是否为孤儿）
+_PROCESS_START = _time.time()
+
+
+async def _resurrect_orphans(db):
+    """进程启动时把 DB 里 provider='pending' 的孤儿记录重新派发。
+
+    触发时机：应用启动时（main.py 的 lifespan）。
+    """
+    from app.models.chat import MedicalReport
+    orphans = db.query(MedicalReport).filter(MedicalReport.provider == "pending").all()
+    for mr in orphans:
+        if mr.id in _RUNNING_TASKS: continue   # 已在跑
+        # 把 image_data 读出来重新派发给 _process_report_async
+        task = _asyncio.create_task(
+            _process_report_async(mr.id, mr.user_id, mr.image_data or b"", mr.report_title)
+        )
+        _RUNNING_TASKS[mr.id] = task
+        def _cleanup(t, _id=mr.id): _RUNNING_TASKS.pop(_id, None)
+        task.add_done_callback(_cleanup)
+
+
+# 暴露给 main.py lifespan 钩子
+def resurrect_pending_reports():
+    """同步包装：应用启动时扫 DB 重挂 pending 任务。"""
+    from ....database import SessionLocal
+    db = SessionLocal()
+    try:
+        # 注意：resurrect 需要 asyncio loop 已跑，这里先注册，真正派发在 lifespan 里
+        loop = _asyncio.get_event_loop()
+        loop.create_task(_resurrect_orphans(db))
+    except Exception as e:
+        print(f"[report] resurrect orphans skipped: {e}")
+        db.close()
 
 
 @router.post("/report/upload")
@@ -415,7 +450,11 @@ async def poll_report_status(
     db: Session = Depends(get_db),
     current: User = Depends(get_current_user),
 ):
-    """前端轮询处理状态（轻量，只返回 status 字段）"""
+    """前端轮询处理状态（轻量，只返回 status 字段）
+
+    孤儿任务自动重生：provider=pending 但进程已启动超过 60s
+    （说明旧进程的 asyncio.Task 已随进程消失）→ 此处重挂。
+    """
     from app.models.chat import MedicalReport
     mr = db.query(MedicalReport).filter(
         MedicalReport.id == report_id,
@@ -425,7 +464,12 @@ async def poll_report_status(
         raise HTTPException(status_code=404, detail="报告不存在")
 
     task_alive = report_id in _RUNNING_TASKS
-    # provider=pending + task 还在 → processing；否则按 provider 决定
+
+    # ── 孤儿重生：pending 但 Task 不在内存 + 进程已启动很久 ──
+    if mr.provider == "pending" and not task_alive and (_time.time() - _PROCESS_START) > 60:
+        _try_resurrect(report_id, mr.user_id, mr.image_data, mr.report_title)
+        task_alive = True
+
     if task_alive or mr.provider == "pending":
         status = "processing"
     elif mr.recognized:
@@ -439,7 +483,22 @@ async def poll_report_status(
         "recognized": mr.recognized,
         "provider": mr.provider,
         "note": mr.summary[:200] if mr.summary else None,
+        "_orphan_resurrected": (mr.provider == "pending" and task_alive and
+                                (_time.time() - _PROCESS_START) > 60),
     }
+
+
+def _try_resurrect(report_id: int, user_id: int, raw_bytes: bytes | None, filename: str | None):
+    """把孤儿 pending 记录重新派发给 _process_report_async。"""
+    if report_id in _RUNNING_TASKS: return  # 已有人认领
+    import asyncio as _aio
+    task = _aio.create_task(
+        _process_report_async(report_id, user_id, raw_bytes or b"", filename)
+    )
+    _RUNNING_TASKS[report_id] = task
+    def _cleanup(t, _id=report_id): _RUNNING_TASKS.pop(_id, None)
+    task.add_done_callback(_cleanup)
+    print(f"[report] orphan report {report_id} resurrected")
 
 
 @router.get("/report/list")
