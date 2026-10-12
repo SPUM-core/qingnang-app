@@ -3,6 +3,7 @@ package com.qingnang.app;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.webkit.WebView;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
@@ -14,38 +15,26 @@ import com.getcapacitor.BridgeActivity;
 /**
  * 状态栏 / 挖孔 / 导航栏 inset → CSS 变量桥。
  *
- * 背景（为什么之前怎么改都不生效）：
- *   1) 运行时主题被 Capacitor 覆盖成「空壳 AppTheme.NoActionBar」，
- *      导致 styles.xml 里的透明状态栏 / edge-to-edge / cutout 全部失效
- *      → 已在 res/values/styles.xml 覆盖定义同名单修复。
- *   2) 本类早期把 **物理像素** 直接写成 CSS px（'90px'）。
- *      但 Android WebView 在 width=device-width 下，1 CSS px == 1 dp，
- *      所以会得到约 devicePixelRatio 倍（3x 左右）的间距。
- *      → 改为在 JS 侧除以 window.devicePixelRatio 自校准（不依赖手工换算）。
- *
- * 策略：
- *   1) setDecorFitsSystemWindows(false) → WebView 铺满，进入 edge-to-edge
- *   2) systemBars() 与 displayCutout() **分别取、再取 max**（比并集掩码更稳，
- *      部分 ROM 的并集掩码会漏掉 cutout）
- *   3) insets 变化即时推送（旋转 / 分屏 / 挖孔开关 / 字体放大 都会重触发）
- *   4) 兜底 burst 定时重推：远程页面（server.url）加载慢时首次 insets
- *      可能早于 DOM 就绪；页面重载后 CSS 变量也会丢 —— 用几次定时重推覆盖
+ * 关键设计（为什么之前改了都不生效）：
+ *   - BridgeActivity 的 getBridge().getWebView() 在远程页（server.url）加载时
+ *     经常为 null（Bridge 初始化时机晚于本地页），所以改为遍历 decorView
+ *     找 WebView 实例，直接 evaluateJavascript，完全绕过 Bridge
+ *   - burst 重推 + 强制跳过去重（远程页 DOM ready 晚、页面重载会丢 CSS 变量）
+ *   - 物理像素 / devicePixelRatio 校准
+ *   - systemBars 与 displayCutout 分别取再 max
  */
 public class MainActivity extends BridgeActivity {
 
-    private int lastTop = -1, lastBottom = -1, lastLeft = -1, lastRight = -1;
-
-    /** 兜底重推时间点（ms），覆盖远程页加载与重载窗口 */
-    private static final long[] REPUSH_DELAYS = { 0L, 150L, 400L, 800L, 1500L, 2500L, 4000L };
+    private static final long[] REPUSH_DELAYS = { 0L, 150L, 400L, 800L, 1500L, 2500L, 4000L, 6000L, 9000L };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 1) Edge-to-edge
+        // Edge-to-edge
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
-        // 2) 图标明暗（浅色背景 → 深色图标）
+        // 图标明暗
         WindowInsetsControllerCompat wic =
             WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
         if (wic != null) {
@@ -53,43 +42,53 @@ public class MainActivity extends BridgeActivity {
             wic.setAppearanceLightNavigationBars(true);
         }
 
-        // 3) 实时监听 insets 变化
+        // 实时监听
         View decor = getWindow().getDecorView();
         ViewCompat.setOnApplyWindowInsetsListener(decor, (v, insetsCompat) -> {
-            pushInsetsToJs(insetsCompat, true);
-            return insetsCompat;   // 不消费，交给子 View
+            pushInsetsToJs(insetsCompat);
+            return insetsCompat;
         });
 
-        // 4) 兜底 burst
+        // Burst 兜底重推
         for (long delay : REPUSH_DELAYS) {
-            decor.postDelayed(this::pushFromRootInsets, delay);
-        }
-    }
-
-    /** 从 rootWindowInsets 取一次当前值并推送 */
-    private void pushFromRootInsets() {
-        View decor = getWindow().getDecorView();
-        if (decor == null) return;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            android.view.WindowInsets raw = decor.getRootWindowInsets();
-            if (raw != null) {
-                pushInsetsToJs(WindowInsetsCompat.toWindowInsetsCompat(raw), true);
-            }
+            decor.postDelayed(() -> {
+                View root = getWindow().getDecorView();
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    android.view.WindowInsets raw = root.getRootWindowInsets();
+                    if (raw != null) {
+                        pushInsetsToJs(WindowInsetsCompat.toWindowInsetsCompat(raw));
+                    }
+                }
+            }, delay);
         }
     }
 
     /**
-     * 把当前 insets 推给 JS。
-     *
-     * @param force true = 跳过值去重（用于定时重推：页面重载后 CSS 变量会丢，
-     *              但原生侧 lastTop 缓存还在，不去重就会被误判为「已推送」而跳过）
+     * 从 decorView 直接遍历找 WebView —— 绕过 BridgeActivity 的 bridge getter。
+     * 原因：远程页加载时 Bridge 可能还没初始化，getBridge() 返回 null。
      */
-    private void pushInsetsToJs(WindowInsetsCompat insetsCompat, boolean force) {
+    private WebView findWebView() {
+        View root = getWindow().getDecorView();
+        return findWebViewRecursive(root);
+    }
+
+    private WebView findWebViewRecursive(View v) {
+        if (v instanceof WebView) return (WebView) v;
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) v;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                WebView wv = findWebViewRecursive(group.getChildAt(i));
+                if (wv != null) return wv;
+            }
+        }
+        return null;
+    }
+
+    private void pushInsetsToJs(WindowInsetsCompat insetsCompat) {
         if (insetsCompat == null) return;
 
         int top, bottom, left, right;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // 分别取，再取 max —— 比 windowInsetsCompat.getInsets(union) 更稳
             Insets bars = insetsCompat.getInsets(WindowInsetsCompat.Type.systemBars());
             Insets cut  = insetsCompat.getInsets(WindowInsetsCompat.Type.displayCutout());
             top    = Math.max(bars.top,    cut.top);
@@ -103,15 +102,7 @@ public class MainActivity extends BridgeActivity {
             right  = insetsCompat.getSystemWindowInsetRight();
         }
 
-        if (!force
-                && top == lastTop && bottom == lastBottom
-                && left == lastLeft && right == lastRight) {
-            return;
-        }
-        lastTop = top; lastBottom = bottom; lastLeft = left; lastRight = right;
-
-        // ⚠️ 单位：原生 insets 是物理像素；Android WebView 下 1 CSS px == 1 dp。
-        //    因此必须在 JS 侧除以 window.devicePixelRatio（== density），否则偏大约 3 倍。
+        // 强制推送（不去重）— 页面重载后 CSS 变量会丢，必须每次都写
         String js =
             "(function(){var r=window.devicePixelRatio||1;" +
             "var s=document.documentElement.style;" +
@@ -119,14 +110,14 @@ public class MainActivity extends BridgeActivity {
             "s.setProperty('--nav-bar-height',   (" + bottom + "/r)+'px');" +
             "s.setProperty('--safe-left',        (" + left   + "/r)+'px');" +
             "s.setProperty('--safe-right',       (" + right  + "/r)+'px');" +
-            "s.setProperty('--inset-raw','" + top + "," + bottom + "," + left + "," + right + "');" +
             "console.log('[insets] raw=" + top + "/" + bottom + "/" + left + "/" + right +
             " dpr='+r+' -> top='+((" + top + ")/r)+'px');" +
             "})();";
 
         runOnUiThread(() -> {
-            if (getBridge() != null && getBridge().getWebView() != null) {
-                getBridge().getWebView().evaluateJavascript(js, null);
+            WebView wv = findWebView();
+            if (wv != null) {
+                wv.evaluateJavascript(js, null);
             }
         });
     }

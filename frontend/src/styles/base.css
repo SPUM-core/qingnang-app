@@ -96,6 +96,32 @@ html[data-theme="dark"] body {
     radial-gradient(circle at 1px 1px, rgba(255,255,255, .04) 1px, transparent 0);
 }
 
+/* ═════════════════════════════════════════════════════════════════
+   🔴 调试：状态栏高度可视化条（确认原生桥有没有推值过来）
+   如果手机上看到顶部有一条红色/绿色/灰色条 → 值有了；
+   完全没有任何条 → 原生桥根本没跑通
+   颜色含义：
+     · 灰底 + 红字 "status=0px"  → 没值（桥没通）
+     · 绿底 + 白字 "status=XXpx" → 桥通了，值正确
+   上线前记得删掉！
+   ═════════════════════════════════════════════════════════════════ */
+html::before {
+  content: 'status-bar=' var(--status-bar-height, env(safe-area-inset-top, 0px));
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: calc(var(--status-bar-height, env(safe-area-inset-top, 0px)) + 18px);
+  background: color-mix(in srgb, var(--status-bar-height, 0px) > 0px ? #22c55e : #ef4444, 60%);
+  color: white;
+  font-size: 11px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 2px;
+  z-index: 999999;
+  pointer-events: none;
+  font-family: monospace;
+}
+
 /* ─────────────────────────────
    2. 全局排版
    ───────────────────────────── */
