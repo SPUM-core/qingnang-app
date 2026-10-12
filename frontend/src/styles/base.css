@@ -272,7 +272,6 @@ html::after {
   padding: var(--qn-s4);
   box-shadow: var(--qn-shadow-1);
   transition: box-shadow var(--qn-dur) var(--qn-ease);
-  margin-bottom: 16px;
 }
 
 .card--outline {

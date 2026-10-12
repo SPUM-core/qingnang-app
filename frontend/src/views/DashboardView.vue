@@ -1074,7 +1074,7 @@ function _applyLifestyleResult(d) {
 }
 
 /* ── 英雄卡组容器（子卡样式已抽离 → HeroTodoCard.vue + HeroDailyTipsCard.vue） ── */
-.hero-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
+.hero-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-bottom: 16px; }
 @media (max-width: 720px) {
   .hero-row { grid-template-columns: 1fr; gap: 12px; }
 }
@@ -1084,7 +1084,7 @@ function _applyLifestyleResult(d) {
 /* M12 AiExplainModal → modules/AiExplainModal.vue scoped */
 
 /* ── 顶部并列 ── */
-.top-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: stretch; }
+.top-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; align-items: stretch; }
 /* ⚠️ .card 基础样式已统一到 App.vue 全局（无 border、shadow-only、圆角 16）
    Dashboard 独有：只覆盖 h2 的 margin-bottom */
 .card h2 { margin-bottom: 12px; }
