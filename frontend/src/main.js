@@ -17,22 +17,31 @@ app.use(router)
 const userStore = useUserStore()
 userStore.initFromLocalStorage()
 
-// ── Service Worker（PWA）──
-// 仅生产环境注册；开发环境必须注销并清缓存，
-// 否则 cache-first 会把旧的 JS 模块缓存下来，导致代码更新不生效（手机端尤其明显）
+// ── Service Worker：彻底禁用 ──
+// Capacitor 远程加载模式下，SW 的 cache-first 会拦截 /assets/* 返回旧缓存
+// 导致 rollup hash 未变但内容已更新时，Android 拿到旧 chunk → 白屏
+// 无论生产还是开发，一律注销所有 SW + 清缓存
 if ('serviceWorker' in navigator) {
-  if (import.meta.env.PROD) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {})
-    })
-  } else {
-    navigator.serviceWorker.getRegistrations()
-      .then((regs) => regs.forEach((r) => r.unregister()))
-      .catch(() => {})
-    if (window.caches) {
-      caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {})
-    }
-  }
+  navigator.serviceWorker.getRegistrations()
+    .then((regs) => regs.forEach((r) => r.unregister()))
+    .catch(() => {})
+}
+if (window.caches) {
+  caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {})
+}
+
+// ── 全局错误边界：把 JS 崩溃渲染到屏幕（Android 上看不到 DevTools）──
+window.addEventListener('error', (ev) => {
+  _showCrash(`[Error] ${ev.message}\n  at ${ev.filename}:${ev.lineno}:${ev.colno}`)
+})
+window.addEventListener('unhandledrejection', (ev) => {
+  _showCrash(`[Promise] ${ev.reason?.message || ev.reason}`)
+})
+function _showCrash(msg) {
+  const pre = document.createElement('pre')
+  pre.style.cssText = 'position:fixed;inset:0;background:#1a1a2e;color:#ff6b6b;padding:16px;z-index:99999;font:12px/1.5 monospace;white-space:pre-wrap;overflow:auto;'
+  pre.textContent = '⚠️ 青囊 APP 出错了\n\n' + msg
+  document.body?.appendChild(pre) || document.documentElement.appendChild(pre)
 }
 
 app.mount('#app')
