@@ -43,7 +43,7 @@ defineEmits(['goCase'])
 </script>
 
 <style scoped>
-.trend-card { margin-top: 28px; }
+.trend-card { margin-top: 0; }
 .trend-body { display: flex; gap: 20px; align-items: center; flex: 1; min-height: 0; }
 .trend-radar { flex: 1; min-width: 0; }
 .trend-side { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
