@@ -187,10 +187,12 @@ const mobileNavs = [
 
   /* Main 避让：
      顶部 —— header 已 display:none，必须由 .layout__main 自己承担 safe-top
-     底部 —— 预留 Tab Bar 高度（64px + safe-bottom） */
+     底部 —— 预留 Tab Bar 高度（64px + safe-bottom）
+     ⚠️ 必须加 !important —— LayoutShell 非媒体查询的 padding:0 简写
+        会清零所有方向；base.css 也有 !important 规则需要同级对抗 */
   .layout__main {
-    padding-top: var(--safe-top);
-    padding-bottom: calc(64px + var(--safe-bottom));
+    padding-top: var(--safe-top) !important;
+    padding-bottom: calc(64px + var(--safe-bottom)) !important;
   }
 
   /* Footer 隐藏 */
