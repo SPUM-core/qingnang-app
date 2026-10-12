@@ -216,6 +216,7 @@ html[data-theme="dark"] body {
   border-radius: 6px;
   transition: all .15s;
   font-weight: 500;
+  white-space: nowrap;            /* 防止"返回"二字被折成竖排 */
 }
 
 /* ─────────────────────────────
