@@ -187,9 +187,7 @@ async function doRegister() {
   if (password.value !== password2.value) return (error.value = '两次密码不一致')
   loading.value = true
   try {
-    await user.register({
-      phone: phone.value, password: password.value,
-    })
+    await user.register({ phone: phone.value, password: password.value })
     router.replace({ name: 'onboarding' })
   } catch (e) {
     error.value = e.response?.data?.detail || '注册失败，请稍后重试'

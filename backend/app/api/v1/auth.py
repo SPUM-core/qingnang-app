@@ -22,6 +22,10 @@ class RegisterIn(BaseModel):
     weight: float | None = Field(default=None, ge=10, le=250)  # kg, onboarding 补填
     birth_date: str = Field(default="")
     birth_hour: str = Field(default="")
+    birth_city: str = Field(default="")
+    birth_longitude: float | None = Field(default=None)
+    birth_latitude: float | None = Field(default=None)
+    city: str = Field(default="")
 
 
 class LoginIn(BaseModel):
@@ -65,6 +69,10 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
         birth_hour=body.birth_hour,
         height=body.height,
         weight=body.weight,
+        birth_city=body.birth_city,
+        birth_longitude=body.birth_longitude,
+        birth_latitude=body.birth_latitude,
+        city=body.city,
         is_doctor=False,
         is_onboarded=False,
     )

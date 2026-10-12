@@ -67,57 +67,6 @@
     </div>
 
     <!-- 底部 -->
-    <!-- ═══ 八字校准：出生地经纬度（真太阳时校正）═══ -->
-    <div class="setting-group">
-      <h3 class="group-title"><QIcon name="chart" :size="16" /> ⚗️ 八字校准</h3>
-      <div class="setting-list">
-        <div class="setting-row">
-          <div class="row-left">
-            <span class="row-icon"><QIcon name="home" :size="15" /></span>
-            <div class="row-text">
-              <span class="row-label">出生地（真太阳时校正）</span>
-              <span class="row-desc">
-                出生地经度决定八字时柱：北京时间 120°E 为基准，{{ birthLngDisplay }}
-              </span>
-            </div>
-          </div>
-        </div>
-        <!-- 省→市 级联 -->
-        <div class="setting-row" style="flex-direction:column; gap:10px; align-items:flex-start;">
-          <div class="birth-cascader">
-            <select v-model="birthProvince" class="select" @change="onBirthProvinceChange">
-              <option value="">选择省份</option>
-              <option v-for="p in CHINA_PROVINCES" :key="p.code" :value="p.code">{{ p.name }}</option>
-            </select>
-            <select v-model="birthCity" class="select" :disabled="!birthProvince">
-              <option value="">{{ birthProvince ? '选择城市' : '先选省份' }}</option>
-              <option v-for="c in birthCities" :key="c.name" :value="c.name">
-                {{ c.name }}
-              </option>
-            </select>
-            <button class="row-btn" :disabled="!canSaveBirth" :class="{ disabled: !canSaveBirth }"
-                    :style="{ marginLeft: 'auto' }"
-                    @click="saveBirthLocation">
-              保存校准
-            </button>
-          </div>
-          <!-- 真太阳时预览 -->
-          <div v-if="birthLng != null" class="birth-solar-preview">
-            <span>🌐 {{ birthLng.toFixed(2) }}°E</span>
-            <span class="birth-solar-diff" :class="{ east: birthLng > 120, west: birthLng < 120 }">
-              相对标准 120°E：
-              {{ birthLng > 120 ? '早' : '晚' }}
-              {{ Math.abs(((birthLng - 120) * 4)).toFixed(1) }} 分钟
-            </span>
-            <span v-if="birthLat != null">· {{ birthLat.toFixed(2) }}°N</span>
-          </div>
-          <div v-if="savedBirthInfo" class="birth-saved">
-            ✅ 已保存：{{ savedBirthInfo.city }} · {{ savedBirthInfo.lng }}°E
-          </div>
-        </div>
-      </div>
-    </div>
-
     <div class="app-info">
       <p class="app-name">青囊生活管家</p>
       <p class="app-ver">
@@ -174,7 +123,6 @@ import { useSettingsStore } from '../stores/settings'
 import { api } from '../api/client'
 import * as storage from '../utils/storage'
 import QIcon from '../components/ui/QIcon.vue'
-import { CHINA_PROVINCES, CHINA_CITIES } from '../constants/china-cities.js'
 import { APP_VERSION } from '../utils/appUpdater'
 
 const router = useRouter()
@@ -235,29 +183,15 @@ function closeUpdateModal() {
 
 async function downloadUpdate() {
   if (!updateInfo.value?.update_url) return
+  const url = updateInfo.value.update_url
+  console.log('[Settings] 打开下载 URL:', url)
   busy.value = 'download_update'
-  downloadProgress.value = 0
   try {
-    // 简单可靠：直接 window.open 让系统下载 APK（Android 系统 DownloadManager + Intent 安装）
-    const url = updateInfo.value.update_url
-    console.log('[Settings] 打开下载 URL:', url)
-    // 原生环境：在新窗口打开；系统下载完成后会弹出安装提示
-    if (typeof window.Capacitor !== 'undefined') {
-      // Capacitor 环境：用 Capacitor App.openUrl 比 window.open 更可靠
-      try {
-        const { App } = window.Capacitor.Plugins
-        if (App?.openUrl) {
-          await App.openUrl({ url })
-        } else {
-          window.open(url, '_system')
-        }
-      } catch (_) {
-        window.open(url, '_system')
-      }
-    } else {
-      window.open(url, '_blank')
-    }
-    alert('下载已开始，安装包完成后请点击安装。')
+    // Android WebView 里 window.open 会被宿主拦截（没浏览器插件时）
+    // window.location.href = URL 最可靠：系统 DownloadManager 会接管 .apk 下载
+    // 下载完成后 Android 会自动弹出 Intent 让用户点安装
+    window.location.href = url
+    alert('下载已开始，APK 下载完成后请点击安装。')
   } catch (e) {
     alert('下载失败：' + (e?.message || '未知错误'))
   } finally {
@@ -283,59 +217,6 @@ onMounted(async () => {
     _serverStatusText.value = '⚠️ 离线'
   }
 })
-
-// ── 出生地经纬度编辑（八字校准）──
-const birthProvince = ref('')      // 省 code
-const birthCity = ref('')          // 市 name
-const savedBirthInfo = ref(null)   // { city, lng } 已保存状态
-
-const birthCities = computed(() => CHINA_CITIES[birthProvince.value] || [])
-
-const birthLng = computed(() => {
-  if (!birthProvince.value || !birthCity.value) return null
-  const c = birthCities.value.find(x => x.name === birthCity.value)
-  return c?.lng ?? null
-})
-const birthLat = computed(() => {
-  if (!birthProvince.value || !birthCity.value) return null
-  const c = birthCities.value.find(x => x.name === birthCity.value)
-  return c?.lat ?? null
-})
-const birthLngDisplay = computed(() => {
-  if (birthLng.value == null) return '请选择'
-  return `${birthLng.value.toFixed(2)}°E → ${((birthLng.value - 120) * 4).toFixed(1)} min 时差`
-})
-const canSaveBirth = computed(() => !!(birthProvince.value && birthCity.value))
-
-function onBirthProvinceChange() { birthCity.value = '' }
-
-async function saveBirthLocation() {
-  if (!canSaveBirth.value) return
-  busy.value = 'save_birth'
-  try {
-    await api.patch('/api/v1/auth/me', {
-      birth_city: birthCity.value,
-      birth_longitude: birthLng.value,
-      birth_latitude: birthLat.value,
-    })
-    savedBirthInfo.value = {
-      city: birthCity.value,
-      lng: birthLng.value.toFixed(2),
-    }
-    // 刷新 userStore 让 user.birthLongitude 同步
-    await user.fetchMe()
-    setTimeout(() => { savedBirthInfo.value = null }, 3000)
-  } catch (e) {
-    alert('保存失败：' + (e.response?.data?.detail || e.message))
-  } finally {
-    busy.value = null
-  }
-}
-
-// ── 设置 (storage 持久化 + App.vue 全局应用) ──
-// 设置已全部迁到 stores/settings.js (Pinia store)
-// 这里直接使用 settings.theme / settings.font_size / settings.reduce_motion 等
-// UI 改值 → store state 变化 → store.watch persist() → App.vue watch applyDisplay()
 
 // ── 分组定义（图标使用品牌线性 QIcon）──
 const groups = [
