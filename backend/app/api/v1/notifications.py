@@ -295,18 +295,25 @@ async def _llm_lifestyle(v_base: dict,
     )
 
     v = v_base or {"wood": 50, "fire": 50, "earth": 50, "metal": 50, "water": 50}
+    # Python 3.10 不支持 f-string 表达式内多行字面量，先算好再填
+    rule_pack = {
+        'cloth_good': _rule_cloth,
+        'food_good': rule_base.get('food_good', []),
+        'food_bad': rule_base.get('food_bad', []),
+        'home': _rule_home,
+    }
+    rule_pack_json = _json.dumps(rule_pack, ensure_ascii=False)
+    v_json = _json.dumps(v, ensure_ascii=False)
+    v_cur_json = _json.dumps(v_current or v, ensure_ascii=False)
+    user_meta_json = _json.dumps(user_meta or {}, ensure_ascii=False)
+
     user_prompt = (
         f"青囊引擎已算好的当日宜忌结论（你必须逐条保留并补充叙事）：\n"
-        f"{_json.dumps({
-            'cloth_good': _rule_cloth,
-            'food_good': rule_base.get('food_good', []),
-            'food_bad': rule_base.get('food_bad', []),
-            'home': _rule_home,
-        }, ensure_ascii=False)}\n\n"
-        f"用户体质五形基线 v_base:{_json.dumps(v, ensure_ascii=False)}\n"
-        f"五形当前向量 v_current:{_json.dumps(v_current or v, ensure_ascii=False)}\n"
+        f"{rule_pack_json}\n\n"
+        f"用户体质五形基线 v_base:{v_json}\n"
+        f"五形当前向量 v_current:{v_cur_json}\n"
         f"所在城市(可选):{city or '未知'}\n"
-        f"用户画像:{_json.dumps(user_meta or {}, ensure_ascii=False)}\n"
+        f"用户画像:{user_meta_json}\n"
         f"请输出 narrative-style lifestyle JSON（宜忌项与输入一致）。"
     )
 
