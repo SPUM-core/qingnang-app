@@ -436,7 +436,10 @@ async def today_reminders(db: Session = Depends(get_db),
     gz_year, gz_month, gz_day = _ganzhi_from_solar(now.year, now.month, now.day)
 
     # LLM 给的 state 如果有就用，没有就自己算
-    v_state = llm_data.get("anchor", {}).get("state") or _state_from_v(v)
+    anchor = llm_data.get("anchor") or {}
+    if isinstance(anchor, str):
+        anchor = {}
+    v_state = anchor.get("state") or _state_from_v(v)
 
     # AI 生成的用户自定义提醒（来自 LifeSignal tag='reminder'）
     try:
