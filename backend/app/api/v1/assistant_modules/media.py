@@ -343,7 +343,8 @@ async def upload_medical_report(
 
 async def _process_report_async(report_id: int, user_id: int, raw_bytes: bytes, filename: str | None):
     """后台流水线：文件解析 → LLM 提取 → 写 DB → 写 TrajectoryEvent（pending）"""
-    from app.models.chat import MedicalReport, Case
+    from app.models.chat import MedicalReport
+    from app.models.case import Case
     from app.models.user import User
     from app.models.trajectory_event import TrajectoryEvent
     from app.utils.report_parser import parse
@@ -655,7 +656,8 @@ async def _process_report_from_text(report_id: int, text_content: str, user_id: 
 
     和 _process_report_async 的 LLM 后半段完全一致，共用 extract_report + trajectory 逻辑。
     """
-    from app.models.chat import MedicalReport, Case
+    from app.models.chat import MedicalReport
+    from app.models.case import Case
     from app.models.user import User
     from app.models.trajectory_event import TrajectoryEvent
     from app.utils.report_llm import extract_report
