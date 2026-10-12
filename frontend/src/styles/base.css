@@ -55,24 +55,6 @@ html {
   --safe-right:  env(safe-area-inset-right, 0px);
 }
 
-/* 🔴 调试条：固定 30px 高度，永远可见
-   sb 段 = 原生桥 --status-bar-height（Capacitor MainActivity 注入）
-   env 段 = env(safe-area-inset-top)（浏览器/WebView 原生）
-   两个都是 0 或 NO-VAR → 原生桥没跑 + env 也返回 0
-   上线前删掉这个块 */
-html::after {
-  content: 'sb=' var(--status-bar-height, 'NO-VAR') ' env=' env(safe-area-inset-top, 'NO-ENV');
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  height: 30px;
-  background: rgba(239, 68, 68, .95);
-  color: #fff;
-  font: 11px/30px ui-monospace, Menlo, Consolas, monospace;
-  text-align: center;
-  z-index: 999999;
-  pointer-events: none;
-}
-
 body, #app { min-height: 100%; }
 
 /* ⚠️ overflow-x 只加在 body 上，且必须用 clip 而非 hidden

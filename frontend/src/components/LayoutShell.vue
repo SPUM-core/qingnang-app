@@ -182,11 +182,14 @@ const mobileNavs = [
      3. orientation: portrait  — 纵向屏（无论绝对尺寸，height > width 就切移动端）
    ═══════════════════════════════════════════════════════ */
 @media (max-width: 720px), (max-height: 600px), (orientation: portrait) {
-  /* Header 完全隐藏 */
+  /* Header 完全隐藏（手机竖屏走底部 Tab Bar） */
   .layout__header { display: none; }
 
-  /* Main 预留 Tab Bar 高度（用统一安全区变量，勿裸用 env()） */
+  /* Main 避让：
+     顶部 —— header 已 display:none，必须由 .layout__main 自己承担 safe-top
+     底部 —— 预留 Tab Bar 高度（64px + safe-bottom） */
   .layout__main {
+    padding-top: var(--safe-top);
     padding-bottom: calc(64px + var(--safe-bottom));
   }
 
