@@ -1,0 +1,8 @@
+{
+	"appId": "com.qingnang.app",
+	"appName": "青囊",
+	"webDir": "dist",
+	"android": {
+		"allowMixedContent": true
+	}
+}

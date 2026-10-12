@@ -2,13 +2,6 @@
   "appId": "com.qingnang.app",
   "appName": "青囊",
   "webDir": "dist",
-  "server": {
-    "allowNavigation": ["*"],
-    // Debug 模式：直接加载远程服务器页面
-    // 这样前端修改只需 git pull + rsync dist，不需要重打包 APK
-    // 生产发布前删掉 server.url 字段（回到离线模式，安全 + 快速）
-    "url": "http://110.40.143.164"
-  },
   "android": {
     "allowMixedContent": true
   }
