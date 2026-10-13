@@ -8,9 +8,9 @@
     <!-- 顶行：干支 + 建除/星宿 chip -->
     <div class="a-top">
       <div class="a-title-group">
-        <p class="a-tag">{{ anchorSafe.ganzhi_year }} · {{ anchorSafe.ganzhi_day }}当令</p>
-        <p class="a-gz">{{ anchorSafe.ganzhi_day }} · {{ anchorSafe.jianchu }}日</p>
-        <p class="a-sub">{{ anchorSafe.ganzhi_month }} · {{ anchorSafe.weather?.desc || '今日' }}</p>
+        <p class="a-tag">{{ anchorSafe.ganzhi_year || '' }} · {{ anchorSafe.ganzhi_day || '' }}当令</p>
+        <p class="a-gz">{{ anchorSafe.ganzhi_day || '' }} · {{ anchorSafe.jianchu || '' }}日</p>
+        <p class="a-sub">{{ anchorSafe.ganzhi_month || '' }} · {{ anchorSafe.weather?.desc || '今日' }}</p>
       </div>
       <div class="a-seal">
         <span v-if="anchorSafe.jianchu" class="a-chip jc">{{ anchorSafe.jianchu }}日</span>
@@ -64,11 +64,16 @@ const nowPeriod = computed(() => {
   const now = new Date()
   const h = now.getHours()
   // range 是 "23-1", "1-3" 格式
-  return tl.find(item => {
-    const [s, e] = item.range.split('-').map(Number)
-    if (s < e) return h >= s && h < e
-    return h >= s || h < e  // 跨 0 点，如 23-1
-  }) || tl[8]  // fallback 申时
+  for (const item of tl) {
+    if (!item?.range) continue
+    try {
+      const [s, e] = item.range.split('-').map(Number)
+      if (isNaN(s) || isNaN(e)) continue
+      if (s < e && h >= s && h < e) return item
+      if (s >= e && (h >= s || h < e)) return item
+    } catch { continue }
+  }
+  return tl[8] || tl[0] || null  // fallback 申时 / 子时 / null
 })
 </script>
 

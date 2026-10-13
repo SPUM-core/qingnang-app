@@ -458,32 +458,38 @@ const anchorSafe = computed(() => ({
   yi: anchor.yi || '—',
   ji: anchor.ji || '—',
   ganzhi: anchor.ganzhi || '待生成',
+  ganzhi_year: anchor.ganzhi_year || '',
+  ganzhi_month: anchor.ganzhi_month || '',
+  ganzhi_day: anchor.ganzhi_day || '',
   dangling: anchor.dangling || '',
   dangling_elem: anchor.dangling_elem || '',
   state: anchor.state || '',
   chong: anchor.chong || '',
-  // 黄历新字段（协纪辨方 + 玉匣记）— 后端 rule_almanac_v2 填充
+  // 黄历新字段（协纪辨方 + 玉匣记）— 后端 rule_almanac_v3 填充
   jianchu: anchor.jianchu || '',
+  jianchu_yi: anchor.jianchu_yi || [],
+  jianchu_ji: anchor.jianchu_ji || [],
   xiu: anchor.xiu || '',
+  xiu_yi: anchor.xiu_yi || [],
   sha: anchor.sha || '',
   tianshen: anchor.tianshen || '',
   pengzu: anchor.pengzu || '',
   yuxiaji: anchor.yuxiaji || '',
   na_yin_day: anchor.na_yin_day || '',
-  feixing_year: anchor.feixing_year || anchor.feixing?.year || '',
-  feixing_day: anchor.feixing_day || anchor.feixing?.day || '',
+  feixing_year: anchor.feixing_year || (typeof anchor.feixing === 'object' ? anchor.feixing?.year : ''),
+  feixing_day: anchor.feixing_day || (typeof anchor.feixing === 'object' ? anchor.feixing?.day : ''),
   // 兼容旧字段名（feixing 可能是 dict {year,day} 或 string）
   feixing: typeof anchor.feixing === 'string' ? anchor.feixing : [anchor.feixing_year || anchor.feixing?.year, anchor.feixing_day || anchor.feixing?.day].filter(Boolean).join(' · ') || '',
   // 宜/忌列表（后端 yi_list/ji_list 是数组）
-  yi_list: anchor.yi_list || [],
-  ji_list: anchor.ji_list || [],
+  yi_list: anchor.yi_list?.length ? anchor.yi_list : (Array.isArray(anchor.yi) ? anchor.yi : []),
+  ji_list: anchor.ji_list?.length ? anchor.ji_list : (Array.isArray(anchor.ji) ? anchor.ji : []),
   // 天气
   weather: anchor.weather || null,
   // timeline（12 时辰完整 + personal_type）
-  timeline: todayTimeline.value.length ? todayTimeline.value : anchor.timeline || [],
+  timeline: todayTimeline.value.length ? todayTimeline.value : (anchor.timeline || []),
   // 方位 + 替换表（v3 新增）
-  orientation: orientation.value,
-  swaps: swaps.value,
+  orientation: orientation.value || null,
+  swaps: Array.isArray(swaps.value) ? swaps.value : [],
   // SPUM 五行 vector（给 HeroDailyTipsCard 做 v_base 展示）
   v_base: vectorStore.vBase || {},
 }))

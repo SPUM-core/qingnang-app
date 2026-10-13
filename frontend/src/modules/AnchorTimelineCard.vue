@@ -187,6 +187,7 @@ const jianchuDesc = computed(() => {
 
 // 时辰颜色判定（personal_type 优先级 > 旧 type）
 function shColorClass(sc) {
+  if (!sc) return 'n'
   const pt = sc.personal_type
   if (pt === 'good') return 'g'
   if (pt === 'bad') return 'b'
@@ -199,10 +200,14 @@ function shColorClass(sc) {
 }
 
 function isNow(sc) {
-  const now = new Date().getHours()
-  const [s, e] = sc.range.split('-').map(Number)
-  if (s < e) return now >= s && now < e
-  return now >= s || now < e
+  if (!sc?.range || typeof sc.range !== 'string') return false
+  try {
+    const now = new Date().getHours()
+    const [s, e] = sc.range.split('-').map(Number)
+    if (isNaN(s) || isNaN(e)) return false
+    if (s < e) return now >= s && now < e
+    return now >= s || now < e
+  } catch { return false }
 }
 
 // 最佳时辰行动推荐（找第一个助我 / 当前平的）
@@ -210,11 +215,11 @@ const bestAction = computed(() => {
   const tl = props.anchorSafe.timeline || []
   if (!tl.length) return null
   // 优先助我
-  const good = tl.find(s => s.personal_type === 'good' && !isNow(s))
+  const good = tl.find(s => s?.personal_type === 'good' && !isNow(s))
   if (good) return good
   const cur = tl.find(s => isNow(s))
   if (cur) return cur
-  return tl[7] // 未时 fallback
+  return tl[7] || tl[0] || null  // 未时 / 子时 / null fallback
 })
 </script>
 
