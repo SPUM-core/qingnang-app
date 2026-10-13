@@ -167,7 +167,7 @@ def _write_cache(qingnang_id: str, date_str: str, v_base_hash: str, data: dict, 
             "v_base_hash": v_base_hash,
             "meta_hash": meta_hash,  # 2026-10-06：用户画像 hash
             "created_at": _dt_lib.datetime.now().isoformat(),
-            "cache_version": 4,  # v4: personal_type/助我平耗我/方位/替换表
+            "cache_version": 5,  # v5: 修 feixing dict bug + 今日主气
         }
         with open(tmp_path, "w", encoding="utf-8") as f:
             _json.dump(payload, f, ensure_ascii=False, indent=2)

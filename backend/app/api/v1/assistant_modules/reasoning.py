@@ -653,10 +653,10 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
         item["personal_label"] = plabel
 
     # ════ 13. 飞星落宫 → 今日方位（宜取/宜避）════
-    feixing_day_str = almanac["feixing"]["day"]  # "一白水天枢"
+    feixing_day = almanac["feixing"].get("day", "一白水天枢") if isinstance(almanac["feixing"], dict) else (almanac["feixing"] or "一白水天枢")
     # 从字符串里提取数字（飞星号）
     import re as _re
-    m = _re.search(r'(\d)', feixing_day_str)
+    m = _re.search(r'(\d)', str(feixing_day))
     fx_num = int(m.group(1)) if m else 1
     fx = _FEIXING_MAP.get(fx_num, _FEIXING_MAP[1])
     fx_el = fx["elem"]
@@ -715,9 +715,8 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
         })
     
     # 时辰宜忌
-    today_elem = {"木": "wood", "火": "fire", "土": "earth", "金": "metal", "水": "water"}.get(
-        ln["g"][1] if len(ln["g"]) > 1 else "木", "wood")
-    if today_elem in ("wood",):
+    today_elem_main = day_elem  # 今日主气
+    if today_elem_main in ("wood",):
         swaps.append({"bad": "寅卯时 3-7 点剧烈运动", "good": "移至申酉时 15-19 点", "reason": "肝木当令忌泄"})
     if almanac["jianchu"] in ("破", "危", "闭"):
         swaps.append({"bad": "今日大事冲动决策", "good": "遇事三思，暂缓签约/出行", "reason": f"{almanac['jianchu']}日宜静不宜动"})
