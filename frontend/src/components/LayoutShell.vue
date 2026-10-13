@@ -29,8 +29,12 @@
       </div>
     </header>
 
-    <!-- ═══ 主内容区 ═══ -->
-    <main class="layout__main">
+    <!-- ═══ 主内容区（移动端左右滑动手势绑定在这里）═══ -->
+    <main class="layout__main"
+          :class="{ 'swipe-enabled': isMobile }"
+          @touchstart.passive="onTouchStart"
+          @touchmove.passive="onTouchMove"
+          @touchend.passive="onTouchEnd">
       <slot />
     </main>
 
@@ -52,8 +56,10 @@
 </template>
 
 <script setup>
+import { ref, provide, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import QIcon from './ui/QIcon.vue'
+import { useSwipeNav } from '../composables/useSwipeNav'
 
 // 桌面端顶部导航（3 项 + 采集已合并到体质页 CTA）
 const navs = [
@@ -70,6 +76,23 @@ const mobileNavs = [
   { path: '/discover', title: '发现', icon: 'spark' },
   { path: '/settings', title: '我的', icon: 'user' },
 ]
+
+// ── 移动端判定（CSS 媒体查询 720px 断点）──
+const MOBILE_MQ = '(max-width: 720px)'
+const isMobile = ref(false)
+let _mq = null
+function updateMobile() { isMobile.value = _mq?.matches ?? false }
+onMounted(() => {
+  _mq = window.matchMedia(MOBILE_MQ)
+  updateMobile()
+  _mq.addEventListener?.('change', updateMobile)
+})
+onUnmounted(() => { _mq?.removeEventListener?.('change', updateMobile) })
+
+// ── 左右滑动手势（仅移动端激活）──
+const tabOrder = mobileNavs.map(n => n.path)
+const { onTouchStart, onTouchMove, onTouchEnd, direction } = useSwipeNav({ tabOrder })
+provide('swipeDirection', direction)
 </script>
 
 <style scoped>

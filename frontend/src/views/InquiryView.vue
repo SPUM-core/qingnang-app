@@ -6,14 +6,14 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         返回
       </a>
-      <h1>问诊采集</h1>
+      <h1>了解采集</h1>
     </div>
 
     <!-- 未启动态 -->
     <div v-if="!sessionId" class="inquiry__start">
-      <h2 class="page-title">📋 问诊采集</h2>
+      <h2 class="page-title">📋 了解采集</h2>
       <p class="page-desc">
-        通过 AI 引导的多阶段问诊，帮你梳理当前状态倾向。
+        通过 AI 引导的多阶段了解，帮你梳理当前状态倾向。
         选择题为主，不会花太久。
       </p>
       <div class="start-info">
@@ -23,7 +23,7 @@
       </div>
       <button class="primary-btn" :disabled="loading" @click="startSession">
         <span v-if="loading">生成第一阶段问题…</span>
-        <span v-else>开始问诊</span>
+        <span v-else>开始了解</span>
       </button>
     </div>
 
@@ -116,7 +116,7 @@
       <!-- 提交 -->
       <button class="primary-btn submit-btn" :disabled="!canSubmit || submitting" @click="submitAnswers">
         <span v-if="submitting">提交中…</span>
-        <span v-else>{{ isFinal ? '完成问诊 → 查看状态摘要' : '提交并进入下一阶段' }}</span>
+        <span v-else>{{ isFinal ? '完成了解 → 查看状态摘要' : '提交并进入下一阶段' }}</span>
       </button>
       <p class="hint" v-if="!canSubmit">
         {{ unansweredCount > 0 ? `还有 ${unansweredCount} 道题没答（可跳过）` : '准备就绪' }}
@@ -126,7 +126,7 @@
     <!-- 完成 -->
     <div v-else class="inquiry__done">
       <div class="done-badge">✓</div>
-      <h2>问诊完成</h2>
+      <h2>了解完成</h2>
       <div v-if="summary" class="summary-card">
         <div class="summary-row">
           <span class="summary-label">核心状态倾向</span>
@@ -173,7 +173,7 @@ import * as storage from '../utils/storage'
 const router = useRouter()
 
 const STAGES = [
-  { key: "initial",  idx: 0, label: "主诉与核心症状" },
+  { key: "initial",  idx: 0, label: "主要困扰与核心症状" },
   { key: "deepen",   idx: 1, label: "症状深化" },
   { key: "expand",   idx: 2, label: "整体状态" },
   { key: "finalize", idx: 3, label: "关键判别点" },
@@ -181,7 +181,7 @@ const STAGES = [
 
 const sessionId = ref(null)
 const stage = ref("initial")
-const stageLabel = ref("主诉与核心症状")
+const stageLabel = ref("主要困扰与核心症状")
 const stageDesc = ref("你现在最困扰的感受是什么？")
 const questions = ref([])
 const answers = reactive({})     // {qid: {value/values/text}}
@@ -267,7 +267,7 @@ async function startSession() {
     const r = await api.post('/api/v1/assistant/inquiry/start', {})
     loadStage(r.data)
   } catch (e) {
-    alert(e.response?.data?.detail || '启动问诊失败')
+    alert(e.response?.data?.detail || '启动了解失败')
   } finally { loading.value = false }
 }
 

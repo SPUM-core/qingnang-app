@@ -3,7 +3,11 @@
     <!-- ═══ 主应用壳（始终挂载，避免路由切换时 LayoutShell 被销毁重建导致 double-render） ═══ -->
     <div class="app-shell" :style="{ display: route.meta.fullScreen ? 'none' : null }">
       <LayoutShell>
-        <router-view v-if="!route.meta.fullScreen" />
+        <div class="transition-wrapper">
+          <transition :name="swipeDir || ''">
+            <router-view v-if="!route.meta.fullScreen" />
+          </transition>
+        </div>
       </LayoutShell>
       <ComplianceBar v-if="!route.meta.fullScreen" />
       <QingnangAssistant v-if="!route.meta.fullScreen" />
@@ -31,7 +35,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted, inject, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import LayoutShell from './components/LayoutShell.vue'
 import ComplianceBar from './components/ComplianceBar.vue'
@@ -47,6 +51,15 @@ const route = useRoute()
 const user = useUserStore()
 const settings = useSettingsStore()
 const isDev = import.meta.env.DEV
+
+// 从 LayoutShell 注入的滑动方向（空字符串 = 无过渡，点击 tab 切换走默认）
+const _swipeDir = inject('swipeDirection', null)
+const swipeDir = computed(() => _swipeDir?.value || '')
+
+// 路由切换后自动清空方向，下一次点击 tab 切换不会带滑动动画
+watch(() => route.path, () => {
+  if (_swipeDir) _swipeDir.value = ''
+})
 
 // ── APP 自动更新 ──
 const updateVisible = ref(false)
@@ -105,6 +118,9 @@ onUnmounted(() => {
    
    本文件只保留 App 组件特有的、base.css 里没有或版本不同的样式块。
    ═══════════════════════════════════════════════════════════════ */
+
+/* transition 子页的绝对定位参照物（swipe 动画需要） */
+.transition-wrapper { position: relative; }
 
 /* ⛔ 已移除：@media (orientation: portrait) { .page { padding: 16px 14px } }
    ─────────────────────────────────────────────────────────────────

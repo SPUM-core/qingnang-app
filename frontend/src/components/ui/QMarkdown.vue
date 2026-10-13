@@ -1,6 +1,6 @@
 <!--
   QMarkdown — 青囊统一 Markdown 渲染器
-  用途：AI 回复、诊断报告、知识库等所有需要 Markdown 渲染的地方
+  用途：AI 回复、状态描述报告、知识库等所有需要 Markdown 渲染的地方
   功能：表格 / 标题 / 列表 / 代码块 / 引用 / KaTeX 公式 ($ 行内 $$ 块级) / **加粗**
   安全：DOMPurify 过滤 HTML，防 XSS
 -->

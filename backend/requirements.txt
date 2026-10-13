@@ -23,3 +23,7 @@ pillow>=10.0                  # OCR 图片预处理
 # phase-0: PostgreSQL + Alembic migrations
 alembic==1.13.2
 psycopg2-binary==2.9.9
+
+# 历法/排盘引擎（八字/大运/节气/干支）
+lunar-python==1.3.0  # ⚠️ 核心依赖：bazi.py / reasoning.py / notifications.py 直接 import
+

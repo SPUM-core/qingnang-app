@@ -19,7 +19,7 @@
 <template>
   <div v-if="maturityStage >= 2" class="card reminders-mini scroll-target-life">
     <button class="rem-collapse" @click="$emit('update:expanded', !expanded)">
-      <span class="rem-collapse-text">展开全部提醒与禁忌（{{ remTotal }} 条 · 含绝对禁忌与矿物避忌）</span>
+      <span class="rem-collapse-text">展开全部提醒与注意事项（{{ remTotal }} 条 · 含绝对注意事项与矿物避忌）</span>
       <span class="rem-chevron" :class="{ open: expanded }">›</span>
     </button>
 
@@ -71,7 +71,7 @@
         </div>
       </div>
 
-      <!-- 禁忌：绝对禁忌 / 矿物避忌默认收起 -->
+      <!-- 注意事项：绝对注意事项 / 矿物避忌默认收起 -->
       <div v-else-if="!lifestyleLoading" class="rem-fold-zone">
         <h4 class="rem-col-title warn"><QIcon name="warn" :size="13" /> 慎用（{{ relativeSelect.length }}）</h4>
         <div v-for="r in relativeSelect" :key="r.id" class="rem-item">
@@ -80,7 +80,7 @@
         </div>
 
         <details class="rem-fold">
-          <summary class="rem-fold-summary danger"><QIcon name="forbid" :size="13" /> 绝对禁忌（{{ absoluteSelect.length }}）</summary>
+          <summary class="rem-fold-summary danger"><QIcon name="forbid" :size="13" /> 绝对注意事项（{{ absoluteSelect.length }}）</summary>
           <div v-for="r in absoluteSelect" :key="r.id" class="rem-item rem-danger">
             <span class="rem-item-title">{{ r.title }}</span>
             <span class="rem-item-desc">{{ r.desc }} · {{ r.reason }}</span>
@@ -114,7 +114,7 @@ defineProps({
   remTabs:            { type: Array, default: () => [
     { key: 'good', label: '宜·忌' },
     { key: 'home', label: '住房' },
-    { key: 'avoid', label: '禁忌' }
+    { key: 'avoid', label: '注意事项' }
   ] },
 
   // ⚠️ SSE 流式状态（高频更新！直接传给装配层，装配层管 onGenerating 回调）

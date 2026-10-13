@@ -75,7 +75,7 @@
       <!-- 解析中 -->
       <div v-if="analyzing" class="analyzing-wrap">
         <div class="analyzing-spinner"></div>
-        <span class="analyzing-text">后端正在调用青檬引擎做拓扑诊断，请稍候...</span>
+        <span class="analyzing-text">后端正在调用青檬引擎做拓扑状态描述，请稍候...</span>
       </div>
 
       <!-- 采集统计 -->
@@ -91,9 +91,9 @@
         </div>
       </div>
 
-      <!-- 引擎诊断报告 -->
+      <!-- 引擎状态描述报告 -->
       <div v-if="analysisResult && analysisResult.status === 'analyzed'" class="report-card">
-        <p class="result-title">脉诊报告 · 青檬引擎</p>
+        <p class="result-title">脉象观察报告 · 青檬引擎</p>
         <div class="wu-xing-bars">
           <div class="bar-row" v-for="(v, key) in (analysisResult.s_graph || {})" :key="key">
             <span class="bar-label">{{ ({wood:'木',fire:'火',earth:'土',metal:'金',water:'水'})[key] || key }}</span>

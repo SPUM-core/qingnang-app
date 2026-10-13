@@ -141,7 +141,7 @@ const GUIDE_GROUPS = {
       },
       {
         title: '📅 报告时间线',
-        content: '所有报告按日期倒序排列：脉诊 PPG、调理方案、AI 问诊摘要，都在这一条时间线上。点击任意一行可以展开完整内容。',
+        content: '所有报告按日期倒序排列：脉象观察 PPG、调理方案、AI 了解摘要，都在这一条时间线上。点击任意一行可以展开完整内容。',
         target: '.page.case .tl-wrap',
         bubblePosition: 'bottom',
       },
@@ -153,7 +153,7 @@ const GUIDE_GROUPS = {
       },
       {
         title: '📥 7 种数据采集方式',
-        content: '青囊的 AI 推理引擎需要持续的数据输入：AI 问诊 · 脉搏 PPG · 舌部照片 · 体态照片 · 语音样本 · 检查报告 · 日常打卡。点右上角「数据采集」按钮进入采集中心。',
+        content: '青囊的 AI 推理引擎需要持续的数据输入：AI 了解 · 脉搏 PPG · 舌部照片 · 体态照片 · 语音样本 · 检查报告 · 日常打卡。点右上角「数据采集」按钮进入采集中心。',
         target: '.hero-cta-btn',
         bubblePosition: 'bottom',
       },
@@ -172,22 +172,22 @@ const GUIDE_GROUPS = {
     steps: [
       {
         title: '📥 数据采集中心',
-        content: '青囊的数字模型需要持续的真实数据输入。下面 7 种采集方式任选，推荐先从 AI 问诊开始 —— 最快 3 分钟就能得到你的当前状态向量 V_current。',
+        content: '青囊的数字模型需要持续的真实数据输入。下面 7 种采集方式任选，推荐先从 AI 了解开始 —— 最快 3 分钟就能得到你的当前状态向量 V_current。',
         target: null,
         bubblePosition: 'center',
       },
       {
         title: '🗂️ 7 种采集方式',
-        content: '① AI 问诊（推荐先做） ② 脉搏 PPG（专业硬件） ③ 舌部照片 ④ 体态照片 ⑤ 语音样本 ⑥ 检查报告上传 ⑦ 日常打卡。完成得越多，青囊 AI 的漂移拟合越准。',
+        content: '① AI 了解（推荐先做） ② 脉搏 PPG（专业硬件） ③ 舌部照片 ④ 体态照片 ⑤ 语音样本 ⑥ 检查报告上传 ⑦ 日常打卡。完成得越多，青囊 AI 的漂移拟合越准。',
         target: '.page.collect-entry',
         bubblePosition: 'bottom',
       },
       {
-        title: '🚀 推荐第一步：AI 问诊',
-        content: 'AI 问诊是纯文本采集，4 阶段结构化问诊，约 3 分钟。完成后青囊会为你生成 V_current 向量，从此日常观测和智能方案会更精准。',
+        title: '🚀 推荐第一步：AI 了解',
+        content: 'AI 了解是纯文本采集，4 阶段结构化了解，约 3 分钟。完成后青囊会为你生成 V_current 向量，从此日常观测和智能方案会更精准。',
         target: null,
         bubblePosition: 'center',
-        cta: { text: '🚀 立即开始 AI 问诊', action: 'router', payload: '/collect/inquiry' },
+        cta: { text: '🚀 立即开始 AI 了解', action: 'router', payload: '/collect/inquiry' },
       },
     ],
   },
@@ -209,7 +209,7 @@ const steps = allSteps
 // ── 状态 ──
 const visible = ref(false)
 const stepIdx = ref(0)
-const lastStepCtaText = '开始 AI 问诊 →'
+const lastStepCtaText = '开始 AI 了解 →'
 
 let targetEl = null
 let resizeObserver = null

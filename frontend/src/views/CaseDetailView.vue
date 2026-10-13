@@ -24,7 +24,7 @@
           </div>
           <div class="stat-block">
             <span class="stat-num">{{ ppgObsCount }}</span>
-            <span class="stat-label">次脉诊</span>
+            <span class="stat-label">次脉象观察</span>
           </div>
           <div class="stat-block">
             <span class="stat-num">{{ spanDays }}</span>
@@ -77,15 +77,15 @@
           <!-- 展开内容 -->
           <div class="tl-detail" v-if="expandedId === r.id">
 
-            <!-- 主诉/目标 -->
+            <!-- 主要困扰/目标 -->
             <div class="detail-section" v-if="r.chief_complaint">
-              <h4>📌 主诉/目标</h4>
+              <h4>📌 主要困扰/目标</h4>
               <p>{{ r.chief_complaint }}</p>
             </div>
 
-            <!-- PPG 脉诊快照 -->
+            <!-- PPG 脉象观察快照 -->
             <div class="detail-section ppg-section" v-if="r.ppg">
-              <h4>📊 脉诊观测（{{ r.ppg.source }} · SQI {{ r.ppg.sqi }}）</h4>
+              <h4>📊 脉象观察观测（{{ r.ppg.source }} · SQI {{ r.ppg.sqi }}）</h4>
               <p class="ppg-date">观测日期：{{ r.ppg.date }}</p>
 
               <!-- 五形 ΔF 条 -->
@@ -108,7 +108,7 @@
               <p class="ppg-diagnosis">💡 {{ r.ppg.diagnosis }}</p>
             </div>
 
-            <!-- 方案/处方 -->
+            <!-- 方案/调理方案 -->
             <div class="detail-section" v-if="r.formula || r.adjustment || r.strategy">
               <h4>💊 调理方案</h4>
               <p v-if="r.strategy" class="formula-strategy">🎯 {{ r.strategy }}</p>
@@ -148,10 +148,10 @@
               <p style="margin:0; font-size:13px;">🗓️ <strong>下一步：</strong>{{ r.next_check }}</p>
             </div>
 
-            <!-- ⭐ 问诊报告专属 section（只有 _kind==='inquiry' 才显示） -->
+            <!-- ⭐ 了解报告专属 section（只有 _kind==='inquiry' 才显示） -->
             <template v-if="r._kind === 'inquiry'">
               <div class="detail-section inquiry-section">
-                <h4>🤖 问诊摘要</h4>
+                <h4>🤖 了解摘要</h4>
                 <p v-if="r.dominant_pattern" class="inquiry-pattern">
                   <span class="pattern-label">核心模式</span>
                   <span class="pattern-val">{{ r.dominant_pattern }}</span>
@@ -167,7 +167,7 @@
               </div>
 
               <div class="detail-section inquiry-section" v-if="r.notes_summary">
-                <h4>📝 问诊备注汇总</h4>
+                <h4>📝 了解备注汇总</h4>
                 <p class="inquiry-notes">{{ r.notes_summary }}</p>
               </div>
 
@@ -371,7 +371,7 @@ onMounted(async () => {
   // ⚠️ caseReportsFull 为空 = 用户还没采过 PPG，这是正常新用户态
   //     不再触发 loadHuCase！让 computed/UI 自己处理空态
 
-  // 同时拉问诊报告时间线（独立端点）
+  // 同时拉了解报告时间线（独立端点）
   fetchInquiryList()
 })
 
@@ -380,7 +380,7 @@ const pathogenesis = computed(() => vectorStore.casePathogenesis)
 const paradoxStates = computed(() => vectorStore.caseParadoxStates)
 const reportsFull = computed(() => vectorStore.caseReportsFull || [])
 
-// ── 问诊报告（从后端独立拉取）──
+// ── 了解报告（从后端独立拉取）──
 const inquiryReports = ref([])
 async function fetchInquiryList() {
   try {
@@ -390,10 +390,10 @@ async function fetchInquiryList() {
       const s = it.summary || {}
       return {
         id: `inquiry-${it.session_id}`,
-        _kind: 'inquiry',                  // ← 标记是问诊报告
+        _kind: 'inquiry',                  // ← 标记是了解报告
         _sessionId: it.session_id,
-        type: '问诊报告',
-        version: `问诊 #${it.session_id}`,
+        type: '了解报告',
+        version: `了解 #${it.session_id}`,
         date: it.completed_at ? it.completed_at.slice(0, 19).replace('T', ' ') : (it.created_at || '').slice(0, 19).replace('T', ' '),
         dateISO: it.completed_at || it.created_at,
         is_latest: false,
@@ -461,8 +461,8 @@ const toggleExpand = (id) => {
   expandedId.value = expandedId.value === id ? null : id
 }
 const typeClass = (t) => ({ '首诊': 'first', '调理方案': 'plan', 'on-off 验证': 'verify', '重要发现': 'discover',
-  '复诊': 'followup', '迭代': 'iteration', '脉诊': 'ppg', '方案': 'initial', '验证': 'verify',
-  '问诊报告': 'inquiry' }[t] || 'plan')
+  '复诊': 'followup', '迭代': 'iteration', '脉象观察': 'ppg', '方案': 'initial', '验证': 'verify',
+  '了解报告': 'inquiry' }[t] || 'plan')
 
 // 最新观测 chip（动态，从 vectorStore.latestVector 读）
 const latestVectorChips = computed(() => {
@@ -726,9 +726,9 @@ const effectiveTable = computed(() => {
 .tl-type-badge.type-discover { background: rgba(212,160,23,0.15); color: var(--wuxing-earth); }
 .tl-type-badge.type-followup { background: rgba(123,31,162,0.1); color: #6A1B9A; }  /* 紫色 — 复诊 */
 .tl-type-badge.type-iteration { background: rgba(46,125,50,0.12); color: #2E7D32; }   /* 绿色 — 迭代 */
-.tl-type-badge.type-ppg { background: rgba(255,112,67,0.12); color: #E64A19; }        /* 橙色 — 脉诊 */
+.tl-type-badge.type-ppg { background: rgba(255,112,67,0.12); color: #E64A19; }        /* 橙色 — 脉象观察 */
 .tl-type-badge.type-initial { background: rgba(212,160,23,0.12); color: #8a6300; }     /* 金棕 — 初诊方案 */
-.tl-type-badge.type-inquiry { background: rgba(103,58,183,0.1); color: #6A1B9A; }    /* 紫色 — AI 问诊报告 */
+.tl-type-badge.type-inquiry { background: rgba(103,58,183,0.1); color: #6A1B9A; }    /* 紫色 — AI 了解报告 */
 .latest-badge {
   font-size: calc(10px * var(--qn-fs-scale)); padding: 2px 8px; border-radius: 10px;
   background: rgba(67,160,71,0.12); color: var(--wuxing-wood); font-weight: 600;
@@ -756,7 +756,7 @@ const effectiveTable = computed(() => {
 }
 .detail-section p { font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink); margin: 0 0 4px; line-height: 1.6; }
 
-/* PPG 脉诊 */
+/* PPG 脉象观察 */
 .ppg-section { background: rgba(var(--qn-emerald-rgb),0.03); padding: 12px 14px; border-radius: var(--qn-r-sm); }
 .ppg-date { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin-bottom: 10px; }
 .ppg-bars { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
@@ -782,7 +782,7 @@ const effectiveTable = computed(() => {
   font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-2); font-style: italic;
 }
 
-/* 处方/推导 */
+/* 调理方案/推导 */
 .formula-strategy { background: rgba(var(--qn-emerald-rgb),0.08); padding: 8px 12px; border-radius: 4px; font-weight: 500; color: var(--qn-emerald); }
 .formula-text { font-weight: 600; color: var(--qn-ink); }
 .herbs-text { color: var(--qn-ink-2); font-size: calc(12px * var(--qn-fs-scale)); }
@@ -851,7 +851,7 @@ const effectiveTable = computed(() => {
 .ls-list { margin: 4px 0; padding-left: 16px; font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink); }
 .ls-list li { margin-bottom: 3px; line-height: 1.5; }
 
-/* 禁忌 */
+/* 注意事项 */
 .contra { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 .contra-col h4 { margin: 0 0 6px; font-size: calc(12px * var(--qn-fs-scale)); color: var(--wuxing-fire); font-weight: 600; }
 .contra-col ul { margin: 0; padding-left: 16px; font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink); }
@@ -976,7 +976,7 @@ const effectiveTable = computed(() => {
 .qa-btn:hover { transform: translateY(-1px); box-shadow: 0 5px 16px rgba(var(--qn-emerald-rgb),0.32); }
 .qa-btn:active { transform: translateY(0); }
 
-/* ═══ 问诊报告专属 section 样式 ═══ */
+/* ═══ 了解报告专属 section 样式 ═══ */
 .inquiry-section h4 { margin-top: 0; color: #6A1B9A; }
 .inquiry-pattern {
   display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;

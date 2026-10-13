@@ -54,7 +54,7 @@ export const auth = {
   patchMe:   (data)            => api.patch('/api/v1/auth/me', data),
 }
 
-// ── AI 问诊引擎（动态生成问题清单） ──
+// ── AI 了解引擎（动态生成问题清单） ──
 export const inquiry = {
   start: () => api.post('/api/v1/assistant/inquiry/start', {}),
 }

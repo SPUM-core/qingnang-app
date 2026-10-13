@@ -15,7 +15,7 @@
       <span>返回登录</span>
     </button>
 
-    <!-- ═══ Step 1: 基础信息 → 推演先天八字 → 直接进问诊 ═══ -->
+    <!-- ═══ Step 1: 基础信息 → 推演先天八字 → 直接进了解 ═══ -->
     <div v-if="currentStep === 1" class="card">
       <h2>先让青囊认识你</h2>
       <p class="step-desc">请填写您的真实信息，这将影响青囊对您的数字建模。</p>
@@ -151,10 +151,10 @@
       </div>
     </div>
 
-    <!-- ═══ Step 2: 体质推理报告 · 病历式 6 段 ═══ -->
+    <!-- ═══ Step 2: 体质推理报告 · 记录式 6 段 ═══ -->
     <div v-else-if="currentStep === 2" class="card medical-report">
       <h2>你的先天体质画像</h2>
-      <p class="step-desc">基于八字排盘 + SPUM 五行推演 + 大运流年，青囊为你生成病历级体质画像。</p>
+      <p class="step-desc">基于八字排盘 + SPUM 五行推演 + 大运流年，青囊为你生成记录级体质画像。</p>
 
       <!-- 体质总纲 hero -->
       <div v-if="constitutionData?.constitution_summary" class="constitution-hero">
@@ -173,7 +173,7 @@
         </div>
       </div>
 
-      <!-- ═══ 6 段病历式内容 ═══ -->
+      <!-- ═══ 6 段记录式内容 ═══ -->
       <template v-if="constitutionData?.llm_sections?.sections">
         <!-- ① 八字排盘 -->
         <section class="m-section" v-if="constitutionData.llm_sections.sections.bazi_analysis">
@@ -257,7 +257,7 @@ const steps = [
   { idx: 2, title: '体质画像' },
 ]
 
-// ── 极简 Markdown 渲染器（处理 LLM 返回的病历文本） ──
+// ── 极简 Markdown 渲染器（处理 LLM 返回的记录文本） ──
 function renderMd(md) {
   if (!md) return ''
   let html = md
@@ -536,7 +536,7 @@ async function doOnboardAndInquiry() {
     )
     baziResult.value = resp.data || resp
 
-    // 2. 调体质分析接口（传完整八字上下文，让 LLM 做病历级可验证预测）
+    // 2. 调体质分析接口（传完整八字上下文，让 LLM 做记录级可验证预测）
     const constResp = await assistantApi.constitutionAnalysis({
       v_innate: baziResult.value.v_innate,
       day_master_element: baziResult.value.day_master_element,
@@ -999,7 +999,7 @@ async function submitAll() {
 
 
 /* ═══ Step 2: 体质推理报告 ═══ */
-/* 体质总纲 hero — 病历级标签 */
+/* 体质总纲 hero — 记录级标签 */
 .constitution-hero {
   text-align: center; padding: 18px 20px; margin-bottom: 20px;
   background: linear-gradient(135deg, rgba(var(--qn-emerald-rgb),0.08), rgba(var(--qn-emerald-rgb),0.02));
@@ -1079,7 +1079,7 @@ async function submitAll() {
 .c-tag.strong .ct-badge { background: rgba(197,74,30,0.15); color: #8a3a18; }
 .c-tag.balanced { border-color: rgba(var(--qn-emerald-rgb),0.25); background: rgba(var(--qn-emerald-rgb),0.04); }
 
-/* ═══════════════ 病历式体质画像样式 ═══════════════ */
+/* ═══════════════ 记录式体质画像样式 ═══════════════ */
 .medical-report { padding: 28px 32px 24px; }
 .radar-anchor {
   display: grid; grid-template-columns: repeat(5, 1fr);

@@ -9,9 +9,9 @@ const routes = [
     meta: { title: '注册', fullScreen: true, noAuthRequired: true, redirectIfLoggedIn: true } },
 
   // ── 主应用页 (LayoutShell 包裹) ──
-  { path: '/', name: 'home', component: () => import('../views/DashboardView.vue'), meta: { title: '主页' } },
+  { path: '/', name: 'home', component: () => import('../views/DashboardView.vue'), meta: { title: '主页', swipeable: true } },
   { path: '/trajectory', name: 'trajectory', component: () => import('../views/TrajectoryView.vue'), meta: { title: '体质曲线' } },
-  { path: '/case', name: 'case', component: () => import('../views/CaseDetailView.vue'), meta: { title: '体质档案详情' } },
+  { path: '/case', name: 'case', component: () => import('../views/CaseDetailView.vue'), meta: { title: '体质档案', swipeable: true } },
   // onboarding: 全屏独占 · 需登录 · 已建档用户自动跳主页 · 未建档用户访问任意页自动跳这里
   { path: '/onboarding', name: 'onboarding', component: () => import('../views/QuestionnaireView.vue'),
     meta: { title: '用户初始化', hidden: true, fullScreen: true, requireAuth: true } },
@@ -19,21 +19,21 @@ const routes = [
   { path: '/collect/body', name: 'collect-body', component: () => import('../views/BodyPhotoView.vue'), meta: { title: '体态照片' } },
   { path: '/collect/voice', name: 'collect-voice', component: () => import('../views/VoiceSampleView.vue'), meta: { title: '语音样本' } },
   { path: '/collect/ppg', name: 'collect-ppg', component: () => import('../views/PpgCollectView.vue'), meta: { title: '脉搏采集' } },
-  { path: '/collect/inquiry', name: 'collect-inquiry', component: () => import('../views/InquiryView.vue'), meta: { title: '问诊采集' } },
+  { path: '/collect/inquiry', name: 'collect-inquiry', component: () => import('../views/InquiryView.vue'), meta: { title: '了解采集' } },
   { path: '/collect/tongue', name: 'collect-tongue', component: () => import('../views/TonguePhotoView.vue'), meta: { title: '舌部照片' } },
   { path: '/collect/report', name: 'collect-report', component: () => import('../views/ReportArchiveView.vue'), meta: { title: '检查报告' } },
 
   // 发现页（知识 + 商城 合并）
-  { path: '/discover', name: 'discover', component: () => import('../views/DiscoverView.vue'), meta: { title: '发现' } },
+  { path: '/discover', name: 'discover', component: () => import('../views/DiscoverView.vue'), meta: { title: '发现', swipeable: true } },
   { path: '/knowledge-base', redirect: '/discover' },
   { path: '/shop', redirect: '/discover?tab=shop' },
   { path: '/shop/:id', name: 'shop-detail', component: () => import('../views/ShopDetailView.vue'), meta: { title: '商品详情' } },
 
   // 关系网（好友）— 主导航暴露
-  { path: '/friends', name: 'friends', component: () => import('../views/UserManageView.vue'), meta: { title: '关系网' } },
+  { path: '/friends', name: 'friends', component: () => import('../views/UserManageView.vue'), meta: { title: '关系网', swipeable: true } },
   { path: '/users', redirect: '/friends' },
   { path: '/notifications', redirect: '/friends' },  // 通知功能已合并到主页，老路径跳好友
-  { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue'), meta: { title: '设置' } },
+  { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue'), meta: { title: '我的', swipeable: true } },
 
   // ══ DEV ONLY: 模块调试台 ══
   ...(import.meta.env.DEV ? [{

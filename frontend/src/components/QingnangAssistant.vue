@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
   <div class="assistant-root" ref="rootRef" :style="fabPosStyle">
     <!-- 悬浮触发按钮（可拖动） -->
     <button class="fab" :class="{ minimized: isOpen, dragging: isDragging }"
@@ -74,7 +74,7 @@
             <QIcon name="history" :size="16" />
           </button>
           <div class="head-info">
-            <!-- LLM 健康状态徽章（错误诊断） -->
+            <!-- LLM 健康状态徽章（错误状态描述） -->
             <div class="llm-status" :class="llmState">
               <span class="llm-dot"></span>
               <span class="llm-text">{{ llmStatusText }}</span>
@@ -291,7 +291,7 @@ const messages = ref([])
 const input = ref('')
 const thinking = ref(false)
 const unread = ref(0)
-// ═══ LLM 健康状态（表头诊断） ═══
+// ═══ LLM 健康状态（表头状态描述） ═══
 // states: 'connecting' | 'online' | 'local' | 'error' | 'unauth'
 const llmState = ref('connecting')
 const llmErrorCode = ref(null)
@@ -626,7 +626,7 @@ const archiveInfo = computed(() => {
     age: cp.age || '',
   }
 })
-// ⭐ 2026-10-11：表头改为 LLM 状态诊断，用户名/年龄降为副标题
+// ⭐ 2026-10-11：表头改为 LLM 状态状态描述，用户名/年龄降为副标题
 const headerSub = computed(() => {
   const { name, age } = archiveInfo.value
   if (!name) return '青囊管家'
@@ -947,13 +947,13 @@ const send = async (text, voiceData = null) => {
              : '青囊推理引擎')
 
     if (eng === 'local_fallback' || !r.data?.llm_online) {
-      footnote = `${engLabel} · 仅供参考，不作为医疗诊断`
+      footnote = `${engLabel} · 仅供参考，不作为医疗状态描述`
       // LLM 健康状态：降级为本地规则引擎（离线）
       llmState.value = 'local'
       llmErrorCode.value = null
     } else {
       const modelTag = modelName && !modelName.includes('fallback') ? `（${modelName}）` : ''
-      footnote = `由 ${engLabel}${modelTag} 推理 · 仅供参考，不作为医疗诊断`
+      footnote = `由 ${engLabel}${modelTag} 推理 · 仅供参考，不作为医疗状态描述`
       // LLM 健康状态：云端 LLM 在线
       llmState.value = 'online'
       llmErrorCode.value = null
@@ -967,11 +967,11 @@ const send = async (text, voiceData = null) => {
       llmErrorCode.value = null
     } else {
       replyText = '青囊管家暂时无法连接，请稍后再试。'
-      // 崩溃/断连：红态，带上错误码供诊断
+      // 崩溃/断连：红态，带上错误码供状态描述
       llmState.value = 'error'
       llmErrorCode.value = code ?? '0'
     }
-    footnote = '仅供参考，不作为医疗诊断'
+    footnote = '仅供参考，不作为医疗状态描述'
   }
 
   // 提取建议（从回复的短行里猜）
@@ -1333,7 +1333,7 @@ function showToast(text) {
 
 .head-info { flex: 1; }
 .head-info h3 { margin: 0; font-size: calc(14px * var(--qn-fs-scale)); font-weight: 600; }
-/* ⭐ 2026-10-11：LLM 健康状态徽章（表头错误诊断） */
+/* ⭐ 2026-10-11：LLM 健康状态徽章（表头错误状态描述） */
 .llm-status {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: calc(13px * var(--qn-fs-scale)); font-weight: 600;

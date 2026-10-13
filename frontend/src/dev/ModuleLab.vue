@@ -84,7 +84,7 @@ const modules = [
   { name: 'HeroDailyTipsCard',title: 'M4b 英雄卡2',   component: HeroDailyTipsCard,done: true,  risk: 'mid',  mock: { anchorSafe: { yi:'今日火日·宜黄褐系·养土形', ji:'忌辛辣助木', weather: { icon:'cloud', temp_high:22, temp_low:14, desc:'多云', qihou:'燥' } }, avoidanceNotes: [{ title:'今日冲鸡，属鸡者忌远行' }, { title:'五形差>25，慎用过木类事物' }] } },
   { name: 'LifestyleReminderCard', title: 'M6 生活提醒', component: LifestyleReminderCard, done: true, risk: 'high', mock: {
     maturityStage: 3, expanded: true, activeTab: 'good',
-    remTotal: 14, remTabs: [{key:'good',label:'宜·忌'},{key:'home',label:'住房'},{key:'avoid',label:'禁忌'}],
+    remTotal: 14, remTabs: [{key:'good',label:'宜·忌'},{key:'home',label:'住房'},{key:'avoid',label:'注意事项'}],
     lifestyleLoading: false, lifestylePreview: '',
     clothGoodSelect: [{ id:'c1', title:'多穿黄褐系', desc:'补土形，抑制木形过旺' }],
     clothBadSelect: [{ id:'c3', title:'忌青绿系', desc:'助木形过旺，土形更弱' }],

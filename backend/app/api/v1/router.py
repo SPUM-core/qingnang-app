@@ -1,6 +1,6 @@
 """v1 router 汇总"""
 from fastapi import APIRouter
-from . import auth, cases, ppg, treatment, friends, assistant, shop, challenges, notifications, doctor, knowledge, version
+from . import auth, cases, ppg, treatment, friends, assistant, shop, challenges, notifications, doctor, knowledge, version, spacetime
 
 api_router = APIRouter()
 
@@ -16,3 +16,4 @@ api_router.include_router(notifications.router,  prefix="/notifications", tags=[
 api_router.include_router(doctor.router,         prefix="/doctor",        tags=["医生端"])
 api_router.include_router(knowledge.router,      prefix="/knowledge",     tags=["知识库"])
 api_router.include_router(version.router,        prefix="/version",       tags=["APP 更新"])
+api_router.include_router(spacetime.router,      prefix="/spacetime",     tags=["时空引擎"])

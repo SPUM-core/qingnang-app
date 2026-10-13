@@ -185,8 +185,8 @@ export function mockYearView({ year_age = 30, longitude = 120.0, latitude = 30.0
  *   },
  *   comparison: {               // 两条曲线的量化对比
  *     total_shift: +8.7,          // 实际改善总量
- *     disease_days_projected: 12, // 自然发展下的疾病天数
- *     disease_days_actual: 3,     // 实际疾病天数（介入后减少了）
+ *     disease_days_projected: 12, // 自然发展下的改善周期
+ *     disease_days_actual: 3,     // 实际改善周期（介入后减少了）
  *     peak_reduction: 5.4,        // 尖峰高度降低
  *   }
  * }

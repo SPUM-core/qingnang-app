@@ -240,7 +240,7 @@ export const useVectorStore = defineStore('vector', {
               _kind: 'ppg',
               id: `ppg-${h.id || idx}`,
               version: `PPG-${date.slice(5,10).replace('-','') || idx+1}`,
-              type: '脉诊',
+              type: '脉象观察',
               type_class: 'ppg',
               date,
               delta_summary: h.syndrome_hint || '',

@@ -14,6 +14,9 @@
       :archived-days="archivedDays"
     />
 
+    <!-- 📅 今日时空锚点：四柱 + 当令 + 旺相休囚 + 建除 + 调候总结 -->
+    <SpacetimeContextCard />
+
     <!-- 🎖️ 数字模型成熟度进度卡（4 阶段节点 + 总进度 + next_target）
          2026-10-04 隐藏：成熟度是后台隐形设定，AI 用它引导用户完善采集，不需要给用户看
          如需恢复：把 v-if="false" 改成 v-if="maturity" -->
@@ -55,7 +58,7 @@
             <span class="mc-item-val">{{ maturity.progress?.observation_count || 0 }}/3</span>
           </div>
           <div class="mc-item" :class="{ done: maturity.progress?.inquiry_done }">
-            <span class="mc-item-lbl">深度问诊</span>
+            <span class="mc-item-lbl">深度了解</span>
             <div class="mc-item-bar"><div class="mc-item-fill" :style="{ width: maturity.progress?.inquiry_done ? '100%' : '0%' }"></div></div>
             <span class="mc-item-val">{{ maturity.progress?.inquiry_done ? '✅' : '—' }}</span>
           </div>
@@ -75,7 +78,7 @@
       </p>
     </div>
 
-    <!-- 注：问诊报告已迁移到「体质 → 报告时间线」统一展示，这里不再重复 -->
+    <!-- 注：了解报告已迁移到「体质 → 报告时间线」统一展示，这里不再重复 -->
 
     <!-- ════ 英雄卡组：今日最重要的事 + 今日宜忌（独立两卡）
          内部组件已抽离 → modules/HeroTodoCard.vue + HeroDailyTipsCard.vue ════ -->
@@ -204,6 +207,7 @@ import DriftChart from '../components/charts/DriftChart.vue'
 import TodoCard from '../components/TodoCard.vue'
 import QIcon from '../components/ui/QIcon.vue'
 import GreetingHeader from '../modules/GreetingHeader.vue'
+import SpacetimeContextCard from '../modules/SpacetimeContextCard.vue'
 import TrendRadarCard from '../modules/TrendRadarCard.vue'
 import DriftVectorCard from '../modules/DriftVectorCard.vue'
 import PullRefreshBar from '../modules/PullRefreshBar.vue'
@@ -217,13 +221,13 @@ import PunchModal from '../modules/PunchModal.vue'
 import DetailModal from '../modules/DetailModal.vue'
 import AiExplainModal from '../modules/AiExplainModal.vue'
 // mock 数据已移除——所有内容从后端 API / reasoning 端点实时获取
-// 后端不可达时为空占位，不展示任何其他用户的病历数据
+// 后端不可达时为空占位，不展示任何其他用户的记录数据
 
 const router = useRouter()
 
 // ═══════════════════════════════════════════════════════════
 // 生活提醒数据源（全部从后端拉取，无任何用户特定硬编码）
-// 后端不可达时显示"加载中"占位，不展示他人病历内容
+// 后端不可达时显示"加载中"占位，不展示他人记录内容
 // ═══════════════════════════════════════════════════════════
 const anchor = reactive({
   ganzhi: '', dangling: '', dangling_elem: '',
@@ -342,7 +346,7 @@ const remExpanded = ref(false)   // 折叠行：默认收起
 const remTabs = [
   { key: 'good', label: '宜·忌' },
   { key: 'home', label: '住房' },
-  { key: 'avoid', label: '禁忌' }
+  { key: 'avoid', label: '注意事项' }
 ]
 const remTotal = computed(() =>
   clothReminders.value.length + foodGood.value.length + foodBad.value.length +
@@ -425,7 +429,7 @@ const maturityPercent = computed(() => {
   return Math.min(100, Math.round((maturity.value.score || 0) / max * 100))
 })
 
-// 注：问诊报告入口已迁移到「体质 → 报告时间线」，相关 fetch / goInquiryDetail 已删除
+// 注：了解报告入口已迁移到「体质 → 报告时间线」，相关 fetch / goInquiryDetail 已删除
 
 /** 根据已采集 PPG 观测数量动态判定用户所处阶段 */
 const caseStatusLabel = computed(() => {
@@ -451,7 +455,7 @@ const today = computed(() => {
 })
 const weekday = computed(() => ['周日','周一','周二','周三','周四','周五','周六'][new Date().getDay()])
 
-// anchor 安全访问：后端不可达时显示中性占位，不展示他人病历内容
+// anchor 安全访问：后端不可达时显示中性占位，不展示他人记录内容
 // 直接透传后端 /notifications/today 返回的完整 anchor 对象
 const anchorSafe = computed(() => ({
   // 基础字段（后端总有）
@@ -630,7 +634,7 @@ const feedbacksMap = computed(() => {
 const todos = ref(loadToday())
 watch(todos, saveToday, { deep: true })
 
-// ⚠️ 后端聚合返回的禁忌（不可执行，只做顶部提醒）
+// ⚠️ 后端聚合返回的注意事项（不可执行，只做顶部提醒）
 const avoidanceNotes = ref([])
 
 function toggleTodo(id) {
@@ -879,7 +883,7 @@ async function _onBoard() {
   if (userStore.loggedIn && !userStore.maturity) {
     try { await userStore.fetchMaturity() } catch {}
   }
-  // 注：问诊报告已迁移到「体质 → 报告时间线」
+  // 注：了解报告已迁移到「体质 → 报告时间线」
   health.value = await healthCheck()
   await vectorStore.fetchCase()
   // 后台预拉终身推演数据（八字大运+流年）——不阻塞主流程
@@ -894,10 +898,10 @@ async function _onBoard() {
     // ⚠️ 2026-10-05 修复：无条件覆盖 todos，不要用 length > 0 判断
     // 否则 reset 后后端返回空时，localStorage 残留的旧 todos 不会被清掉
     todos.value = todosFromBackend
-    // 🎯 禁忌单独存（不进 todos，进顶部提醒栏）
+    // 🎯 注意事项单独存（不进 todos，进顶部提醒栏）
     avoidanceNotes.value = r.data?.avoidances || []
     saveToday()
-    console.log(`[Dashboard] ✅ 今日待办来自后端聚合：${todosFromBackend.length} 条，禁忌 ${avoidanceNotes.value.length} 条`)
+    console.log(`[Dashboard] ✅ 今日待办来自后端聚合：${todosFromBackend.length} 条，注意事项 ${avoidanceNotes.value.length} 条`)
     // 也存一下 chief_complaint 方便青囊聊天读
     if (r.data?.chief_complaint) {
       storage.set('qingnang_chief_complaint', r.data.chief_complaint)
@@ -1089,7 +1093,7 @@ function _applyLifestyleResult(d) {
 .mc-next { margin: 12px 0 4px; font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-emerald-dark); font-weight: 500; }
 .mc-missing { margin: 0; font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
 
-/* ════ 注：问诊报告入口 CSS 已删除（迁移到体质页） ════ */
+/* ════ 注：了解报告入口 CSS 已删除（迁移到体质页） ════ */
 
 /* —— 移动端适配 —— 归并到 480px 档位（原 640px） */
 @media (max-width: 480px) {

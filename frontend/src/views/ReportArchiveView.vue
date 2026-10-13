@@ -7,7 +7,7 @@
       </a>
       <h1>检查报告</h1>
     </div>
-    <p class="page__desc">上传化验单 / 影像报告 / 诊断书 → AI 自动提取归档 → 智能写入时间轴</p>
+    <p class="page__desc">上传化验单 / 影像报告 / 状态描述书 → AI 自动提取归档 → 智能写入时间轴</p>
 
     <!-- ══ 上传区 ══ -->
     <div class="upload-section">
@@ -37,7 +37,7 @@
         <select v-model="reportType" class="meta-input">
           <option value="lab">化验</option>
           <option value="imaging">影像（CT/MRI/B超等）</option>
-          <option value="diagnosis">诊断书 / 病历</option>
+          <option value="diagnosis">状态描述书 / 记录</option>
           <option value="other">其他</option>
         </select>
         <textarea v-model="manualNotes" placeholder="备注（可选）" class="meta-input meta-textarea" rows="2"></textarea>
@@ -320,28 +320,31 @@ async function showResult(id) {
 
 async function confirmTrajectory(tpId, ev) {
   try {
-    const r = await api.post(`/assistant/trajectory/${tpId}/confirm`)
+    const r = await api.post(`/api/v1/assistant/trajectory/${tpId}/confirm`)
     if (r.data?.ok) {
-      // 从提案列表里移除这条 + 给个轻量反馈
       if (currentResult.value?.trajectory_proposals) {
         currentResult.value.trajectory_proposals =
           currentResult.value.trajectory_proposals.filter(p => p.id !== tpId)
       }
       ev?.target?.closest('.tp-card')?.classList.add('tp-confirmed')
     }
-  } catch (e) { console.error('confirmTrajectory failed:', e) }
+  } catch (e) {
+    alert('操作失败：' + (e.response?.data?.detail || e.message))
+  }
 }
 
 async function skipTrajectory(tpId, ev) {
   try {
-    const r = await api.post(`/assistant/trajectory/${tpId}/skip`)
+    const r = await api.post(`/api/v1/assistant/trajectory/${tpId}/skip`)
     if (r.data?.ok) {
       if (currentResult.value?.trajectory_proposals) {
         currentResult.value.trajectory_proposals =
           currentResult.value.trajectory_proposals.filter(p => p.id !== tpId)
       }
     }
-  } catch (e) { console.error('skipTrajectory failed:', e) }
+  } catch (e) {
+    alert('操作失败：' + (e.response?.data?.detail || e.message))
+  }
 }
 
 async function retryWithManual() {
@@ -402,7 +405,7 @@ async function delReport(id) {
 
 // ── 辅助 ──
 function typeLabel(t) {
-  return { lab: '化验', imaging: '影像', diagnosis: '诊断书', other: '其他' }[t] || t || '未分类'
+  return { lab: '化验', imaging: '影像', diagnosis: '状态描述书', other: '其他' }[t] || t || '未分类'
 }
 function providerLabel(p) {
   if (p === 'llm') return '✓ AI 已提取'

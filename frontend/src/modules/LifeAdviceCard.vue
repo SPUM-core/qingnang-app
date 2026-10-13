@@ -32,7 +32,7 @@
     <!-- 归档视图 -->
     <div v-else class="archive-view">
       <div class="archive-summary" v-if="archivedDays > 0">
-        <p>共 <strong>{{ archivedDays }}</strong> 天归档 · <strong>{{ totalFeedbacks }}</strong> 条反馈 · 用作复诊诊断数据</p>
+        <p>共 <strong>{{ archivedDays }}</strong> 天归档 · <strong>{{ totalFeedbacks }}</strong> 条反馈 · 用作复诊状态描述数据</p>
       </div>
       <div v-if="archives.length" class="archive-list">
         <details v-for="arc in archives" :key="arc.date" class="archive-day">

@@ -140,12 +140,12 @@
       </article>
     </div>
 
-    <!-- ════ 禁忌规避 ════ -->
+    <!-- ════ 注意事项规避 ════ -->
     <div v-else-if="activeCat === 'avoid'" class="card-grid">
       <article class="rem-card rem-absolute" v-for="r in absoluteAvoid" :key="r.id">
         <div class="rem-head">
           <span class="rem-icon" style="background: var(--qn-fire)">❌</span>
-          <div class="rem-level pri-danger">绝对禁忌</div>
+          <div class="rem-level pri-danger">绝对注意事项</div>
         </div>
         <h3>{{ r.title }}</h3>
         <p class="rem-desc">{{ r.desc }}</p>
@@ -198,7 +198,7 @@
     <!-- 底部说明 -->
     <p class="footer-notice">
       * 所有建议基于你的数字模型（{{ myCoreDeviation || '五形分布' }}）推导，
-      仅供生活参考，不构成医疗诊断
+      仅供生活参考，不构成医疗状态描述
     </p>
   </section>
 </template>
@@ -274,7 +274,7 @@ const categories = computed(() => [
   { key: 'food', icon: '🍜', label: '饮食宜忌', count: foodGood.value.length + foodBad.value.length },
   { key: 'home', icon: '🏠', label: '住房改造', count: homeReminders.value.length },
   { key: 'travel', icon: '🕐', label: '时辰出行', count: todayTimeline.value.length + travelReminders.value.length },
-  { key: 'avoid', icon: '⚠️', label: '禁忌规避', count: absoluteAvoid.value.length + relativeAvoid.value.length + stoneReminders.value.length },
+  { key: 'avoid', icon: '⚠️', label: '注意事项规避', count: absoluteAvoid.value.length + relativeAvoid.value.length + stoneReminders.value.length },
   { key: 'solution', icon: '💡', label: '破煞方案', count: solutions.length }
 ])
 </script>

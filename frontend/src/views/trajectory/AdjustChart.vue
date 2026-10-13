@@ -16,7 +16,7 @@
         </div>
         <div class="adj-metric">
           <div class="adj-metric-val">{{ data.comparison?.disease_days_projected || 0 }}→{{ data.comparison?.disease_days_actual || 0 }}</div>
-          <div class="adj-metric-label">疾病天数</div>
+          <div class="adj-metric-label">改善周期</div>
         </div>
       </div>
     </div>

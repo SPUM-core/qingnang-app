@@ -459,3 +459,43 @@ html::after {
 @media (max-width: 480px) {
   .mobile-tabbar { height: calc(var(--safe-bottom) + 60px) !important; }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   左右滑动过渡动画（App.vue <transition :name="swipe-left/right">）
+
+   ⚠️ 关键实现细节（缺一不可，否则动画"怪"或"生硬"）：
+   1. 父容器 .transition-wrapper 必须 position: relative（给新旧页的 absolute 定位提供参照物）
+   2. enter-active / leave-active 必须 position: absolute + width:100% + top:0 + left:0
+      → 否则新旧页垂直堆叠而非并排重叠，动画看起来就是不对的
+   3. 用 translate3d + will-change + backface-visibility 开启 GPU 合成层
+      → 不然 CPU 计算 transform 会掉帧
+   4. 新旧页同时进出场（不能用 mode="out-in"，会有空白间隙）
+   5. 缓动用 standard easing（cubic-bezier(.35,0,.25,1)）— Material Design 标准曲线
+      比 ease-out-quint 更克制、更像原生 App
+   6. 旧页不是简单全屏移走，而是"移走 + 淡出"组合
+      → 视觉上更有层次，不会像两张白纸互相推
+   ═══════════════════════════════════════════════════════════ */
+
+/* enter/leave 期间：新旧页 absolute 叠在一起 + GPU 加速 */
+.swipe-left-enter-active,
+.swipe-left-leave-active,
+.swipe-right-enter-active,
+.swipe-right-leave-active {
+  position: absolute;
+  width: 100%;
+  top: 0; left: 0;
+  transition: transform 0.35s cubic-bezier(0.35, 0, 0.25, 1),
+              opacity 0.3s cubic-bezier(0.35, 0, 0.25, 1);
+  transform: translate3d(0, 0, 0);
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* 左滑 → 新页从右侧 100% 滑入，旧页向左移出 + 轻微缩小 + 淡出 */
+.swipe-left-enter-from { transform: translate3d(100%, 0, 0);  opacity: 0; }
+.swipe-left-leave-to   { transform: translate3d(-30%, 0, 0); opacity: 0.6; }
+
+/* 右滑 → 新页从左侧 -100% 滑入，旧页向右移出 + 轻微缩小 + 淡出 */
+.swipe-right-enter-from{ transform: translate3d(-100%, 0, 0); opacity: 0; }
+.swipe-right-leave-to  { transform: translate3d(30%, 0, 0);  opacity: 0.6; }

@@ -141,8 +141,10 @@ public class MainActivity extends BridgeActivity {
 
         // 强制推送（不去重）— 页面重载后 CSS 变量会丢，必须每次都写
         String js =
-            "(function(){var r=window.devicePixelRatio||1;" +
-            "var s=document.documentElement.style;" +
+            "(function(){var d=document.documentElement;" +
+            "if(!d||!d.style) return;" +  // WebView 未就绪时跳过，避免 null.style 崩溃
+            "var r=window.devicePixelRatio||1;" +
+            "var s=d.style;" +
             "s.setProperty('--status-bar-height',(" + top    + "/r)+'px');" +
             "s.setProperty('--nav-bar-height',   (" + bottom + "/r)+'px');" +
             "s.setProperty('--safe-left',        (" + left   + "/r)+'px');" +

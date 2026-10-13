@@ -17,7 +17,7 @@ export interface MarkLifeSignalParams {
 }
 
 export interface UpdateChiefComplaintParams {
-  /** 用户的主要不适主诉 */
+  /** 用户的主要不适主要困扰 */
   chief_complaint: string;
 }
 

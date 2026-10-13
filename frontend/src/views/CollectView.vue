@@ -40,7 +40,7 @@
       <router-link to="/collect/inquiry" class="entry-btn">
         <span class="entry-icon">📋</span>
         <div class="entry-text">
-          <span class="entry-label">AI 问诊</span>
+          <span class="entry-label">AI 了解</span>
           <span class="entry-sub">多阶段选择题 · 状态摘要</span>
         </div>
         <span class="entry-arrow">›</span>

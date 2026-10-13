@@ -10,7 +10,7 @@
         <p class="profile-sub">
           青囊 ID：{{ user.qingnangId || '--' }}
           <span v-if="caseData?.created_at">· 注册 {{ daysSince(caseData.created_at) }} 天</span>
-          <span v-if="caseData?.observations?.length">· 观测 {{ caseData.observations.length }} 次</span>
+          <span v-if="caseData?.observations">· 观测 {{ caseData.observations.length }} 次</span>
         </p>
         <p class="profile-model" v-if="caseData?.bazi">
           八字：{{ caseData.bazi }}
@@ -254,7 +254,7 @@ async function checkUpdate() {
 
 // closeUpdateModal / downloadUpdate 已删除 —— 统一由 App.vue 的 UpdateDialog 处理
 
-// ── onMounted：后端可达性探测 ──
+// ── onMounted：后端可达性探测 + 加载用户档案 ──
 const _serverStatusText = ref('检测中…')
 onMounted(async () => {
   // App.vue 已全局静默检查过更新，这里不再重复
@@ -265,6 +265,14 @@ onMounted(async () => {
     _serverStatusText.value = '● 正常'
   } catch (e) {
     _serverStatusText.value = '⚠️ ' + (e?.response?.status === 403 ? '自动更新已关闭' : '离线')
+  }
+
+  // 拉取用户档案（名片卡需要注册天数、观测次数、八字）
+  try {
+    const r = await api.get('/api/v1/cases/mine', { timeout: 6000 })
+    caseData.value = r.data?.case || null
+  } catch (e) {
+    console.warn('[Settings] 拉取档案失败:', e?.message)
   }
 })
 

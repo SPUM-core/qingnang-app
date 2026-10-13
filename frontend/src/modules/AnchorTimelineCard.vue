@@ -181,7 +181,7 @@
       </div>
 
       <div class="more" @click="$emit('explain')">AI 解读全部宜忌 ›</div>
-      <p class="compliance">内容由 AI 生成，仅供参考 · 不构成医疗诊断<br>体质趋势观察提示</p>
+      <p class="compliance">内容由 AI 生成，仅供参考 · 不构成医疗状态描述<br>体质趋势观察提示</p>
     </div>
 
   </div>

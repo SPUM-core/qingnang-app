@@ -17,6 +17,16 @@ backend/alembic/versions/*.pyc
 backend/*.db
 backend/data/
 
+# ── 敏感数据 / 破坏性脚本（P0-2）──
+backend/_*.py
+backend/seed/
+backend/scripts/seed_clinical_events.py
+
+# ── APK / 二进制安装包（P0-3）──
+backend/updates/*.apk
+backend/updates/*.rar
+backend/updates/*.zip
+
 # ── IDE ──
 .vscode/
 .idea/
