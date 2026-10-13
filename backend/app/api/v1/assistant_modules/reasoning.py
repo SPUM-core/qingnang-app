@@ -987,19 +987,34 @@ async def reasoning_treatment(body: TreatmentIn,
 
 
 class AnchorExplainIn(BaseModel):
-    """时空锚点大白话解读 — 前端点"今日时空锚点"卡片弹 modal 调用"""
-    ganzhi: str | None = None           # 干支：甲辰年 甲戌月 ...
-    dangling: str | None = None         # 当令时辰
-    feixing: str | None = None          # 流飞星
-    jianchu: str | None = None          # 十二建除
-    chong: str | None = None            # 冲煞
-    shaxiang: str | None = None         # 煞方
-    richuxing: str | None = None        # 值日星辰
-    pengzu: str | None = None           # 彭祖百忌
-    su: str | None = None               # 二十八宿
-    yuxiaji: str | None = None          # 玉匣记摘录
-    yi: str | None = None               # 宜
-    ji: str | None = None               # 忌
+    """时空锚点大白话解读 — 用户点卡片触发
+    
+    兼容两套字段名：
+      旧字段（前端 AnchorTimelineCard）：ganzhi, dangling, feixing, jianchu, chong...
+      新字段（时空调候引擎）：lingshou, wuxing_status, jianchu_advice, tiao_hou, spacetime_ctx
+    """
+    ganzhi: str | None = None
+    dangling: str | None = None
+    feixing: str | None = None
+    jianchu: str | None = None
+    chong: str | None = None
+    shaxiang: str | None = None
+    richuxing: str | None = None
+    pengzu: str | None = None
+    su: str | None = None
+    yuxiaji: str | None = None
+    yi: str | None = None
+    ji: str | None = None
+    # —— 新时空引擎字段 ——
+    lingshou: str | None = None
+    lingshou_gz: str | None = None
+    lingshou_cn: str | None = None
+    wuxing_status: dict | None = None
+    jianchu_advice: dict | None = None
+    tiao_hou: dict | None = None
+    spacetime_ctx: dict | None = None
+    jieqi: str | None = None
+    sizhu: dict | None = None
 
 
 @router.post("/reasoning/anchor-explain")
@@ -1007,28 +1022,88 @@ async def reasoning_anchor_explain(body: AnchorExplainIn,
                                    current: User = Depends(get_current_user)):
     """今日时空锚点 AI 大白话解读 — 用户点卡片触发。
     
-    调 qingmeng-engine 的 chat 流式，让 SPUM 引擎用通俗语言解释：
-    - 每个术语是什么意思（当令时辰、流飞星、十二建除、冲煞...）
-    - 今天对你的体质有什么实际影响
-    - 给 2-3 条马上能做的生活建议
-    
-    qingmeng-engine 不可达时返回本地 rule-based 解读（无 LLM 但有固定话术）。
+    自动补全时空数据：如果前端没传新时空引擎字段，服务端自己算。
+    兼容两套字段名，都能正常工作。
     """
     import json as _json
-    anchor_data = body.model_dump(exclude_none=True)
-    if not anchor_data:
+    
+    # ⭐ 自动补全时空数据：前端没传新字段就服务端算
+    body_dict = body.model_dump(exclude_none=True)
+    
+    # 如果只有旧字段没新时空数据，调用 spacetime_engine 补齐
+    has_new = body_dict.get('wuxing_status') or body_dict.get('lingshou') or body_dict.get('tiao_hou')
+    if not has_new:
+        try:
+            from ...utils.spacetime_engine import spacetime_context, tiao_hou_engine
+            from datetime import datetime
+            ctx = spacetime_context(datetime.now())
+            me_v = current.v_base or {'wood': 50, 'fire': 50, 'earth': 50, 'metal': 50, 'water': 50}
+            th = tiao_hou_engine(me_v, ctx)
+            body_dict.update({
+                'sizhu': ctx['sizhu'],
+                'lingshou_gz': ctx['lingshou_gz'],
+                'lingshou_cn': {'wood':'木','fire':'火','earth':'土','metal':'金','water':'水'}.get(ctx['lingshou'], ctx['lingshou']),
+                'wuxing_status': ctx['wuxing_status'],
+                'jianchu': ctx['jianchu'],
+                'jianchu_advice': ctx['jianchu_advice'],
+                'jieqi': ctx['jieqi'].get('current_term', ''),
+                'tiao_hou': th,
+            })
+            # 旧字段也补一下（兜底）
+            if not body_dict.get('ganzhi'):
+                body_dict['ganzhi'] = f"{ctx['sizhu']['year']} {ctx['sizhu']['month']} {ctx['sizhu']['day']} {ctx['sizhu']['hour']}"
+            if not body_dict.get('dangling'):
+                body_dict['dangling'] = ctx['lingshou_gz']
+            if not body_dict.get('yi') and ctx['jianchu_advice'].get('good'):
+                body_dict['yi'] = ctx['jianchu_advice']['good']
+            if not body_dict.get('ji') and ctx['jianchu_advice'].get('bad'):
+                body_dict['ji'] = ctx['jianchu_advice']['bad']
+        except Exception as _e:
+            print(f"[anchor-explain] auto spacetime fill failed: {_e}")
+    
+    if not body_dict:
         return {"ok": False, "message": "无锚点数据", "explain": ""}
 
-    # 1. 组 prompt
+    # 1. 组 prompt — 新字段也纳入
     fields_label = {
-        "ganzhi": "干支", "dangling": "当令时辰", "feixing": "流飞星",
+        "ganzhi": "四柱干支", "dangling": "当令", "feixing": "流飞星",
         "jianchu": "十二建除", "chong": "冲煞", "shaxiang": "煞方",
         "richuxing": "值日星辰", "pengzu": "彭祖百忌", "su": "二十八宿",
         "yuxiaji": "玉匣记摘录", "yi": "宜", "ji": "忌",
+        "lingshou_gz": "当令干支", "lingshou_cn": "当令五行",
+        "jieqi": "节气",
     }
-    anchor_text = "\n".join(
-        f"  {fields_label.get(k, k)}：{v}" for k, v in anchor_data.items()
+    # wuxing_status 单独处理
+    wuxing_status = body_dict.get('wuxing_status', {})
+    wuxing_status_text = "、".join(
+        f"{'木火土金水'[i]}形{v}" for i, v in enumerate([
+            wuxing_status.get('wood',''), wuxing_status.get('fire',''),
+            wuxing_status.get('earth',''), wuxing_status.get('metal',''),
+            wuxing_status.get('water',''),
+        ]) if v
     )
+    jc_advice = body_dict.get('jianchu_advice', {})
+    jc_text = ""
+    if isinstance(jc_advice, dict):
+        if jc_advice.get('good'): jc_text += f"宜：{jc_advice['good']} "
+        if jc_advice.get('bad'): jc_text += f"忌：{jc_advice['bad']}"
+    
+    anchor_lines = []
+    for k, v in body_dict.items():
+        if k in ('wuxing_status', 'jianchu_advice', 'tiao_hou', 'spacetime_ctx', 'sizhu'):
+            continue
+        if v and k in fields_label:
+            anchor_lines.append(f"  {fields_label[k]}：{v}")
+    if wuxing_status_text:
+        anchor_lines.append(f"  旺相休囚：{wuxing_status_text}")
+    if jc_text:
+        anchor_lines.append(f"  建除宜忌：{jc_text}")
+    
+    # tiao_hou 摘要
+    th = body_dict.get('tiao_hou', {})
+    th_summary = th.get('summary', '') if isinstance(th, dict) else ''
+    
+    anchor_text = "\n".join(anchor_lines)
     me_v_base = current.v_base or {}
     profile_text = "、".join(
         f"{['木','火','土','金','水'][i]}形" for i, v in enumerate([
@@ -1037,20 +1112,24 @@ async def reasoning_anchor_explain(body: AnchorExplainIn,
     ) or "各形均平"
 
     system_prompt = (
-        "你是青囊生活管家的 AI 助手，擅长把中华传统历法（干支、流飞星、十二建除、冲煞、煞方、彭祖百忌等）"
+        "你是青囊生活管家的 AI 助手，擅长把中华传统历法（干支、旺相休囚、十二建除、冲煞、煞方、彭祖百忌等）"
+        "和中医五形调候（当令五行 × 体质偏缺 = 动态建议）"
         "用现代中国人听得懂的大白话解释。\n"
         "要求：\n"
         "1. 逐行解读：把每个术语翻译成'这件事是什么意思'，用比喻或生活场景\n"
-        "2. 个性化结合用户的数字模型（五形向量）—— 告诉用户'今天对你来说要特别注意什么'\n"
-        "3. 行动建议：给 2-3 条非常具体的、10 分钟内能做的小事\n"
-        "4. 不要用'宜忌'之外的生僻术语，假设读者对古历法零知识\n"
-        "5. 整体语气：像一个懂中医又懂生活的朋友在跟你聊天"
+        "2. 重点解读'旺相休囚死'—— 这是今天最重要的节律标记，告诉你什么形当令旺、什么形当令死\n"
+        "3. 个性化结合用户的数字模型（五形向量）—— 告诉用户'今天对你来说要特别注意什么'\n"
+        "4. 如果有调候总结，优先按调候总结来解释（它是时空×体质的动态结论）\n"
+        "5. 行动建议：给 2-3 条非常具体的、10 分钟内能做的小事\n"
+        "6. 不要用'宜忌'之外的生僻术语，假设读者对古历法零知识\n"
+        "7. 整体语气：像一个懂中医又懂生活的朋友在跟你聊天"
     )
     user_prompt = (
-        f"今天的时空锚点数据：\n{anchor_text}\n\n"
-        f"我的体质数字模型（五形向量）：{me_v_base}\n"
-        f"我的主要体质倾向：{profile_text}\n\n"
-        "请逐行用大白话解读以上术语，并告诉我今天有什么要注意的。"
+        f"今天的时空锚点数据：\n{anchor_text}\n"
+        + (f"\n调候引擎结论（时空×体质动态推演）：{th_summary}\n" if th_summary else "")
+        + f"\n我的体质数字模型（五形向量）：{me_v_base}\n"
+        + f"我的主要体质倾向：{profile_text}\n\n"
+        + "请逐行用大白话解读以上术语，并告诉我今天有什么要注意的。"
     )
 
     # 2. 调 LLM：优先 DeepSeek，其次 qingmeng-engine，最后本地 fallback
@@ -1104,7 +1183,12 @@ async def reasoning_anchor_explain(body: AnchorExplainIn,
 
 
 def _local_anchor_fallback(anchor: dict) -> str:
-    """本地 fallback：把术语翻译成大白话词典 + 基础建议"""
+    """本地 fallback：把术语翻译成大白话词典 + 基础建议
+    
+    兼容新旧两套字段：
+      旧字段：dangling, feixing, jianchu, chong, shaxiang, pengzu, su, ganzhi
+      新字段：wuxing_status, jianchu_advice, tiao_hou, lingshou_gz, lingshou_cn, jieqi
+    """
     glossary = {
         "dangling": ("当令时辰",
                      "就是今天值班的时辰，相当于'今天的小时长'。"
@@ -1131,15 +1215,79 @@ def _local_anchor_fallback(anchor: dict) -> str:
         "ganzhi": ("干支",
                    "天干地支组合起来记日子的方法，比如'甲辰'就是第 41 天。"
                    "它是古代历法的骨架，所有宜忌都从它推出来。"),
+        "lingshou_gz": ("当令干支",
+                        "就是当令五行的干支表达——比如戊戌就是当令土。"
+                        "当令的意思是今天这个五行'值班'，它的气场最强。"),
+        "lingshou_cn": ("当令五行",
+                        "今天的主角五行。当令的气场最强，其他五行围绕它转。"
+                        "比如当令土——今天脾胃经最活跃，健脾的效果比平时好。"),
+        "jieqi": ("节气",
+                  "二十四节气之一，标示季节转换的节点。"
+                  "每个节气后天地气场切换，饮食作息要跟着调整。"),
     }
 
+    # 旺相休囚死 —— 新时空引擎核心
+    wuxing_status = anchor.get('wuxing_status', {})
+    if wuxing_status:
+        wx_text = "、".join(
+            f"{'木火土金水'[i]}形{v}" for i, v in enumerate([
+                wuxing_status.get('wood',''), wuxing_status.get('fire',''),
+                wuxing_status.get('earth',''), wuxing_status.get('metal',''),
+                wuxing_status.get('water',''),
+            ]) if v
+        )
+        glossary['wuxing_status'] = ("旺相休囚死",
+                                     f"今天的五形节律状态：{wx_text}。"
+                                     "旺=当令气场最强（今天补这个形效果最好）；"
+                                     "死=被当令之气克制（今天别碰这个形的调理，换时辰）；"
+                                     "相=当令所生（顺风顺水）；"
+                                     "休=生当令之气（低调收敛）；"
+                                     "囚=被当令所克（能不碰就不碰）。")
+
+    # 建除宜忌
+    jc_advice = anchor.get('jianchu_advice', {})
+    if isinstance(jc_advice, dict):
+        jc_parts = []
+        if jc_advice.get('good'): jc_parts.append(f"宜：{jc_advice['good']}")
+        if jc_advice.get('bad'): jc_parts.append(f"忌：{jc_advice['bad']}")
+        if jc_parts:
+            glossary['jianchu_advice'] = ("建除宜忌", "、".join(jc_parts))
+
+    # 调候引擎总结 —— 最有价值的新数据
+    th = anchor.get('tiao_hou', {})
+    if isinstance(th, dict) and th.get('summary'):
+        glossary['tiao_hou'] = ("时空调候结论",
+                                 th['summary'] + "\n\n"
+                                 "——这是青囊调候引擎用'当下时空 × 你的体质'动态算出的结论。"
+                                 "不是简单的'缺土补土'，而是考虑了'今天土旺可以借势补、木死别碰木形调理'等节律。")
+
     lines = []
+    # 先放调候结论（最重要）
+    if 'tiao_hou' in glossary:
+        label, tip = glossary.pop('tiao_hou')
+        lines.append(f"**{label}**：{tip}")
+        lines.append("")
+
+    # 再放旺相休囚
+    if 'wuxing_status' in glossary:
+        label, tip = glossary.pop('wuxing_status')
+        lines.append(f"**{label}**：{tip}")
+        lines.append("")
+
+    # 再放其他术语
     for k, v in anchor.items():
-        if k in ("yi", "ji"):
+        if k in ("yi", "ji", "wuxing_status", "jianchu_advice", "tiao_hou",
+                 "spacetime_ctx", "sizhu", "jianchu_yi", "jianchu_ji",
+                 "yi_list", "ji_list"):
             continue
-        if k in glossary:
+        if k in glossary and v:
             label, tip = glossary[k]
             lines.append(f"**{label}**（{v}）：{tip}")
+
+    # 建除宜忌
+    if 'jianchu_advice' in glossary:
+        label, tip = glossary.pop('jianchu_advice')
+        lines.append(f"**{label}**：{tip}")
 
     # 宜忌单独
     if anchor.get("yi"):
