@@ -232,6 +232,44 @@ _XIU_YI = {
 _TIAN_GAN_IDX = {c: i for i, c in enumerate("甲乙丙丁戊己庚辛壬癸")}
 _DI_ZHI_IDX = {c: i for i, c in enumerate("子丑寅卯辰巳午未申酉戌亥")}
 
+# ════ 飞星 → 落宫 → 八方位映射 ════
+# 飞星号 1-9 对应：一白、二黑、三碧、四绿、五黄、六白、七赤、八白、九紫
+# 洛书九宫：戴九履一，左三右七，二四为肩，六八为足，五在中央
+# 落宫 → 方位: 坎=北, 坤=西南, 震=东, 巽=东南, 乾=西北, 兑=西, 艮=东北, 离=南
+# 五黄居中 → 寄坤(西南)
+_FEIXING_MAP = {
+    1: {"name": "一白水天枢", "gong": "坎",  "dir": "正北",   "elem": "water"},
+    2: {"name": "二黑土天璇", "gong": "坤",  "dir": "西南",   "elem": "earth"},
+    3: {"name": "三碧木天玑", "gong": "震",  "dir": "正东",   "elem": "wood"},
+    4: {"name": "四绿木天权", "gong": "巽",  "dir": "东南",   "elem": "wood"},
+    5: {"name": "五黄土天玉", "gong": "坤",  "dir": "西南",   "elem": "earth", "note": "五黄居中寄坤"},
+    6: {"name": "六白金开阳", "gong": "乾",  "dir": "西北",   "elem": "metal"},
+    7: {"name": "七赤金摇光", "gong": "兑",  "dir": "正西",   "elem": "metal"},
+    8: {"name": "八白土天辅", "gong": "艮",  "dir": "东北",   "elem": "earth"},
+    9: {"name": "九紫火天英", "gong": "离",  "dir": "正南",   "elem": "fire"},
+}
+
+# ════ 五行生克判定（SPUM 交叉工具）════
+# 生: 我生为泄（助我），生我为补
+# 克: 我克为耗，克我为伤
+_WX_SHENG = {"wood": "fire", "fire": "earth", "earth": "metal", "metal": "water", "water": "wood"}
+_WX_KE    = {"wood": "earth", "earth": "water", "water": "fire", "fire": "metal", "metal": "wood"}
+
+def _wx_relation(a: str, b: str) -> str:
+    """a 和 b 的五行关系（用于时辰/方位 vs v_base）:
+    'generate_me' = b 生 a → 助我（好）
+    'generated_by_me' = a 生 b → 耗我（平/微耗）
+    'overcome_me' = b 克 a → 伤我（坏）
+    'overcome_by_me' = a 克 b → 平
+    'same' = 同五行 → 看强弱（强则平，弱则助）
+    """
+    if a == b: return "same"
+    if _WX_SHENG.get(b) == a: return "generate_me"      # b 生 a
+    if _WX_SHENG.get(a) == b: return "generated_by_me"  # a 生 b
+    if _WX_KE.get(b) == a: return "overcome_me"          # b 克 a
+    if _WX_KE.get(a) == b: return "overcome_by_me"       # a 克 b
+    return "neutral"
+
 
 def _almanac_today(year: int, month: int, day: int) -> dict:
     """完整今日黄历推演 — 协纪辨方 + 玉匣记 + 传统算法。
@@ -589,6 +627,106 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
             "reason": "《玉匣记》· 彭祖百忌",
         })
     
+    # ════ 12. 时辰 × v_base 生克 → 助我/平/耗我（吉时轴三态）════
+    SHICHEN_ELEM_EN = {"木": "wood", "火": "fire", "土": "earth", "金": "metal", "水": "water"}
+    for item in almanac["timeline"]:
+        sc_elem = SHICHEN_ELEM_EN.get(item["elem"], "wood")
+        base_el = weak  # 以最弱之形为参照（补弱为助我）
+        rel = _wx_relation(base_el, sc_elem)  # 弱形 vs 时辰五行
+        sc_score = v.get(sc_elem, 50)
+        
+        # 三态判定（SPUM × 时辰）
+        if rel == "generate_me":      # 时辰生我 → 助我（吉）
+            ptype, plabel = "good", "助我"
+        elif rel == "overcome_me":    # 时辰克我 → 耗我（凶）
+            ptype, plabel = "bad", "耗我"
+        elif rel == "same" and sc_score < 45:  # 同五行但弱 → 助我
+            ptype, plabel = "good", "助我"
+        elif rel == "same" and sc_score > 65:  # 同五行但过旺 → 平
+            ptype, plabel = "neutral", "平"
+        elif rel == "generated_by_me":  # 我生时辰 → 微耗
+            ptype, plabel = "neutral", "平"
+        else:
+            ptype, plabel = "neutral", "平"
+        
+        item["personal_type"] = ptype
+        item["personal_label"] = plabel
+
+    # ════ 13. 飞星落宫 → 今日方位（宜取/宜避）════
+    feixing_day_str = almanac["feixing"]["day"]  # "一白水天枢"
+    # 从字符串里提取数字（飞星号）
+    import re as _re
+    m = _re.search(r'(\d)', feixing_day_str)
+    fx_num = int(m.group(1)) if m else 1
+    fx = _FEIXING_MAP.get(fx_num, _FEIXING_MAP[1])
+    fx_el = fx["elem"]
+    fx_dir = fx["dir"]
+    fx_gong = fx["gong"]
+    
+    # 宜取 = 飞星生我 / 同我（飞星五行 × v_base 最弱之形）
+    fx_rel_weak = _wx_relation(weak, fx_el)
+    fx_rel_strong = _wx_relation(strong, fx_el)
+    
+    # 宜取方: 飞星生弱形 或 飞星同弱形（弱形分数低 → 同形补之）
+    if fx_rel_weak in ("generate_me",) or (fx_rel_weak == "same" and scores[weak] < 45):
+        good_dir, good_reason = fx_dir, f"日飞星{fx['name']}落{fx_gong}宫（{fx_dir}），生我{WX_CN[weak]}形"
+        # 宜避方 = 对冲宫
+        bad_dir = {"正北": "正南", "正南": "正北", "正东": "正西", "正西": "正东",
+                   "东北": "西南", "西南": "东北", "西北": "东南", "东南": "西北"}.get(fx_dir, "正南")
+        bad_reason = f"对冲{fx_dir}，九星叠位火气重，易上火"
+    elif fx_rel_strong in ("overcome_me",) or (fx_rel_strong == "same" and scores[strong] > 65):
+        good_dir, good_reason = fx_dir, f"日飞星{fx['name']}落{fx_gong}宫（{fx_dir}），宜纳气"
+        bad_dir, bad_reason = fx_dir, f"飞星同{WX_CN[strong]}形，今日{WX_CN[strong]}已过旺，避免叠加"
+    else:
+        good_dir, good_reason = fx_dir, f"日飞星{fx['name']}落{fx_gong}宫（{fx_dir}），平和之气，宜居中"
+        bad_dir = {"正北": "正南", "正南": "正北", "正东": "正西", "正西": "正东",
+                   "东北": "西南", "西南": "东北", "西北": "东南", "东南": "西北"}.get(fx_dir, "正南")
+        bad_reason = f"对冲方位，九星叠位火气重"
+    
+    orientation = {
+        "feixing_num": fx_num,
+        "feixing_name": fx["name"],
+        "gong": fx_gong,
+        "element": fx_el,
+        "good_dir": good_dir,
+        "good_reason": good_reason,
+        "good_advice": f"睡床宜偏{good_dir}{'，或朝'+good_dir+'开窗纳气' if fx_dir in ('正北','正东') else ''}",
+        "bad_dir": bad_dir,
+        "bad_reason": bad_reason,
+        "bad_advice": f"办公尽量避开{bad_dir}背门位",
+    }
+
+    # ════ 14. 替换表（不要 A → 改做 B）════
+    swaps = []
+    # 基于 v_base 偏胜
+    if scores[strong] - scores[weak] > 15:
+        # 过旺之形对应的典型"坏事"
+        swap_map = {
+            "wood":  {"bad": "久坐不动 · 肝木郁结", "good": "每坐 1 小时起身 3 分钟舒展"},
+            "fire":  {"bad": "午后急躁易怒 · 心火上炎", "good": "午后闭目养神 10 分钟静坐"},
+            "earth": {"bad": "思虑过度 · 脾土湿困", "good": "每 2 小时抬头远眺 30 秒"},
+            "metal": {"bad": "说话急促 · 肺气耗散", "good": "说话放慢半拍，每句之间留 1 秒"},
+            "water": {"bad": "熬夜过 23 点 · 肾水亏虚", "good": "22:30 前放下手机准备入睡"},
+        }
+        swaps.append({
+            "bad": swap_map.get(strong, {}).get("bad", "无"),
+            "good": swap_map.get(strong, {}).get("good", "无"),
+            "reason": f"{WX_CN[strong]}形分数 {scores[strong]:.0f} 偏旺",
+        })
+    
+    # 时辰宜忌
+    today_elem = {"木": "wood", "火": "fire", "土": "earth", "金": "metal", "水": "water"}.get(
+        ln["g"][1] if len(ln["g"]) > 1 else "木", "wood")
+    if today_elem in ("wood",):
+        swaps.append({"bad": "寅卯时 3-7 点剧烈运动", "good": "移至申酉时 15-19 点", "reason": "肝木当令忌泄"})
+    if almanac["jianchu"] in ("破", "危", "闭"):
+        swaps.append({"bad": "今日大事冲动决策", "good": "遇事三思，暂缓签约/出行", "reason": f"{almanac['jianchu']}日宜静不宜动"})
+    if weak == "water":
+        swaps.append({"bad": "午后饮浓茶/咖啡", "good": "13-15 时改饮温水或淡枸杞茶", "reason": "肾形偏弱，忌浓茶夺肾"})
+    
+    # 最多 3 条
+    swaps = swaps[:3]
+    
     # ════ 组装完整返回 ════
     anchor = almanac  # 整个黄历对象作为 anchor
     anchor["ganzhi"] = f"{almanac['ganzhi_year']}{almanac['ganzhi_month']}{almanac['ganzhi_day']}"
@@ -598,7 +736,9 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
     
     return {
         "anchor": anchor,
-        "timeline": almanac["timeline"],  # ✅ 12 时辰完整 timeline
+        "timeline": almanac["timeline"],  # ✅ 12 时辰 + personal_type(助我/平/耗我)
+        "orientation": orientation,       # ✅ 今日方位（飞星落宫 → 宜取/宜避）
+        "swaps": swaps,                   # ✅ 替换表（不要 A → 改做 B）
         "cloth_reminders": cloth_good + cloth_bad,
         "food_good": food_good,
         "food_bad": food_bad,
@@ -608,8 +748,8 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
         "stone": stone,                  # ✅ 新增：矿物避忌
         "travel": travel,                # ✅ 新增：时辰出行
         "solutions": solutions,          # ✅ 新增：破煞方案
-        "engine": "rule_almanac_v2",
-        "note": "协纪辨方 + 玉匣记 + SPUM 五行交叉推演",
+        "engine": "rule_almanac_v3",
+        "note": "协纪辨方 + 玉匣记 + SPUM 五行交叉推演（v3: 加 personal_type/方位/替换）",
     }
 
 

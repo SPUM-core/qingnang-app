@@ -1162,12 +1162,22 @@ function showToast(text) {
 }
 
 /* ═══ 移动端适配 ═══ */
-/* 安全区适配 */
-@media (max-width: 720px) {
-  .drawer-head { padding-top: calc(14px + env(safe-area-inset-top)); }
-  .input-area { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
-  .disclaimer { padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
-}
+/* 安全区适配 —— ⚠️ 已移除，勿再恢复！
+   ───────────────────────────────────────────────────────────
+   原写法（真凶）：
+     @media (max-width: 720px) {
+       .drawer-head { padding-top: calc(14px + env(safe-area-inset-top)); }
+       .input-area  { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+       .disclaimer  { padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
+     }
+   它排在文件靠前处，而同文件后面还有基础规则
+     `.drawer-head { padding: 10px 14px }`  ← 同特异性、位置更后 → 后者胜
+   → 三条避让**全部被覆盖**，这就是「AI 对话弹窗依然压住状态栏」的真正原因
+     （源码里避让明明写着，肉眼查不出来）。
+
+   现在改为：避让直接写进**各自的基础规则**，全文件只此一处声明，
+   从根上不存在「先写后被覆盖」；base.css 末尾另有 !important 兜底层。
+   ⛔ 禁止再写 `padding-top: calc(... env(safe-area-inset-top))`，一律用 var(--safe-top)。 */
 
 /* 📜 历史侧栏 overlay —— 左上按钮触发，slide-in */
 .history-sidebar-overlay {
@@ -1203,7 +1213,8 @@ function showToast(text) {
   overflow: hidden;
 }
 .hs-head {
-  padding: 14px 16px;
+  /* 顶部避让状态栏 —— 全文件唯一声明处 */
+  padding: calc(var(--safe-top) + 14px) 16px 14px;
   display: flex; align-items: center; justify-content: space-between;
   border-bottom: 1px solid var(--qn-line);
   background: rgba(var(--qn-emerald-rgb),0.04);
@@ -1261,7 +1272,8 @@ function showToast(text) {
 /* 头部 — 紧凑版 */
 .drawer-head {
   display: flex; align-items: center; gap: 8px;
-  padding: 10px 14px;
+  /* 顶部避让状态栏 —— 全文件唯一声明处（勿在别处再写 padding-top） */
+  padding: calc(var(--safe-top) + 10px) 14px 10px;
   background: linear-gradient(135deg, var(--qn-emerald) 0%, var(--qn-emerald-dark) 100%);
   color: #fff; flex-shrink: 0;
 }
@@ -1638,7 +1650,9 @@ function showToast(text) {
 /* 输入区 — Spec 对齐 */
 .input-area {
   display: flex; align-items: flex-end; gap: 8px;
-  padding: 12px 14px; background: var(--qn-surface-card);
+  /* 底部避让手势条 —— 全文件唯一声明处 */
+  padding: 12px 14px calc(var(--safe-bottom) + 12px);
+  background: var(--qn-surface-card);
   border-top: var(--qn-divider);
   flex-shrink: 0;
 }
@@ -1711,7 +1725,9 @@ function showToast(text) {
   .input-hint { display: block; }
 }
 .disclaimer {
-  margin: 0; padding: 8px 16px;
+  margin: 0;
+  /* 底部避让手势条 —— 全文件唯一声明处 */
+  padding: 8px 16px calc(var(--safe-bottom) + 8px);
   background: var(--qn-surface-footer);   /* #EFEDE6 提亮，拉开与页面分层 */
   border-top: var(--qn-divider);
   font-size: var(--qn-font-xs); color: var(--qn-text-secondary); text-align: center;

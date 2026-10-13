@@ -22,7 +22,8 @@ const text = COMPLIANCE_BAR_TEXT
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 10px 20px;
+  /* 底部避让手势条（base.css 兜底层另有 !important 保险） */
+  padding: 10px 20px calc(var(--safe-bottom) + 10px);
   background: linear-gradient(135deg, var(--qn-emerald) 0%, var(--qn-emerald-dark) 100%);
   color: rgba(255,255,255,0.85);
   font-size: 12px;

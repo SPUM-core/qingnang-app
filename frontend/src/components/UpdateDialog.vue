@@ -102,6 +102,8 @@ async function onInstall() {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 遮罩留安全区（base.css 兜底层另有 !important 保险） */
+  padding: var(--safe-top) 0 var(--safe-bottom);
 }
 
 .update-mask {

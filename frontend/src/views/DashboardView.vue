@@ -104,10 +104,9 @@
         @navigate="$router.push({ name: 'trajectory' })"
       />
 
-      <!-- 右：时空锚点 → modules/AnchorTimelineCard.vue -->
+      <!-- 右：时空锚点全卡（v3 五块合并）→ modules/AnchorTimelineCard.vue -->
       <AnchorTimelineCard
         :anchor-safe="anchorSafe"
-        :rhythm-segments="rhythmSegments"
         @explain="openAnchorExplain"
       />
     </div>
@@ -235,6 +234,10 @@ const anchor = reactive({
   yuxiaji: '',     // ⭐ 玉匣记摘录
   weather: null,
 })
+
+// ⭐ v3 新增：今日方位 + 替换表（从 lifestyle result 顶层取）
+const orientation = ref(null)
+const swaps = ref([])
 const todayTimeline = ref([])
 const clothReminders = ref([])
 const foodGood = ref([])
@@ -467,17 +470,20 @@ const anchorSafe = computed(() => ({
   pengzu: anchor.pengzu || '',
   yuxiaji: anchor.yuxiaji || '',
   na_yin_day: anchor.na_yin_day || '',
-  feixing_year: anchor.feixing_year || '',
-  feixing_day: anchor.feixing_day || '',
-  // 兼容旧字段名
-  feixing: anchor.feixing || [anchor.feixing_year, anchor.feixing_day].filter(Boolean).join(' · ') || '',
+  feixing_year: anchor.feixing_year || anchor.feixing?.year || '',
+  feixing_day: anchor.feixing_day || anchor.feixing?.day || '',
+  // 兼容旧字段名（feixing 可能是 dict {year,day} 或 string）
+  feixing: typeof anchor.feixing === 'string' ? anchor.feixing : [anchor.feixing_year || anchor.feixing?.year, anchor.feixing_day || anchor.feixing?.day].filter(Boolean).join(' · ') || '',
   // 宜/忌列表（后端 yi_list/ji_list 是数组）
   yi_list: anchor.yi_list || [],
   ji_list: anchor.ji_list || [],
   // 天气
   weather: anchor.weather || null,
-  // timeline（12 时辰完整）
-  timeline: anchor.timeline || [],
+  // timeline（12 时辰完整 + personal_type）
+  timeline: todayTimeline.value.length ? todayTimeline.value : anchor.timeline || [],
+  // 方位 + 替换表（v3 新增）
+  orientation: orientation.value,
+  swaps: swaps.value,
   // SPUM 五行 vector（给 HeroDailyTipsCard 做 v_base 展示）
   v_base: vectorStore.vBase || {},
 }))
@@ -952,6 +958,8 @@ async function _onBoard() {
 function _applyLifestyleResult(d) {
   if (d.anchor) Object.assign(anchor, d.anchor)
   if (d.timeline) todayTimeline.value = d.timeline
+  if (d.orientation) orientation.value = d.orientation
+  if (d.swaps) swaps.value = d.swaps
   if (d.cloth_reminders) clothReminders.value = d.cloth_reminders
   if (d.food_good) foodGood.value = d.food_good
   if (d.food_bad) foodBad.value = d.food_bad

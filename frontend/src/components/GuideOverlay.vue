@@ -735,8 +735,8 @@ defineExpose({ show: () => { visible.value = true; stepIdx.value = 0; setTimeout
     max-width: calc(100vw - 24px);
     padding: 14px 16px 12px;
     border-radius: 14px;
-    /* ⭐ iPhone 刘海屏安全区 */
-    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    /* ⭐ 底部安全区（统一变量 --safe-bottom：原生桥值 + env 取大） */
+    padding-bottom: calc(12px + var(--safe-bottom));
   }
   .bubble-title { font-size: 15px; margin-bottom: 6px; }
   .bubble-content { font-size: 13px; line-height: 1.6; margin-bottom: 10px; }
