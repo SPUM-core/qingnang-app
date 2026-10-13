@@ -449,22 +449,37 @@ const today = computed(() => {
 const weekday = computed(() => ['周日','周一','周二','周三','周四','周五','周六'][new Date().getDay()])
 
 // anchor 安全访问：后端不可达时显示中性占位，不展示他人病历内容
+// 直接透传后端 /notifications/today 返回的完整 anchor 对象
 const anchorSafe = computed(() => ({
-  yi: anchor.yi || '加载中...',
-  ji: anchor.ji || '加载中...',
-  state: anchor.state || '',
+  // 基础字段（后端总有）
+  yi: anchor.yi || '—',
+  ji: anchor.ji || '—',
   ganzhi: anchor.ganzhi || '待生成',
   dangling: anchor.dangling || '',
   dangling_elem: anchor.dangling_elem || '',
-  feixing: anchor.feixing || '',
+  state: anchor.state || '',
   chong: anchor.chong || '',
+  // 黄历新字段（协纪辨方 + 玉匣记）— 后端 rule_almanac_v2 填充
   jianchu: anchor.jianchu || '',
+  xiu: anchor.xiu || '',
+  sha: anchor.sha || '',
+  tianshen: anchor.tianshen || '',
   pengzu: anchor.pengzu || '',
-  shaxiang: anchor.shaxiang || '',
-  richuxing: anchor.richuxing || '',
-  su: anchor.su || '',
   yuxiaji: anchor.yuxiaji || '',
+  na_yin_day: anchor.na_yin_day || '',
+  feixing_year: anchor.feixing_year || '',
+  feixing_day: anchor.feixing_day || '',
+  // 兼容旧字段名
+  feixing: anchor.feixing || [anchor.feixing_year, anchor.feixing_day].filter(Boolean).join(' · ') || '',
+  // 宜/忌列表（后端 yi_list/ji_list 是数组）
+  yi_list: anchor.yi_list || [],
+  ji_list: anchor.ji_list || [],
+  // 天气
   weather: anchor.weather || null,
+  // timeline（12 时辰完整）
+  timeline: anchor.timeline || [],
+  // SPUM 五行 vector（给 HeroDailyTipsCard 做 v_base 展示）
+  v_base: vectorStore.vBase || {},
 }))
 
 const deltaTable = computed(() => {

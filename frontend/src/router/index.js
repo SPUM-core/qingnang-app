@@ -29,10 +29,10 @@ const routes = [
   { path: '/shop', redirect: '/discover?tab=shop' },
   { path: '/shop/:id', name: 'shop-detail', component: () => import('../views/ShopDetailView.vue'), meta: { title: '商品详情' } },
 
-  // 关系网暂时不在主导航暴露，但路由保留（可通过 /friends 直接访问）
+  // 关系网（好友）— 主导航暴露
   { path: '/friends', name: 'friends', component: () => import('../views/UserManageView.vue'), meta: { title: '关系网' } },
   { path: '/users', redirect: '/friends' },
-  { path: '/notifications', name: 'notifications', component: () => import('../views/NotificationsView.vue'), meta: { title: '提醒通知' } },
+  { path: '/notifications', redirect: '/friends' },  // 通知功能已合并到主页，老路径跳好友
   { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue'), meta: { title: '设置' } },
 
   // ══ DEV ONLY: 模块调试台 ══

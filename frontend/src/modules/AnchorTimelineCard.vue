@@ -1,5 +1,5 @@
 <!-- ═══════════════════════════════════════════════════════════
-     M5b 今日时空锚点（三格指标 + 彭祖百忌 + 玉匣记 + 节律线）
+     今日时空锚点（三格指标 + 彭祖百忌 + 玉匣记 + 节律线 + 12 时辰）
      纯展示组件：props 进、emit 出
      装配层持有：anchorSafe computed, rhythmSegments computed, openAnchorExplain
      ═══════════════════════════════════════════════════════════ -->
@@ -12,39 +12,40 @@
     <div class="anchor-grid">
       <div class="ag-cell">
         <span class="ag-label">当令时辰</span>
-        <span class="ag-val">{{ anchorSafe?.dangling }}</span>
+        <span class="ag-val">{{ anchorSafe?.dangling }} · 旺{{ anchorSafe?.dangling_elem }}</span>
       </div>
       <div class="ag-cell">
         <span class="ag-label">流飞星</span>
-        <span class="ag-val">{{ anchorSafe?.feixing }}</span>
+        <span class="ag-val">{{ anchorSafe?.feixing || '—' }}</span>
+      </div>
+      <div class="ag-cell">
+        <span class="ag-label">纳音</span>
+        <span class="ag-val">{{ anchorSafe?.na_yin_day || '—' }}</span>
       </div>
       <div class="ag-cell">
         <span class="ag-label">十二建除</span>
-        <span class="ag-val">{{ anchorSafe?.jianchu }}</span>
+        <span class="ag-val">{{ anchorSafe?.jianchu || '—' }}日</span>
+      </div>
+      <div class="ag-cell">
+        <span class="ag-label">值日星宿</span>
+        <span class="ag-val">{{ anchorSafe?.xiu || '—' }}宿</span>
       </div>
       <div class="ag-cell">
         <span class="ag-label">冲煞</span>
-        <span class="ag-val warn">{{ anchorSafe?.chong }}</span>
-      </div>
-      <div class="ag-cell">
-        <span class="ag-label">煞方</span>
-        <span class="ag-val">{{ anchorSafe?.shaxiang }}</span>
-      </div>
-      <div class="ag-cell">
-        <span class="ag-label">值日星辰</span>
-        <span class="ag-val">{{ anchorSafe?.richuxing }}</span>
+        <span class="ag-val warn">{{ anchorSafe?.chong || '—' }}</span>
       </div>
     </div>
 
-    <!-- 彭祖百忌 + 二十八宿 -->
+    <!-- 彭祖百忌 + 煞方 + 值日天神 -->
     <div class="anchor-extras">
-      <div class="ae-row" v-if="anchorSafe?.pengzu">
-        <span class="ae-label">彭祖百忌</span>
-        <span class="ae-val">{{ anchorSafe.pengzu }}</span>
+      <div class="ae-row" v-if="anchorSafe?.sha">
+        <span class="ae-label">煞方</span><span class="ae-val">{{ anchorSafe.sha }}方</span>
       </div>
-      <div class="ae-row" v-if="anchorSafe?.su">
-        <span class="ae-label">二十八宿</span>
-        <span class="ae-val">{{ anchorSafe.su }}宿</span>
+      <div class="ae-row" v-if="anchorSafe?.tianshen">
+        <span class="ae-label">值日天神</span><span class="ae-val">{{ anchorSafe.tianshen }}</span>
+      </div>
+      <div class="ae-row" v-if="anchorSafe?.pengzu">
+        <span class="ae-label">彭祖百忌</span><span class="ae-val">{{ anchorSafe.pengzu }}</span>
       </div>
     </div>
 
@@ -53,8 +54,24 @@
       <span class="yxj-quote">{{ anchorSafe.yuxiaji }}</span>
     </div>
 
-    <!-- 时辰节律线：三段式 -->
-    <div class="anchor-timeline">
+    <!-- ⭐ 12 时辰 timeline（协纪辨方 · 每时辰建除 + 宜忌 + SPUM 交叉） -->
+    <div class="shichen-timeline" v-if="(anchorSafe?.timeline || []).length">
+      <div class="st-head">
+        <span class="st-title">🕐 十二时辰 · 建除宜忌</span>
+        <span class="st-hint">协纪辨方 + 玉匣记</span>
+      </div>
+      <div class="st-row">
+        <div v-for="sc in anchorSafe.timeline" :key="sc.period" class="st-cell" :class="sc.type">
+          <div class="st-period">{{ sc.period }}</div>
+          <div class="st-range">{{ sc.range }}</div>
+          <div class="st-elem">{{ sc.elem }}·{{ sc.jianchu }}</div>
+          <div class="st-yi" v-if="sc.yi?.length">{{ sc.yi.slice(0, 2).join('·') }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 时辰节律线（三段式，保留原来的） -->
+    <div class="anchor-timeline" v-if="rhythmSegments?.length">
       <div class="tl-seg" v-for="s in rhythmSegments" :key="s.range" :class="s.color">
         <span class="tl-bar"></span>
         <span class="tl-text">{{ s.range }} {{ s.label }}</span>
@@ -74,18 +91,15 @@ defineProps({
 defineEmits(['explain'])
 </script>
 
-<!-- ═══ scoped style：从 DashboardView L1261 + L1284-1295 + L1441-1469 一字不差搬运 ═══ -->
+<!-- ═══ scoped style ═══ -->
 <style scoped>
-/* 共享 card-head (原 DashboardView L1261-1262) */
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--qn-line); }
 .card-head h2 { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; border: none; }
 .chip-dv { font-size: calc(12px * var(--qn-fs-scale)); font-weight: 500; color: var(--qn-emerald); background: rgba(var(--qn-emerald-rgb),0.08); border-radius: 12px; padding: 3px 10px; }
 
-/* 原 DashboardView L1090/L1206 — .card h2 / .chart-card 基础 */
 .card h2 { margin-bottom: 12px; }
 .chart-card { min-height: 300px; display: flex; flex-direction: column; }
 
-/* 原 L1284-1295 */
 .anchor-sub { font-size: calc(12px * var(--qn-fs-scale)); color: var(--qn-ink-3); font-weight: 400; }
 .anchor-card .anchor-grid { grid-template-columns: repeat(3, 1fr); }
 .anchor-card.clickable { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
@@ -97,7 +111,6 @@ defineEmits(['explain'])
   font-size: calc(11px * var(--qn-fs-scale)); font-weight: 500;
 }
 
-/* 原 L1441-1469 */
 .anchor-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
 .ag-cell { background: var(--qn-paper); border: none; border-radius: 12px; padding: 10px 12px; text-align: left; min-height: 60px; display: flex; flex-direction: column; justify-content: center; }
 .ag-label { display: block; font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); margin-bottom: 4px; }
@@ -114,9 +127,36 @@ defineEmits(['explain'])
   border-left: 3px solid var(--qn-cinnabar);
   border-radius: 0 8px 8px 0;
   padding: 8px 12px;
-  margin-bottom: 4px;
+  margin-bottom: 10px;
 }
-.yxj-quote { font-family: "STKaiti", "KaiTi", serif; font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-cinnabar); letter-spacing: 0.5px; }
+.yxj-quote { font-family: "STKaiti", "KaiTi", serif; font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-cinnabar); letter-spacing: 0.5px; white-space: pre-line; }
+
+/* ⭐ 12 时辰 timeline */
+.shichen-timeline {
+  margin-bottom: 10px; padding: 10px 12px;
+  background: rgba(var(--qn-emerald-rgb), 0.04);
+  border: 1px solid rgba(var(--qn-emerald-rgb), 0.1);
+  border-radius: 10px;
+}
+.st-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.st-title { font-size: calc(13px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-ink); }
+.st-hint { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); }
+.st-row { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 4px; }
+.st-row::-webkit-scrollbar { height: 3px; }
+.st-row::-webkit-scrollbar-thumb { background: var(--qn-line); border-radius: 2px; }
+.st-cell {
+  flex: 0 0 auto; width: 72px;
+  padding: 6px 6px; border-radius: 8px;
+  background: var(--qn-surface); border: 1px solid var(--qn-line);
+  text-align: center;
+}
+.st-cell.good { border-color: rgba(67,160,71,0.35); background: rgba(67,160,71,0.04); }
+.st-cell.critical { border-color: rgba(216,67,21,0.4); background: rgba(216,67,21,0.04); }
+.st-cell.warn { border-color: rgba(212,160,23,0.35); background: rgba(212,160,23,0.04); }
+.st-period { font-size: calc(12px * var(--qn-fs-scale)); font-weight: 600; color: var(--qn-ink); }
+.st-range { font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-3); font-family: var(--font-mono); }
+.st-elem { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-emerald); font-weight: 500; margin-top: 2px; }
+.st-yi { font-size: calc(10px * var(--qn-fs-scale)); color: var(--qn-ink-2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .anchor-timeline { display: flex; gap: 8px; }
 .tl-seg { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -128,11 +168,16 @@ defineEmits(['explain'])
 .tl-seg.active .tl-text { color: var(--qn-emerald); font-weight: 500; }
 .tl-seg.rest .tl-text { color: var(--wuxing-earth, #B8860B); }
 
-/* 原 480px media query (L1433-1436) */
+@media (max-width: 720px) {
+  .anchor-grid { grid-template-columns: repeat(2, 1fr); }
+  .st-cell { width: 64px; }
+}
 @media (max-width: 480px) {
   .anchor-grid { gap: 8px; }
   .ag-cell { padding: 10px 8px; }
   .ag-val { font-size: calc(13px * var(--qn-fs-scale)); }
   .anchor-timeline { flex-direction: column; gap: 10px; }
+  .st-cell { width: 58px; padding: 5px 4px; }
+  .st-period { font-size: calc(11px * var(--qn-fs-scale)); }
 }
 </style>

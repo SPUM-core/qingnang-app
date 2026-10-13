@@ -19,8 +19,8 @@
 
       <!-- 右侧操作区 -->
       <div class="layout__actions">
-        <RouterLink to="/notifications" class="action-bell" title="提醒通知" aria-label="提醒通知">
-          <QIcon name="bell" :size="19" />
+        <RouterLink to="/friends" class="action-bell" title="好友关系网" aria-label="好友关系网">
+          <QIcon name="user-group" :size="19" />
         </RouterLink>
         <RouterLink to="/settings" class="action-me" title="我的" aria-label="个人设置">
           <span class="me-avatar"><QIcon name="user" :size="15" /></span>
@@ -62,11 +62,11 @@ const navs = [
   { path: '/discover', title: '发现' },
 ]
 
-// 移动端 Tab Bar（5 项：主页/体质/通知/发现/我的）
+// 移动端 Tab Bar（5 项：主页/体质/好友/发现/我的）
 const mobileNavs = [
   { path: '/', title: '主页', icon: 'home' },
   { path: '/case', title: '体质', icon: 'body' },
-  { path: '/notifications', title: '通知', icon: 'bell' },
+  { path: '/friends', title: '好友', icon: 'user-group' },
   { path: '/discover', title: '发现', icon: 'spark' },
   { path: '/settings', title: '我的', icon: 'user' },
 ]

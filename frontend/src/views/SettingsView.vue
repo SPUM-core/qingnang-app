@@ -366,7 +366,6 @@ const groups = [
   {
     key: 'account', icon: 'user', title: '账号与社交',
     items: [
-      { type: 'button', icon: 'user', label: '我的好友', btnText: '前往', action: 'friends' },
       { type: 'button', icon: 'warn', label: '重新初始化建档', btnText: '重新开始', action: 'reinit', danger: true },
     ]
   },
@@ -397,10 +396,6 @@ async function handleAction(action) {
       } finally { busy.value = null }
       break
     }
-
-    case 'friends':
-      router.push({ name: 'users' })
-      break
 
     case 'logout': {
       if (!(await showConfirm('确定退出登录？'))) return
