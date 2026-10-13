@@ -14,8 +14,8 @@
       :archived-days="archivedDays"
     />
 
-    <!-- 📅 今日时空锚点：四柱 + 当令 + 旺相休囚 + 建除 + 调候总结 -->
-    <SpacetimeContextCard />
+    <!-- 📅 今日时空英雄卡 · 点击进入时空详情页 -->
+    <SpacetimeHeroCard />
 
     <!-- 🎖️ 数字模型成熟度进度卡（4 阶段节点 + 总进度 + next_target）
          2026-10-04 隐藏：成熟度是后台隐形设定，AI 用它引导用户完善采集，不需要给用户看
@@ -95,9 +95,8 @@
       />
     </div>
 
-    <!-- ════ 第二行：体质调理曲线 + 今日时空锚点（横屏并列） ════ -->
+    <!-- ════ 第二行：体质调理曲线 ════ -->
     <div class="top-row">
-      <!-- 左：体质调理曲线 → modules/ConstitutionCurveCard.vue -->
       <ConstitutionCurveCard
         v-model:chart-mode="chartMode"
         :drift-trajectory="driftTrajectory"
@@ -105,12 +104,6 @@
         :lifetime-available="!!vectorStore.lifetimeTrajectory"
         :chip-text="chartChipText"
         @navigate="$router.push({ name: 'trajectory' })"
-      />
-
-      <!-- 右：时空锚点全卡（v3 五块合并）→ modules/AnchorTimelineCard.vue -->
-      <AnchorTimelineCard
-        :anchor-safe="anchorSafe"
-        @explain="openAnchorExplain"
       />
     </div>
 
@@ -207,7 +200,7 @@ import DriftChart from '../components/charts/DriftChart.vue'
 import TodoCard from '../components/TodoCard.vue'
 import QIcon from '../components/ui/QIcon.vue'
 import GreetingHeader from '../modules/GreetingHeader.vue'
-import SpacetimeContextCard from '../modules/SpacetimeContextCard.vue'
+import SpacetimeHeroCard from '../modules/SpacetimeHeroCard.vue'
 import TrendRadarCard from '../modules/TrendRadarCard.vue'
 import DriftVectorCard from '../modules/DriftVectorCard.vue'
 import PullRefreshBar from '../modules/PullRefreshBar.vue'
@@ -216,7 +209,6 @@ import HeroDailyTipsCard from '../modules/HeroDailyTipsCard.vue'
 import LifestyleReminderCard from '../modules/LifestyleReminderCard.vue'
 import LifeAdviceCard from '../modules/LifeAdviceCard.vue'
 import ConstitutionCurveCard from '../modules/ConstitutionCurveCard.vue'
-import AnchorTimelineCard from '../modules/AnchorTimelineCard.vue'
 import PunchModal from '../modules/PunchModal.vue'
 import DetailModal from '../modules/DetailModal.vue'
 import AiExplainModal from '../modules/AiExplainModal.vue'

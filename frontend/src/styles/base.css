@@ -440,6 +440,7 @@ html::after {
 .modal                 { padding-bottom: var(--safe-bottom) !important; }
 .feedback-modal        { padding-bottom: var(--safe-bottom) !important; }
 .modal-backdrop        { padding-bottom: var(--safe-bottom) !important; }
+.modal-mask           { padding-bottom: var(--safe-bottom) !important; }
 
 /* —— 底部弹出层（QSelect 等）—— */
 .qselect-backdrop { padding-bottom: var(--safe-bottom) !important; }

@@ -35,6 +35,9 @@ const routes = [
   { path: '/notifications', redirect: '/friends' },  // 通知功能已合并到主页，老路径跳好友
   { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue'), meta: { title: '我的', swipeable: true } },
 
+  // 时空详情页
+  { path: '/spacetime', name: 'spacetime', component: () => import('../views/SpacetimeView.vue'), meta: { title: '时空' } },
+
   // ══ DEV ONLY: 模块调试台 ══
   ...(import.meta.env.DEV ? [{
     path: '/lab', name: 'lab', component: () => import('../dev/ModuleLab.vue'),
