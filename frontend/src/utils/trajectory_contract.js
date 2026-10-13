@@ -319,3 +319,32 @@ export const WUXING_COLORS = {
   metal: { hex: '#90A4AE', light: '#CFD8DC', label: '金' },
   water: { hex: '#42A5F5', light: '#BBDEFB', label: '水' },
 }
+
+
+// ═══════════════════════════════════════════════════════════
+// 五行维度常量（与后端 trajectory_algorithm/_constants.py 单一信源对齐）
+// ═══════════════════════════════════════════════════════════
+
+// 五维 key 顺序（与后端 DIMS 一致）
+export const WUXING_DIMS = ['wood', 'fire', 'earth', 'metal', 'water']
+
+// 中文标签映射
+export const WUXING_LABELS = { wood: '木', fire: '火', earth: '土', metal: '金', water: '水' }
+
+// 健康凸多面体 H — 与后端 HEALTH_POLYTOPE 一致（单一信源：_constants.py）
+export const HEALTH_POLYTOPE = {
+  wood:  [35, 65],
+  fire:  [30, 70],
+  earth: [40, 60],
+  metal: [38, 62],
+  water: [35, 65],
+}
+
+// 健康中心（与后端 HEALTH_CENTROID 一致）
+export const HEALTH_CENTROID = {
+  wood: 50, fire: 50, earth: 50, metal: 50, water: 50,
+}
+
+// 阴阳投影权重（与后端 YY_W_YANG / YY_W_YIN 一致）
+export const YY_W_YANG = { fire: 0.55, wood: 0.45 }
+export const YY_W_YIN = { earth: 0.55, water: 0.45 }

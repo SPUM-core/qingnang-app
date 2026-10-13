@@ -75,6 +75,9 @@ export const useVectorStore = defineStore('vector', {
     trajectory: null,     // { target: [{t,score}], actual: [{t,score}], events: [...] }
     // v0.3 终身推演数据（八字大运 + 流年，带 dayun/markArea）
     lifetimeTrajectory: null,  // year-view 端点返回的完整数据
+    // 时空模块：节气视图 / 调节视图（必须在 state 中定义才响应式）
+    jieqiView: null,
+    adjustView: null,
     // ── CaseDetailView 需要的扩展 mock 字段（dev seed 未建档时 fallback）──
     casePatient: null,
     casePathogenesis: [],
@@ -407,8 +410,7 @@ export const useVectorStore = defineStore('vector', {
       }
     },
 
-    // ── 新增：节气视图后端对接 ──
-    jieqiView: null,
+    // ── 节气视图后端对接 ──
     async fetchJieqiView(yearAge = 30) {
       try {
         const r = await api.get(`/api/v1/cases/trajectories/jieqi-view?year_age=${yearAge}`)
@@ -420,8 +422,7 @@ export const useVectorStore = defineStore('vector', {
       }
     },
 
-    // ── 新增：调节视图后端对接 ──
-    adjustView: null,
+    // ── 调节视图后端对接 ──
     async fetchAdjustmentView() {
       try {
         const r = await api.get('/api/v1/cases/trajectories/adjustment-view')

@@ -17,6 +17,10 @@
           <span v-if="caseData?.syndrome"> · {{ caseData.syndrome }}</span>
         </p>
       </div>
+      <button class="logout-btn" :disabled="busy === 'logout'" @click="handleAction('logout')">
+        <span v-if="busy === 'logout'">退出中…</span>
+        <span v-else>退出</span>
+      </button>
     </div>
 
     <!-- 设置分组 -->
@@ -52,6 +56,27 @@
             {{ typeof item.value === 'function' ? item.value() : item.value }}
           </span>
 
+          <!-- 只读值 + 按钮（如版本号+检查更新） -->
+          <div v-else-if="item.type === 'readonly_button'" class="row-readonly-btn">
+            <span class="row-value">{{ typeof item.value === 'function' ? item.value() : item.value }}</span>
+            <button class="row-btn" :class="{ danger: item.danger }"
+                    :disabled="busy === item.action || updateState === 'checking'"
+                    @click="handleAction(item.action)">
+              <span v-if="busy === item.action || updateState === 'checking'">{{ item.btnTextLoading || '检查中…' }}</span>
+              <span v-else>{{ item.btnText || '前往' }}</span>
+            </button>
+          </div>
+
+          <!-- 位置同步（显示城市名 + 同步按钮） -->
+          <div v-else-if="item.type === 'location'" class="row-readonly-btn">
+            <span class="row-value">{{ locationLabel }}</span>
+            <button class="row-btn"
+                    :disabled="busy === 'sync_location'"
+                    @click="syncLocation">
+              {{ busy === 'sync_location' ? '定位中…' : '同步' }}
+            </button>
+          </div>
+
           <!-- 按钮 -->
           <button v-else-if="item.type === 'button'" class="row-btn" :class="{ danger: item.danger }"
                   :disabled="busy === item.action"
@@ -68,15 +93,6 @@
 
     <!-- 底部 -->
     <div class="app-info">
-      <p class="app-name">青囊生活管家</p>
-      <p class="app-ver">
-        Version {{ currentVersion }}
-        <span v-if="updateState === 'has_update'" class="update-badge" @click="checkUpdate">↑ 新版本 {{ updateInfo?.latest_version }}</span>
-        <span v-else-if="updateState === 'checking'" class="update-badge checking">检查中…</span>
-        <span v-else-if="updateState === 'latest'" class="update-badge latest">已是最新</span>
-        <span v-else-if="updateState === 'error'" class="update-badge error">检查失败</span>
-      </p>
-
       <!-- ⚠️ 通用确认/提示弹窗（替换原生 confirm/alert — Android WebView 原生 dialog 白屏） -->
       <div v-if="dialog.visible" class="update-modal-backdrop" @click.self="dialog.reject?.()">
         <div class="update-modal">
@@ -89,20 +105,11 @@
         </div>
       </div>
 
-      <!-- 手动检查按钮 -->
-      <button class="row-btn" style="margin-bottom:12px;" @click="checkUpdate">
-        {{ updateState === 'checking' ? '检查中…' : '检查更新' }}
-      </button>
-
       <div class="legal-links">
         <a>用户协议</a><span>·</span>
         <a>隐私政策</a><span>·</span>
         <a>免责声明</a>
       </div>
-      <button class="logout-btn" :disabled="busy === 'logout'" @click="handleAction('logout')">
-        <span v-if="busy === 'logout'">退出中…</span>
-        <span v-else>退出登录</span>
-      </button>
     </div>
   </section>
 </template>
@@ -123,8 +130,10 @@ const user   = useUserStore()
 const settings = useSettingsStore()   // ← 替换原来的本地 reactive
 
 // ⭐ 2026-10-05：城市变化 → 保存到后端 + 清缓存触发重新推理
+// 2026-10-13：城市改为定位自动同步，保留 watch 做后端同步
 watch(() => settings.city, async (newCity, oldCity) => {
   if (oldCity === undefined) return  // 初始化加载时跳过
+  if (newCity === oldCity) return
   try {
     await api.patch('/api/v1/auth/me', { city: newCity })
     // 清今日 lifestyle 缓存标记 → 下次 Dashboard 进页面重新推理
@@ -133,6 +142,52 @@ watch(() => settings.city, async (newCity, oldCity) => {
     console.warn('保存城市到后端失败:', e)
   }
 })
+
+// ── 位置定位 + 自动同步 ──
+const locationLabel = computed(() => settings.city || '未定位')
+
+async function syncLocation() {
+  busy.value = 'sync_location'
+  try {
+    if (!navigator.geolocation) {
+      await showAlert('当前设备不支持定位功能')
+      return
+    }
+    // 申请定位权限 → 获取经纬度
+    const pos = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: false,
+        timeout: 10000,
+        maximumAge: 300000,  // 5 分钟缓存
+      })
+    })
+    const { latitude, longitude } = pos.coords
+
+    // 反查城市名（使用 OpenStreetMap Nominatim 免费服务）
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=10&accept-language=zh-CN`,
+      { headers: { 'Accept': 'application/json' } }
+    )
+    if (!r.ok) throw new Error('反查城市失败')
+    const data = await r.json()
+    // Nominatim 返回 address 对象，提取城市名
+    const addr = data.address || {}
+    const cityName = addr.city || addr.town || addr.county || addr.province || addr.state || ''
+    if (!cityName) throw new Error('无法识别城市名')
+
+    // 保存到 settings（watch 会自动同步到后端）
+    settings.city = cityName
+    await showAlert(`已定位：${cityName}`)
+  } catch (e) {
+    if (e.code === 1) {
+      await showAlert('定位权限被拒绝，请在系统设置中允许定位权限')
+    } else {
+      await showAlert('定位失败：' + (e.message || '请稍后重试'))
+    }
+  } finally {
+    busy.value = null
+  }
+}
 
 // settings 已在 stores/settings.js 初始化 + watch persist，这里不需要再配 defaults 和 watch
 
@@ -218,30 +273,9 @@ const groups = [
   {
     key: 'notify', icon: 'bell', title: '通知与提醒',
     items: [
-      // ⭐ 2026-10-05 新增：城市选择（真实天气查询）
-      { key: 'city', type: 'select', icon: 'home', label: '所在城市',
-        desc: '用于查询真实天气，结合五形推理今日宜忌',
-        options: [
-          { value: '', label: '未设置（节气模拟）' },
-          { value: '北京', label: '北京' }, { value: '上海', label: '上海' },
-          { value: '天津', label: '天津' }, { value: '重庆', label: '重庆' },
-          { value: '广州', label: '广州' }, { value: '深圳', label: '深圳' },
-          { value: '杭州', label: '杭州' }, { value: '南京', label: '南京' },
-          { value: '成都', label: '成都' }, { value: '武汉', label: '武汉' },
-          { value: '西安', label: '西安' }, { value: '长沙', label: '长沙' },
-          { value: '郑州', label: '郑州' }, { value: '济南', label: '济南' },
-          { value: '青岛', label: '青岛' }, { value: '大连', label: '大连' },
-          { value: '沈阳', label: '沈阳' }, { value: '哈尔滨', label: '哈尔滨' },
-          { value: '昆明', label: '昆明' }, { value: '贵阳', label: '贵阳' },
-          { value: '福州', label: '福州' }, { value: '厦门', label: '厦门' },
-          { value: '合肥', label: '合肥' }, { value: '南昌', label: '南昌' },
-          { value: '太原', label: '太原' }, { value: '石家庄', label: '石家庄' },
-          { value: '呼和浩特', label: '呼和浩特' }, { value: '乌鲁木齐', label: '乌鲁木齐' },
-          { value: '苏州', label: '苏州' }, { value: '无锡', label: '无锡' },
-          { value: '宁波', label: '宁波' }, { value: '佛山', label: '佛山' },
-          { value: '东莞', label: '东莞' }, { value: '珠海', label: '珠海' },
-          { value: '三亚', label: '三亚' }, { value: '海口', label: '海口' },
-        ] },
+      // 2026-10-13：城市改为定位自动同步（去掉手动城市下拉框）
+      { key: 'city', type: 'location', icon: 'home', label: '所在位置',
+        desc: '自动获取定位，用于天气查询与五形推理' },
       { key: 'notify_push', type: 'toggle', icon: 'bell', label: '推送通知', desc: '接收生活建议、时辰节律等提醒' },
       { key: 'notify_time_morning', type: 'select', icon: 'spark', label: '晨间提醒时间',
         options: [
@@ -290,46 +324,26 @@ const groups = [
       { key: 'collect_remind', type: 'toggle', icon: 'clock', label: '采集前提醒' },
     ]
   },
-  {
-    key: 'goal', icon: 'anchor', title: '调理目标',
-    items: [
-      { key: 'primary_goal', type: 'select', icon: 'anchor', label: '首要目标',
-        options: [
-          { value: 'dispatch_qi', label: '疏解气结' },
-          { value: 'warm_earth', label: '温土化湿' },
-          { value: 'calm_fire', label: '潜镇相火' },
-          { value: 'nourish_water', label: '滋水护阴' }
-        ] },
-      { key: 'secondary_goal', type: 'select', icon: 'spark', label: '次要目标',
-        options: [
-          { value: 'warm_earth', label: '温土化湿' },
-          { value: 'dispatch_qi', label: '疏解气结' },
-          { value: 'calm_fire', label: '潜镇相火' },
-          { value: 'nourish_water', label: '滋水护阴' },
-          { value: 'none', label: '暂无' }
-        ] }
-    ]
-  },
   // ai section 已删除（全局 DeepSeek 云端，无模型切换）
+  // 调理目标模块已删除（2026-10-13）
   {
     key: 'privacy', icon: 'lock', title: '隐私与数据',
     items: [
       { key: 'share_family', type: 'toggle', icon: 'user', label: '与家人共享' },
       { key: 'share_data_anonymous', type: 'toggle', icon: 'chart', label: '匿名数据用于研究' },
       { type: 'button', icon: 'doc', label: '导出我的数据', btnText: '导出 JSON', action: 'export' },
-      { type: 'button', icon: 'warn', label: '清除本地缓存', btnText: '清除', danger: true, action: 'clear_cache' }
-    ]
-  },
-  {
-    key: 'account', icon: 'user', title: '账号与社交',
-    items: [
+      { type: 'button', icon: 'warn', label: '清除本地缓存', btnText: '清除', danger: true, action: 'clear_cache' },
+      // 2026-10-13：重新初始化建档从"账号与社交"移到"隐私与数据"
       { type: 'button', icon: 'warn', label: '重新初始化建档', btnText: '重新开始', action: 'reinit', danger: true },
     ]
   },
   {
     key: 'about', icon: 'info', title: '关于与更新',
     items: [
-      { key: 'app_version', type: 'readonly', icon: 'info', label: '当前版本', value: () => currentVersion.value },
+      // 2026-10-13：检查更新按钮放到版本号后方
+      { key: 'app_version', type: 'readonly_button', icon: 'info', label: '当前版本',
+        value: () => currentVersion.value,
+        btnText: '检查更新', btnTextLoading: '检查中…', action: 'check_update' },
       { key: 'server_status', type: 'readonly', icon: 'chart', label: '服务状态',
         value: () => _serverStatusText }
     ]
@@ -346,6 +360,11 @@ function daysSince(iso) {
 // ── 动作处理 ──
 async function handleAction(action) {
   switch (action) {
+    case 'check_update': {
+      await checkUpdate()
+      break
+    }
+
     case 'test_llm': {
       busy.value = 'test_llm'
       try {
@@ -444,6 +463,17 @@ async function handleAction(action) {
 .profile-sub { font-size: calc(12px * var(--qn-fs-scale)); color: rgba(255,255,255,0.7); margin: 0 0 2px; }
 .profile-model { font-size: calc(11px * var(--qn-fs-scale)); color: rgba(var(--qn-emerald-light-rgb),0.9); margin: 0; }
 
+/* 退出按钮（名片卡内右侧） */
+.profile-card .logout-btn {
+  flex-shrink: 0; z-index: 2;
+  font-size: calc(12px * var(--qn-fs-scale)); padding: 6px 16px; border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.85); cursor: pointer; transition: all 0.15s;
+  align-self: center;
+}
+.profile-card .logout-btn:hover:not(:disabled) { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.5); }
+.profile-card .logout-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* 分组 */
 .setting-group { margin-bottom: 28px; }
 .group-title {
@@ -472,6 +502,9 @@ async function handleAction(action) {
 .row-label { font-size: calc(14px * var(--qn-fs-scale)); color: var(--qn-ink); font-weight: 500; white-space: nowrap; }
 .row-desc { font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3); line-height: 1.4; overflow-wrap: break-word; }
 .row-value { font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-ink-2); font-family: var(--font-mono); }
+
+/* 只读值 + 按钮行（版本号+检查更新、位置+同步） */
+.row-readonly-btn { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
 /* 开关 */
 .switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
@@ -561,13 +594,6 @@ html[data-theme="dark"] .select option {
 .legal-links a { color: var(--qn-ink-2); margin: 0 6px; cursor: pointer; }
 .legal-links a:hover { color: var(--qn-emerald); }
 .legal-links span { color: var(--qn-line); }
-.logout-btn {
-  font-size: calc(13px * var(--qn-fs-scale)); padding: 8px 32px; border-radius: 20px;
-  border: 1px solid var(--qn-line); background: var(--qn-surface);
-  color: var(--qn-ink-3); cursor: pointer; transition: all 0.15s;
-}
-.logout-btn:hover:not(:disabled) { border-color: var(--wuxing-fire); color: var(--wuxing-fire); }
-.logout-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* ═══ 八字校准 ═══ */
 .birth-cascader {

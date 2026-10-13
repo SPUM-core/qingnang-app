@@ -5,16 +5,15 @@
 ══════════════════════════════════════════════════════════════ -->
 <template>
   <div class="anchor-card">
-    <!-- 顶行：干支 + 建除/星宿 chip -->
+    <!-- 顶行：干支 + 星宿 chip -->
     <div class="a-top">
       <div class="a-title-group">
-        <p class="a-tag">{{ anchorSafe.ganzhi_year || '' }} · {{ anchorSafe.ganzhi_day || '' }}当令</p>
-        <p class="a-gz">{{ anchorSafe.ganzhi_day || '' }} · {{ anchorSafe.jianchu || '' }}日</p>
-        <p class="a-sub">{{ anchorSafe.ganzhi_month || '' }} · {{ anchorSafe.weather?.desc || '今日' }}</p>
+        <p class="a-tag">{{ anchorSafe.ganzhi_year || '' }} · {{ nowPeriod?.period || '时辰' }}当令</p>
+        <p class="a-gz">{{ anchorSafe.ganzhi_day || '—' }}{{ anchorSafe.jianchu ? ' · ' + anchorSafe.jianchu + '日' : '' }}</p>
+        <p class="a-sub">{{ anchorSafe.ganzhi_month || '' }}{{ anchorSafe.weather?.desc ? ' · ' + anchorSafe.weather.desc : '' }}</p>
       </div>
       <div class="a-seal">
-        <span v-if="anchorSafe.jianchu" class="a-chip jc">{{ anchorSafe.jianchu }}日</span>
-        <span v-if="anchorSafe.xiu" class="a-chip">{{ anchorSafe.xiu }}宿</span>
+        <span v-if="anchorSafe.xiu" class="a-chip">{{ anchorSafe.xiu }}宿{{ anchorSafe.xiu_luck || '' }}</span>
       </div>
     </div>
 
@@ -27,9 +26,9 @@
       </div>
       <div class="a-now-txt">
         <span class="a-now-t">{{ nowPeriod.period }} {{ nowPeriod.range }} · {{ nowPeriod.elem }}气当令</span>
-        <span class="a-now-s">你的{{ anchorSafe.dangling_elem || '弱形' }}偏弱，此段宜静不宜劳</span>
+        <span class="a-now-s">{{ nowHint }}</span>
       </div>
-      <span class="a-grade" :class="'g-' + (nowPeriod.personal_type || 'neutral')">{{ nowPeriod.personal_label || '平' }}</span>
+      <span class="a-grade" :class="gradeClass">{{ gradeLabel }}</span>
     </div>
 
     <!-- 四宫格：值日 / 纳音 / 冲煞 / 日飞星 -->
@@ -52,28 +51,27 @@
 
 <script setup>
 import { computed } from 'vue'
+import { findNowPeriod, periodColorClass } from '../utils/almanac'
 
 const props = defineProps({
   anchorSafe: { type: Object, required: true },
 })
 
-// 当前时辰（从 timeline 找，无则占位）
-const nowPeriod = computed(() => {
-  const tl = props.anchorSafe.timeline || []
-  if (!tl.length) return null
-  const now = new Date()
-  const h = now.getHours()
-  // range 是 "23-1", "1-3" 格式
-  for (const item of tl) {
-    if (!item?.range) continue
-    try {
-      const [s, e] = item.range.split('-').map(Number)
-      if (isNaN(s) || isNaN(e)) continue
-      if (s < e && h >= s && h < e) return item
-      if (s >= e && (h >= s || h < e)) return item
-    } catch { continue }
-  }
-  return tl[8] || tl[0] || null  // fallback 申时 / 子时 / null
+// 当令时辰：复用共享工具（此前与 AnchorTimelineCard 各写一份且 fallback 不一致）
+const nowPeriod = computed(() => findNowPeriod(props.anchorSafe.timeline))
+const gradeClass = computed(() => 'g-' + periodColorClass(nowPeriod.value))
+const gradeLabel = computed(() => nowPeriod.value?.personal_label || '平')
+
+// 当令时段提示语：按 personal_type 变化，不写死"宜静不宜劳"
+const nowHint = computed(() => {
+  const p = nowPeriod.value
+  if (!p) return '时辰节律待生成'
+  const elem = p.elem || ''
+  const my = props.anchorSafe.dangling_elem
+  const tail = my ? `你的${my}偏弱` : ''
+  if (p.personal_type === 'good') return `${tail}，此段${elem}气助你，宜静养缓行`
+  if (p.personal_type === 'bad') return `${tail}，此段${elem}气耗你，宜避开劳作`
+  return `${tail}，此段${elem}气平和，按常规节律即可`
 })
 </script>
 

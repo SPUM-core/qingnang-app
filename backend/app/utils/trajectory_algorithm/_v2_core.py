@@ -122,14 +122,12 @@ def normalize_S_effective(S_current: dict, S_innate: dict) -> dict:
 # ═══════════════════════════════════════════════════════
 
 def health_polytope_margin(S_eff: dict,
-                           touch_threshold: float = 2.0,
-                           innate: Optional[dict] = None) -> dict:
+                           touch_threshold: float = 2.0) -> dict:
     """健康凸多面体 H 边界判定
 
     Args:
         S_eff: S_effective 向量（已消除先天差异）
         touch_threshold: 触碰边界阈值（默认 2.0 单位）
-        innate: 可选先天基底，用于显示用
     Returns:
         {
             'status': 'IN'|'ON'|'OUT',

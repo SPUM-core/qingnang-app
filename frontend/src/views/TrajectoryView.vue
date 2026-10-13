@@ -32,7 +32,7 @@
           class="tj-range"
         />
         <span class="tj-year-label">
-          {{ yearAge }}岁 · {{ 1990 + yearAge }}年 · {{ yearView?.liunian?.name || '—' }}
+          {{ yearAge }}岁 · {{ birthYear + yearAge }}年 · {{ yearView?.liunian?.name || '—' }}
         </span>
       </div>
     </div>
@@ -105,6 +105,16 @@ const selectedJieqiIdx = ref(0)
 // ═══ 真实数据源（后端 API）═══
 const yearView = computed(() => vectorStore.jieqiView)
 const adjustData = computed(() => vectorStore.adjustView)
+
+// 出生年份：优先从 jieqi-view 推导（calendar_year - year_age），
+// 其次从 lifetimeTrajectory.birth_year，兜底 1990
+const birthYear = computed(() => {
+  const yv = yearView.value
+  if (yv?.calendar_year != null && yv?.year_age != null) {
+    return yv.calendar_year - yv.year_age
+  }
+  return vectorStore.lifetimeTrajectory?.birth_year ?? 1990
+})
 
 // 选年变化 → 拉节气/调节数据
 watch(yearAge, async (age) => {

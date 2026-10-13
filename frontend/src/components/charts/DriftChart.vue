@@ -7,6 +7,7 @@ import { ref, onMounted, onBeforeUnmount, onActivated, watch, nextTick, computed
 import * as echarts from 'echarts'
 import { fs, watchFsScale } from '../../utils/scale'
 import { chartPalette, watchThemeChange } from '../../utils/chartTheme'
+import { WUXING_DIMS, HEALTH_POLYTOPE } from '../../utils/trajectory_contract'
 
 const props = defineProps({
   trajectory: { type: Object, default: null },
@@ -41,9 +42,9 @@ function refreshPalette() {
 }
 // 初始化一次（为了首次 render 前 pal 可用）
 refreshPalette()
-const DIMS = ['wood', 'fire', 'earth', 'metal', 'water']
-// 五行健康区间（与后端 HEALTH_POLYTOPE 一致 · 单一信源见 trajectory_algorithm/_constants.py）
-const POLY = { wood: [35,65], fire: [30,70], earth: [40,60], metal: [38,62], water: [35,65] }
+// 五行维度与健康区间 — 单一信源：trajectory_contract.js（与后端 _constants.py 对齐）
+const DIMS = WUXING_DIMS
+const POLY = HEALTH_POLYTOPE
 // ⚠️ 注意：C/NURBS/GRID/AXIS/TEXT/WHITE 这些名字是在 render 函数内
 // 通过 refreshPalette() 后重新 const { ... } = pal 解构获取的。
 // 顶层不做一次性解构，避免 render 时拿到陈旧值。

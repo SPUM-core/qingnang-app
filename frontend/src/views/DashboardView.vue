@@ -471,6 +471,7 @@ const anchorSafe = computed(() => ({
   jianchu_ji: anchor.jianchu_ji || [],
   xiu: anchor.xiu || '',
   xiu_yi: anchor.xiu_yi || [],
+  xiu_luck: anchor.xiu_luck || '',
   sha: anchor.sha || '',
   tianshen: anchor.tianshen || '',
   pengzu: anchor.pengzu || '',

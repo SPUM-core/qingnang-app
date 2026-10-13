@@ -217,6 +217,27 @@
         <path d="M24 28 V32 a7 7 0 0 0 14 0 V30" />
         <circle cx="38" cy="28" r="3" />
       </template>
+
+      <!-- 好友/群组：双人轮廓，替代 👥 -->
+      <template v-else-if="name === 'user-group'">
+        <!-- 后景人（稍小、偏左） -->
+        <circle cx="17" cy="15" r="5" />
+        <path d="M7 38 C7 30 12 27 17 27 C22 27 27 30 27 38" />
+        <!-- 前景人（稍大、偏右） -->
+        <circle cx="30" cy="17" r="6.5" />
+        <path d="M16 42 C16 32 22 28 30 28 C38 28 44 32 44 42" />
+      </template>
+
+      <!-- 信息/关于：i 圆点 + 竖线 -->
+      <template v-else-if="name === 'info'">
+        <circle cx="24" cy="14" r="3" fill="currentColor" stroke="none" />
+        <path d="M24 22 V36" />
+      </template>
+
+      <!-- 心脏/关怀：替代 ❤ -->
+      <template v-else-if="name === 'heart'">
+        <path d="M24 40 C24 40 8 30 8 19 C8 13 13 9 18 9 C21 9 23 11 24 14 C25 11 27 9 30 9 C35 9 40 13 40 19 C40 30 24 40 24 40 Z" />
+      </template>
     </g>
   </svg>
 </template>

@@ -21,6 +21,10 @@
         <div v-if="j.min_tolerance" class="jq-tol">
           u*={{ j.min_tolerance.u_star.toFixed(2) }}
         </div>
+        <!-- v3: s_wuxing 最大偏维高亮（当前体质最偏哪个五行） -->
+        <div v-if="j.s_wuxing" class="jq-s-bias" :style="{ color: jqMaxDimColor(j) }">
+          {{ jqMaxDimLabel(j) }}{{ jqMaxDimTag(j) }}
+        </div>
       </button>
     </div>
 
@@ -125,6 +129,33 @@
         <div class="jd-wxfb-note">
           健康区间 = 动态逆转阈值；展示区间，不展示症状
         </div>
+
+        <!-- s_wuxing 五维相对偏移（±1 量级 · 健康区间 ≈ [-0.3, +0.3]） -->
+        <div v-if="currentJieqi.s_wuxing" class="jd-swuxing">
+          <div class="jd-swuxing-title">五维相对偏移 s</div>
+          <div class="jd-swuxing-row">
+            <div v-for="d in WUXING_DIMS" :key="d" class="jd-sw-item">
+              <div class="jd-sw-bar">
+                <div class="jd-sw-center"></div>
+                <div class="jd-sw-fill" :class="swClass(d)"
+                     :style="swBarStyle(d)"></div>
+              </div>
+              <span class="jd-sw-label">{{ wxColors[d]?.label }}</span>
+              <span class="jd-sw-val" :class="swClass(d)">{{ swVal(d) }}</span>
+            </div>
+          </div>
+          <div class="jd-swuxing-note">s &lt;-0.3 = 虚（需补） · s &gt;+0.3 = 实（需泄）</div>
+        </div>
+
+        <!-- gap 可视化进度条 -->
+        <div class="jd-gap-vis">
+          <span class="jd-gap-label">裕度 gap</span>
+          <div class="jd-gap-bar">
+            <div class="jd-gap-fill" :class="gapClass"
+                 :style="{ width: gapPct + '%' }"></div>
+          </div>
+          <span class="jd-gap-val">{{ gapState }}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -132,7 +163,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { WUXING_COLORS } from '../../utils/trajectory_contract'
+import { WUXING_COLORS, WUXING_DIMS } from '../../utils/trajectory_contract'
 
 const props = defineProps({
   data: { type: Object, required: true },
@@ -147,8 +178,7 @@ const currentJieqi = computed(() => props.data?.jieqi?.[props.selected])
 const wxDetail = computed(() => {
   if (!currentJieqi.value) return []
   const j = currentJieqi.value
-  const WX_KEYS = ['wood', 'fire', 'earth', 'metal', 'water']
-  return WX_KEYS.map(k => ({
+  return WUXING_DIMS.map(k => ({
     key: k,
     label: WUXING_COLORS[k].label,
     color: WUXING_COLORS[k].hex,
@@ -161,8 +191,6 @@ const wxDetail = computed(() => {
 })
 
 // ═══ v3 Wuxing-FB 辅助函数 ═══
-
-const DIMS = ['wood', 'fire', 'earth', 'metal', 'water']
 
 /** 卡片整体 zone（最危险的状态）*/
 function cardZone(j) {
@@ -193,7 +221,7 @@ function zoneTitle(j) {
 const zoneBadges = computed(() => {
   if (!currentJieqi.value?.zone) return []
   const j = currentJieqi.value
-  return DIMS.map(d => ({
+  return WUXING_DIMS.map(d => ({
     dim: d,
     label: wxColors[d]?.label || d,
     zone: j.zone[d],
@@ -211,7 +239,7 @@ const gapVal = computed(() => {
   const j = currentJieqi.value
   if (!j?.min_tolerance) return 0
   // gap = u* - s_mean；s_mean 用 |s_wuxing| 近似
-  const sMean = j.s_wuxing ? Math.max(...DIMS.map(d => Math.abs(j.s_wuxing[d] || 0))) : 0
+  const sMean = j.s_wuxing ? Math.max(...WUXING_DIMS.map(d => Math.abs(j.s_wuxing[d] || 0))) : 0
   return Math.max(0, j.min_tolerance.u_star - sMean)
 })
 

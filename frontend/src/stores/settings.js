@@ -19,8 +19,7 @@ const DEFAULTS = {
   collect_remind: true,
   share_family: true,
   share_data_anonymous: true,
-  primary_goal: 'dispatch_qi',
-  secondary_goal: 'warm_earth',
+  // primary_goal / secondary_goal 已删除 — 调理目标模块移除
   // llm_provider 已删除 — 全局只用 DeepSeek
 }
 

@@ -10,6 +10,14 @@
       :trajectory="traj"
       height="360px"
     />
+    <div v-else-if="loading" class="panel-empty">
+      <p>⏳ 正在排盘推演...</p>
+    </div>
+    <div v-else-if="error" class="panel-empty">
+      <p>⚠️ 推演失败</p>
+      <p class="panel-empty-msg">{{ error }}</p>
+      <button @click="loadData">重新加载</button>
+    </div>
     <div v-else class="panel-empty">
       <p>尚未排盘八字大运</p>
       <button @click="loadData">加载终身推演</button>
@@ -30,8 +38,19 @@ const traj = computed(() => vectorStore.lifetimeTrajectory)
 const n = computed(() => traj.value?.elems?.length || 0)
 const userBirth = computed(() => userStore.birth_date || '—')
 
+const loading = ref(false)
+const error = ref(null)
+
 async function loadData() {
-  await vectorStore.fetchYearView(81)
+  loading.value = true
+  error.value = null
+  try {
+    await vectorStore.fetchYearView(81)
+  } catch (e) {
+    error.value = e?.message || '网络异常，请稍后重试'
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(() => {
@@ -53,6 +72,9 @@ onMounted(() => {
 }
 .panel-empty {
   text-align: center; padding: 40px 20px; color: var(--qn-ink-3);
+}
+.panel-empty-msg {
+  font-size: 12px; color: var(--qn-ink-3); margin: 4px 0 12px;
 }
 .panel-empty button {
   margin-top: 12px;

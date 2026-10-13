@@ -30,6 +30,33 @@ except Exception:
     WUXING_FB_AVAILABLE = False
 
 
+def _normalize_injection(raw_inj: dict, u_peak: float,
+                         dims: list) -> dict:
+    """将原始注入向量归一化为主维主导结构（峰值维保持 u_peak，其余维弱化）
+
+    用于 year-view / jieqi-view 的天时注入标定：
+    旧实现整体归一 + 硬帽 ±2.0 → 多维注入互相牵制（水涨船高），zone 全 IN。
+    新实现：峰值维保持 u_peak 本征强度，其余维按 INJECT_SIDE 弱化 →
+            行为接近单维扫描，判别窗口（u* 单维定义）得以重现。
+
+    Args:
+        raw_inj: 原始注入向量 {dim: float}
+        u_peak: 峰值维本征强度（固定值 U_PEAK_FIXED）
+        dims: 维度列表
+    Returns:
+        归一化后的注入向量
+    """
+    max_abs = max(abs(x) for x in raw_inj.values()) if raw_inj else 0.0
+    if max_abs <= 1e-9:
+        return {d: 0.0 for d in dims}
+    return {
+        d: raw_inj[d] / max_abs * u_peak * (
+            1.0 if abs(raw_inj[d]) >= max_abs - 1e-9 else INJECT_SIDE
+        )
+        for d in dims
+    }
+
+
 def wuxing_frame_analysis(innate: dict,
                           injection: dict,
                           n_steps: int = 12) -> Optional[dict]:
@@ -90,8 +117,7 @@ def wuxing_frame_analysis(innate: dict,
             'gap': gap,
         }
     except Exception as e:
-        import logging as _lg
-        _lg.getLogger(__name__).warning(f"Wuxing-FB frame analysis failed: {e}")
+        logging.getLogger(__name__).warning(f"Wuxing-FB frame analysis failed: {e}")
         return None
 
 
@@ -255,7 +281,6 @@ def build_year_view_v3(innate: dict, dayun: list, age_start: int = 0,
     u_peak = U_PEAK_FIXED
 
     # 逐年注入（大运 + 流年） → 弛豫 → 取稳态
-    n_ages = age_end - age_start + 1
     driftData_wuxing = []
     tol_u_series = []
     zone_series = []
@@ -293,11 +318,7 @@ def build_year_view_v3(innate: dict, dayun: list, age_start: int = 0,
         raw_inj = {}
         for d in WX_DIMS:
             raw_inj[d] = dy_elems.get(d, 0.0) * 0.3 + ln_delta.get(d, 0.0) * 0.7
-        max_abs = max(abs(x) for x in raw_inj.values()) if raw_inj else 0.0
-        if max_abs > 1e-9:
-            inj = {d: raw_inj[d] / max_abs * u_peak * (1.0 if abs(raw_inj[d]) >= max_abs - 1e-9 else INJECT_SIDE) for d in WX_DIMS}
-        else:
-            inj = {d: 0.0 for d in WX_DIMS}
+        inj = _normalize_injection(raw_inj, u_peak, WX_DIMS)
 
         # 调平干预（actual 曲线）：修正 ρ₀ 基底（2026-10-08 v2 设计）
         # 补虚 = 增强虚维势能基底（ρ₀[dim] += strength，持久）→ 该维阻尼升、耐受升，
@@ -387,8 +408,7 @@ def build_year_view_v3(innate: dict, dayun: list, age_start: int = 0,
             s_series, yy_theta, yy_ages, metal_series=yy_metal,
         )
     except Exception as _yy_e:
-        import logging as _yy_lg
-        _yy_lg.getLogger(__name__).warning(f"yin_yang projection failed: {_yy_e}")
+        logging.getLogger(__name__).warning(f"yin_yang projection failed: {_yy_e}")
         v2_result['wuxing_fb']['yin_yang'] = None
     return v2_result
 
@@ -441,11 +461,7 @@ def build_jieqi_view_v3(calendar_year: int, dayun_active_gz: dict,
             raw_inj[d] = (jq['dayun_impact'].get(d, 0) * 0.3 +
                          jq['liunian_impact'].get(d, 0) * 0.3 +
                          jq['wuxing_bias'].get(d, 0) * 3.0)
-        max_abs = max(abs(x) for x in raw_inj.values()) if raw_inj else 0.0
-        if max_abs > 1e-9:
-            inj = {d: raw_inj[d] / max_abs * u_peak * (1.0 if abs(raw_inj[d]) >= max_abs - 1e-9 else INJECT_SIDE) for d in WX_DIMS}
-        else:
-            inj = {d: 0.0 for d in WX_DIMS}
+        inj = _normalize_injection(raw_inj, u_peak, WX_DIMS)
 
         # 串联弛豫：从上一节气的 s 起弛豫 4 步（dt=0.25 → 1 年/帧）
         ss = wx_steady_state(rho0, inj, A_mat, n_steps=4, s_start=cur_s)

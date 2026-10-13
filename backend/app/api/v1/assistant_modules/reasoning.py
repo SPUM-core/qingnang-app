@@ -192,44 +192,11 @@ _PENGZU_DIZHI_BAD = {
     "亥": "亥不嫁娶不利新郎",
 }
 
-# 二十八宿名
-_XIU = ["角", "亢", "氐", "房", "心", "尾", "箕", "斗", "牛", "女", "虚", "危",
-        "室", "壁", "奎", "娄", "胃", "昴", "毕", "觜", "参", "井", "鬼", "柳",
-        "星", "张", "翼", "轸"]
-# 值日星宿宜忌（简化）
-_XIU_YI = {
-    "角": ["嫁娶", "出行", "冠笄", "祭祀"],
-    "亢": ["破屋", "坏垣", "除服", "解除"],
-    "氐": ["嫁娶", "订盟", "开市", "祭祀"],
-    "房": ["祭祀", "祈福", "出行", "冠笄"],
-    "心": ["祭祀", "祈福", "斋醮", "安床"],
-    "尾": ["嫁娶", "出行", "移徙", "入宅"],
-    "箕": ["祭祀", "祈福", "出行", "移徙"],
-    "斗": ["祭祀", "祈福", "安床", "开光"],
-    "牛": ["祭祀", "祈福", "出行", "移徙"],
-    "女": ["祭祀", "祈福", "安床", "移徙"],
-    "虚": ["祭祀", "祈福", "安床", "移徙"],
-    "危": ["祭祀", "祈福", "安床", "移徙"],
-    "室": ["祭祀", "祈福", "出行", "移徙", "嫁娶"],
-    "壁": ["祭祀", "祈福", "出行", "移徙", "嫁娶"],
-    "奎": ["祭祀", "祈福", "出行", "移徙"],
-    "娄": ["祭祀", "祈福", "出行", "移徙"],
-    "胃": ["祭祀", "祈福", "出行", "移徙"],
-    "昴": ["祭祀", "祈福", "出行", "移徙"],
-    "毕": ["祭祀", "祈福", "出行", "移徙", "嫁娶"],
-    "觜": ["祭祀", "祈福", "出行", "移徙"],
-    "参": ["祭祀", "祈福", "出行", "移徙"],
-    "井": ["祭祀", "祈福", "出行", "移徙", "嫁娶"],
-    "鬼": ["祭祀", "祈福", "出行", "移徙"],
-    "柳": ["祭祀", "祈福", "出行", "移徙"],
-    "星": ["祭祀", "祈福", "出行", "移徙"],
-    "张": ["祭祀", "祈福", "出行", "移徙", "嫁娶"],
-    "翼": ["祭祀", "祈福", "出行", "移徙"],
-    "轸": ["祭祀", "祈福", "出行", "移徙"],
-}
+# 二十八宿相关常量已删除（_XIU / _XIU_YI）。
+# 原因：手写表既算不准（值日是连续日循环，非日干支函数），
+# 吉凶也不准。现统一取lunar_python 的 getXiu() / getXiuLuck() / getXiuSong()。
 
-# 天干地支索引 → 建除神推算（简化）
-_TIAN_GAN_IDX = {c: i for i, c in enumerate("甲乙丙丁戊己庚辛壬癸")}
+# 天干地支索引 → 建除神推算
 _DI_ZHI_IDX = {c: i for i, c in enumerate("子丑寅卯辰巳午未申酉戌亥")}
 
 # ════ 飞星 → 落宫 → 八方位映射 ════
@@ -254,6 +221,46 @@ _FEIXING_MAP = {
 # 克: 我克为耗，克我为伤
 _WX_SHENG = {"wood": "fire", "fire": "earth", "earth": "metal", "metal": "water", "water": "wood"}
 _WX_KE    = {"wood": "earth", "earth": "water", "water": "fire", "fire": "metal", "metal": "wood"}
+
+_OPPOSITE_DIR = {
+    "正北": "正南", "正南": "正北", "正东": "正西", "正西": "正东",
+    "东北": "西南", "西南": "东北", "西北": "东南", "东南": "西北",
+}
+
+
+def _opposite_dir(d: str) -> str:
+    """方位对冲。查不到时返回空串——不再默认落到「正南」，
+    避免把未知方位伪装成一个具体结论。"""
+    return _OPPOSITE_DIR.get(d, "")
+
+
+def _nine_star_num(ns) -> int | None:
+    """NineStar 对象 → 星号 1-9。
+
+    lunar_python 的 NineStar.getIndex() 是 **0 基**（0→一白, 8→九紫），
+    直接当星号用会全表错位一位，必须 +1。
+    兼容传入字符串或None。
+    """
+    if ns is None:
+        return None
+    if isinstance(ns, int):
+        return ns + 1 if 0 <= ns <= 8 else None
+    idx = getattr(ns, "getIndex", None)
+    if callable(idx):
+        try:
+            i = idx()
+            return i + 1 if 0 <= i <= 8 else None
+        except Exception:
+            return None
+    # 字符串兜底：中文数字映射
+    cn = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+          "六": 6, "七": 7, "八": 8, "九": 9, "九紫": 9}
+    s = str(ns)
+    for k, v in cn.items():
+        if k in s:
+            return v
+    return None
+
 
 def _wx_relation(a: str, b: str) -> str:
     """a 和 b 的五行关系（用于时辰/方位 vs v_base）:
@@ -294,8 +301,10 @@ def _almanac_today(year: int, month: int, day: int) -> dict:
     sha = l.getDaySha()                # 煞方 西
     na_yin_day = l.getDayNaYin()       # 纳音
     na_yin_year = l.getYearNaYin()
-    feixing_day = l.getDayNineStar()    # 日飞星
-    feixing_year = l.getYearNineStar()  # 年飞星
+    feixing_day_obj = l.getDayNineStar()    # 日飞星（NineStar 对象）
+    feixing_year_obj = l.getYearNineStar()  # 年飞星（NineStar 对象）
+    feixing_day = str(feixing_day_obj)      # 展示用字符串，如「一白水天枢」
+    feixing_year = str(feixing_year_obj)
     tianshen = l.getDayTianShen()       # 值日天神
     yi_list = l.getDayYi()              # 宜
     ji_list = l.getDayJi()              # 忌
@@ -309,13 +318,17 @@ def _almanac_today(year: int, month: int, day: int) -> dict:
     jianchu_yi = _JIAN_CHU_YI.get(jianchu, [])
     jianchu_ji = _JIAN_CHU_JI.get(jianchu, [])
     
-    # ════ 二十八宿（从角开始，按日支 + 日干推算）════
-    # 传统算法：从"角"开始，甲子日为"角"，按六十甲子顺序排
-    day_zhi_idx = _DI_ZHI_IDX.get(day_zhi, 0)
-    day_gan_idx = _TIAN_GAN_IDX.get(day_gan, 0)
-    xiu_idx = (day_zhi_idx * 2 + day_gan_idx) % 28  # 简化算法
-    xiu = _XIU[xiu_idx]
-    xiu_yi = _XIU_YI.get(xiu, [])
+    # ════ 二十八宿（用lunar_python 现成实现）════
+    # ⚠️ 旧实现曾用 (日支*2 + 天干) % 28 自研公式，实测 20 天中 18 天算错
+    #    （二十八宿值日是连续日循环、每日进一宿，不是日干支的函数）。
+    #    现直接取库的正确实现，三者一一对应：
+    #    getXiu()     → 宿名
+    #    getXiuLuck() → 吉/凶（替代原手写 _XIU_YI 表）
+    #    getXiuSong() → 宿歌
+    xiu = l.getXiu()
+    xiu_luck = l.getXiuLuck()      # '吉' / '凶'
+    xiu_song = l.getXiuSong()      # 宿歌
+    xiu_yi: list[str] = []          # 库未直接给宜事项，保留空列表供前端兼容
     
     # ════ 彭祖百忌（玉匣记）════
     pengzu_gan = _PENGZU_BAIJI.get(day_gan, "")
@@ -376,11 +389,14 @@ def _almanac_today(year: int, month: int, day: int) -> dict:
         "yi": yi_list, "ji": ji_list,
         "chong": chong, "sha": sha,
         "jianchu": jianchu, "jianchu_yi": jianchu_yi, "jianchu_ji": jianchu_ji,
-        "xiu": xiu, "xiu_yi": xiu_yi,
+        "xiu": xiu, "xiu_yi": xiu_yi, "xiu_luck": xiu_luck, "xiu_song": xiu_song,
         "pengzu": pengzu,
         # 其他
         "na_yin": {"year": na_yin_year, "month": l.getMonthNaYin(), "day": na_yin_day},
         "feixing": {"year": feixing_year, "day": feixing_day},
+        # 保留NineStar 原始对象，供方位推理取星号（避免从中文名反解）
+        "_nine_star_day": feixing_day_obj,
+        "_nine_star_year": feixing_year_obj,
         "tianshen": tianshen,
         # 时辰
         "timeline": timeline,
@@ -653,11 +669,14 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
         item["personal_label"] = plabel
 
     # ════ 13. 飞星落宫 → 今日方位（宜取/宜避）════
-    feixing_day = almanac["feixing"].get("day", "一白水天枢") if isinstance(almanac["feixing"], dict) else (almanac["feixing"] or "一白水天枢")
-    # 从字符串里提取数字（飞星号）
-    import re as _re
-    m = _re.search(r'(\d)', str(feixing_day))
-    fx_num = int(m.group(1)) if m else 1
+    # ⚠️ 旧实现用正则 \d 从飞星名（"一白水天枢"）提取星号，中文数字永不匹配，
+    #    导致 fx_num 恒等于 1，整个方位块每天都是"一白水落坎位"。
+    #    现直接取库对象的 getIndex()（0 基），+1 转成 1-9。
+    ns_day = almanac.get("_nine_star_day")
+    ns_year = almanac.get("_nine_star_year")
+    feixing_day_num = _nine_star_num(ns_day)
+    feixing_year_num = _nine_star_num(ns_year)
+    fx_num = feixing_day_num or 1
     fx = _FEIXING_MAP.get(fx_num, _FEIXING_MAP[1])
     fx_el = fx["elem"]
     fx_dir = fx["dir"]
@@ -671,17 +690,15 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
     if fx_rel_weak in ("generate_me",) or (fx_rel_weak == "same" and scores[weak] < 45):
         good_dir, good_reason = fx_dir, f"日飞星{fx['name']}落{fx_gong}宫（{fx_dir}），生我{WX_CN[weak]}形"
         # 宜避方 = 对冲宫
-        bad_dir = {"正北": "正南", "正南": "正北", "正东": "正西", "正西": "正东",
-                   "东北": "西南", "西南": "东北", "西北": "东南", "东南": "西北"}.get(fx_dir, "正南")
-        bad_reason = f"对冲{fx_dir}，九星叠位火气重，易上火"
+        bad_dir = _opposite_dir(fx_dir)
+        bad_reason = f"与{fx_dir}对冲，此方叠{WX_CN[fx_el]}气，与你的{WX_CN[weak]}形不合"
     elif fx_rel_strong in ("overcome_me",) or (fx_rel_strong == "same" and scores[strong] > 65):
         good_dir, good_reason = fx_dir, f"日飞星{fx['name']}落{fx_gong}宫（{fx_dir}），宜纳气"
         bad_dir, bad_reason = fx_dir, f"飞星同{WX_CN[strong]}形，今日{WX_CN[strong]}已过旺，避免叠加"
     else:
         good_dir, good_reason = fx_dir, f"日飞星{fx['name']}落{fx_gong}宫（{fx_dir}），平和之气，宜居中"
-        bad_dir = {"正北": "正南", "正南": "正北", "正东": "正西", "正西": "正东",
-                   "东北": "西南", "西南": "东北", "西北": "东南", "东南": "西北"}.get(fx_dir, "正南")
-        bad_reason = f"对冲方位，九星叠位火气重"
+        bad_dir = _opposite_dir(fx_dir)
+        bad_reason = f"对冲方位，叠{WX_CN[fx_el]}气，与你今日用神不合"
     
     orientation = {
         "feixing_num": fx_num,
