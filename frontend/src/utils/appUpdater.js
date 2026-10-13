@@ -1,61 +1,121 @@
 /**
- * 青囊 APP 自动更新工具
- * ====================
+ * 青囊 APP 版本检测 + 更新工具
+ * ============================
  * 
- * 工作原理：
- * 1. APP 启动时调用 checkForUpdate() → 请求后端 /api/v1/version/app-update
- * 2. 后端返回 { has_update, latest_version, update_url, checksum_sha256, force_update, update_note }
- * 3. has_update=true → 弹出对话框提示用户升级（force_update=true 时不可跳过）
- * 4. 用户确认后 → downloadAndInstall() → 下载 APK → 校验 SHA256 → 触发系统 Intent 安装
+ * 版本号信源优先级（从高到低）：
+ *   1. 原生模式：@capacitor/app 的 App.getInfo().version（直接读 APK 的 AndroidManifest）
+ *      → build.gradle 是 APK 唯一信源，最靠谱
+ *   2. Web/开发模式：VITE_APP_VERSION（vite.config.js 从 build.gradle 同步读取注入）
+ *      → 同一条链，和 APK 保持一致
  * 
- * 依赖：@capacitor-community/app-updater
- * 安装：npm install @capacitor-community/app-updater
- *       npx cap sync android
+ * HTTP 客户端：统一用 import { api } from '../api/client'
+ *   → 和项目其他所有 API 调用走同一个 baseURL / token / 拦截器
+ *   → 绝对不会出现手机上打 localhost 的情况
  * 
- * Fallback：如果插件未安装（web 环境 / 开发模式），会退化为 window.open(update_url)
+ * 工作流程：
+ *   1. App.vue / SettingsView 在 onMounted 调 checkForUpdate()
+ *   2. 后端 /api/v1/version/app-update 返回 { has_update, latest_version, update_url, ... }
+ *   3. has_update=true → 弹 UpdateDialog（App.vue 全局挂载）
+ *   4. 用户确认 → downloadAndInstall() → window.location.href 下载 APK
  */
 
-import axios from 'axios'
+import { api } from '../api/client'
 
-// ── 当前 APP 版本（从 package.json / 构建时注入） ──
-// VITE_APP_VERSION 在 vite.config.js 的 define 里注入，capacitor.config.json version 字段也可以读
-// 开发期回退值
-const APP_VERSION = (typeof VITE_APP_VERSION !== 'undefined')
-  ? VITE_APP_VERSION
-  : '0.1.0'
+// ── 获取当前 APP 版本号 ──
+// 原生环境：读 APK 内部的 AndroidManifest（build.gradle versionName 写入）
+// Web 环境：读 Vite 注入的 VITE_APP_VERSION
+let _cachedVersion = null
 
-// ── API 基础 URL ──
-const API_BASE = (typeof VITE_API_BASE !== 'undefined')
-  ? VITE_API_BASE
-  : 'http://localhost:8767'
+export async function getAppVersion() {
+  if (_cachedVersion) return _cachedVersion
 
-// ── 是否运行在原生 APP 环境 ──
-function isNative() {
-  return typeof Capacitor !== 'undefined'
+  // 1. 原生模式：读 @capacitor/app
+  if (typeof Capacitor !== 'undefined') {
+    try {
+      const { App } = await import('@capacitor/app')
+      const info = await App.getInfo()
+      if (info?.version) {
+        _cachedVersion = String(info.version)
+        console.log('[AppUpdater] 原生版本号:', _cachedVersion, '(from AndroidManifest)')
+        return _cachedVersion
+      }
+    } catch (e) {
+      console.warn('[AppUpdater] 原生版本读取失败，回退到 VITE_APP_VERSION:', e?.message)
+    }
+  }
+
+  // 2. Vite 注入版本（vite.config.js 从 build.gradle 读取 → 单一信源）
+  _cachedVersion = (typeof VITE_APP_VERSION !== 'undefined')
+    ? String(VITE_APP_VERSION)
+    : (typeof import !== 'undefined' && import.meta?.env?.VITE_APP_VERSION)
+      ? String(import.meta.env.VITE_APP_VERSION)
+      : '0.1.0'  // 极端兜底（不会出现）
+
+  console.log('[AppUpdater] Vite 版本号:', _cachedVersion)
+  return _cachedVersion
 }
 
+// ── 同步获取版本（不依赖 Promise）──
+// 用于同步上下文（SettingsView 的 groups 配置里），会先跑一次异步 getAppVersion 缓存
+function _syncVersion() {
+  if (_cachedVersion) return _cachedVersion
+  if (typeof VITE_APP_VERSION !== 'undefined') {
+    _cachedVersion = String(VITE_APP_VERSION)
+  }
+  return _cachedVersion || '0.1.0'
+}
+
+// 导出常量（同步值，SettingsView 里用）
+// 首次 import 时 Vite define 已经替换好，这个值就是最终值
+export const APP_VERSION = (typeof VITE_APP_VERSION !== 'undefined')
+  ? String(VITE_APP_VERSION)
+  : '0.1.0'
+
+// ── 平台检测 ──
+function _detectPlatform() {
+  const ua = navigator.userAgent.toLowerCase()
+  if (/android/i.test(ua)) return 'android'
+  if (/iphone|ipad|ipod/i.test(ua)) return 'ios'
+  return 'web'
+}
+
+// ── 检查是否有新版本 ──
 /**
- * 检查是否有新版本
- * @returns {Promise<{has_update, latest_version, current_version, force_update, update_url, checksum_sha256, size_bytes, update_note, disabled}>}
+ * @returns {Promise<{has_update: boolean, latest_version: string, current_version: string, force_update: boolean, update_url?: string, checksum_sha256?: string, size_bytes?: number, update_note?: string, min_required_version?: string, disabled?: boolean}>}
  */
 export async function checkForUpdate() {
   try {
-    const url = `${API_BASE}/api/v1/version/app-update`
-    const { data } = await axios.get(url, {
-      params: { version: APP_VERSION, platform: 'android' },
+    const version = await getAppVersion()
+    const platform = _detectPlatform()
+    const { data } = await api.get('/api/v1/version/app-update', {
+      params: { version, platform },
       timeout: 10000,
     })
-    console.log('[AppUpdater] 版本检查结果:', data)
-    return data
+    // FastAPI 响应封装：{ data: {...}, code: 0, ... } 或直接 {...}
+    const info = data?.data ?? data
+    console.log('[AppUpdater] 版本检查结果:', {
+      current: version,
+      latest: info?.latest_version,
+      has_update: info?.has_update,
+      platform,
+      disabled: info?.disabled,
+    })
+    return { ...info, current_version: version }
   } catch (err) {
     console.warn('[AppUpdater] 版本检查失败（后端可能未启动）:', err?.message)
-    return { has_update: false, current_version: APP_VERSION, latest_version: APP_VERSION, disabled: true }
+    const fallbackVer = _syncVersion()
+    return {
+      has_update: false,
+      current_version: fallbackVer,
+      latest_version: fallbackVer,
+      disabled: true,
+    }
   }
 }
 
+// ── 下载并安装 APK ──
 /**
- * 下载并安装 APK
- * @param {{update_url: string, checksum_sha256?: string}} info
+ * @param {{update_url: string}} info
  * @returns {Promise<{success: boolean, error?: string}>}
  */
 export async function downloadAndInstall(info) {
@@ -63,47 +123,21 @@ export async function downloadAndInstall(info) {
     return { success: false, error: '缺少下载 URL' }
   }
 
-  // 原生环境：直接调用 Capacitor AppUpdater 插件（通过 window.Capacitor.Plugins 桥接）
-  // ⚠️ 不在顶层 import @capacitor-community/app-updater —— 包未 install 时 Vite 预构建会崩
-  if (isNative()) {
-    try {
-      const AppUpdater = window.Capacitor?.Plugins?.AppUpdater
-      if (!AppUpdater) {
-        throw new Error('AppUpdater 插件未注册（npm i @capacitor-community/app-updater && npx cap sync android）')
-      }
-
-      // 先下载
-      const downloadResult = await AppUpdater.download({
-        url: info.update_url,
-        sha256: info.checksum_sha256,
-      })
-      console.log('[AppUpdater] 下载完成:', downloadResult)
-
-      // 安装
-      await AppUpdater.install()
-      return { success: true }
-    } catch (err) {
-      console.error('[AppUpdater] 原生更新失败:', err)
-      
-      // Fallback：打开浏览器手动下载
-      console.warn('[AppUpdater] 回退到浏览器下载...')
-      window.open(info.update_url, '_blank')
-      return { success: false, error: err?.message || '原生更新失败' }
-    }
+  try {
+    // Android WebView：window.location.href = APK URL 最可靠
+    // Android DownloadManager 会接管 .apk 下载，完成后自动弹 Intent 让用户安装
+    // @capacitor-community/app-updater 需要额外安装且桥接复杂，这里不用
+    console.log('[AppUpdater] 触发 APK 下载:', info.update_url)
+    window.location.href = info.update_url
+    return { success: true }
+  } catch (err) {
+    console.error('[AppUpdater] 下载触发失败:', err)
+    return { success: false, error: err?.message || '下载触发失败' }
   }
-
-  // Web 环境：直接打开下载 URL
-  console.log('[AppUpdater] Web 环境，在浏览器中打开下载 URL')
-  window.open(info.update_url, '_blank')
-  return { success: true }
 }
 
+// ── 主动式更新检查（完整流程）──
 /**
- * 主动式更新检查（完整流程）
- * 1. 查版本
- * 2. 如果有更新 → 返回更新信息（UI 层决定要不要弹对话框）
- * 3. force_update=true 时必须升级
- * 
  * @param {Object} options
  * @param {boolean} options.silent 静默模式：无更新时不 log 也不返回（默认 false）
  * @returns {Promise<{action: 'none'|'show_update'|'show_force_update', info?: Object}>}
@@ -113,7 +147,7 @@ export async function runUpdateCheck(options = {}) {
   const info = await checkForUpdate()
 
   if (!info.has_update) {
-    if (!silent) console.log('[AppUpdater] 当前已是最新版本')
+    if (!silent) console.log('[AppUpdater] 当前已是最新版本 v' + info.current_version)
     return { action: 'none' }
   }
 
@@ -123,4 +157,4 @@ export async function runUpdateCheck(options = {}) {
   }
 }
 
-export { APP_VERSION }
+export default { checkForUpdate, downloadAndInstall, runUpdateCheck, getAppVersion, APP_VERSION }

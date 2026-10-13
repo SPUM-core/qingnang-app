@@ -6,11 +6,13 @@
   "description": "青囊生活管家 SPUM 引擎 Web 前端（Phase 0：向量可视化 + 问诊 + 采集上传 + 报告 + 知识库 + 用户管理 + 提醒）",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "check:safe-area": "node scripts/check-safe-area.mjs",
+    "build": "node scripts/check-safe-area.mjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.2",
     "@capacitor/cli": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "@traptitech/markdown-it-katex": "^3.6.0",
