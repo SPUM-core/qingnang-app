@@ -70,32 +70,12 @@
     <div class="app-info">
       <p class="app-name">青囊生活管家</p>
       <p class="app-ver">
-        Version {{ APP_VERSION }}
+        Version {{ currentVersion }}
         <span v-if="updateState === 'has_update'" class="update-badge" @click="checkUpdate">↑ 新版本 {{ updateInfo?.latest_version }}</span>
         <span v-else-if="updateState === 'checking'" class="update-badge checking">检查中…</span>
         <span v-else-if="updateState === 'latest'" class="update-badge latest">已是最新</span>
         <span v-else-if="updateState === 'error'" class="update-badge error">检查失败</span>
       </p>
-
-      <!-- 更新弹窗 -->
-      <div v-if="updateState === 'has_update'" class="update-modal-backdrop" @click.self="closeUpdateModal">
-        <div class="update-modal">
-          <h3>发现新版本 v{{ updateInfo?.latest_version }}</h3>
-          <p v-if="updateInfo?.update_note" class="update-note">{{ updateInfo.update_note }}</p>
-          <div class="update-meta">
-            <span v-if="updateInfo?.size_bytes">大小 {{ (updateInfo.size_bytes / 1048576).toFixed(1) }} MB</span>
-            <span v-if="updateInfo?.force_update" class="force-tag">· 强制更新</span>
-          </div>
-          <div class="update-actions">
-            <button v-if="!updateInfo?.force_update" class="row-btn" @click="closeUpdateModal">稍后</button>
-            <button class="row-btn primary" :disabled="busy === 'download_update'"
-                    @click="downloadUpdate">
-              <span v-if="busy === 'download_update'">下载中… {{ downloadProgress }}%</span>
-              <span v-else>立即更新</span>
-            </button>
-          </div>
-        </div>
-      </div>
 
       <!-- ⚠️ 通用确认/提示弹窗（替换原生 confirm/alert — Android WebView 原生 dialog 白屏） -->
       <div v-if="dialog.visible" class="update-modal-backdrop" @click.self="dialog.reject?.()">
@@ -110,8 +90,8 @@
       </div>
 
       <!-- 手动检查按钮 -->
-      <button v-if="updateState === 'idle'" class="row-btn" style="margin-bottom:12px;" @click="checkUpdate">
-        检查更新
+      <button class="row-btn" style="margin-bottom:12px;" @click="checkUpdate">
+        {{ updateState === 'checking' ? '检查中…' : '检查更新' }}
       </button>
 
       <div class="legal-links">
@@ -136,7 +116,7 @@ import { api } from '../api/client'
 import * as storage from '../utils/storage'
 import QIcon from '../components/ui/QIcon.vue'
 import QSelect from '../components/ui/QSelect.vue'
-import { APP_VERSION } from '../utils/appUpdater'
+import { checkForUpdate, getAppVersion } from '../utils/appUpdater'
 
 const router = useRouter()
 const user   = useUserStore()
@@ -159,6 +139,10 @@ watch(() => settings.city, async (newCity, oldCity) => {
 // ── 状态 ──
 const busy     = ref(null)
 const caseData = ref(null)
+const currentVersion = ref('0.0.0')   // 动态从原生 APK 读
+
+// 启动时异步获取真实版本号（原生读 AndroidManifest）
+getAppVersion().then(v => { currentVersion.value = v }).catch(() => {})
 
 // ⚠️ 自定义 dialog（替换原生 confirm/alert — Android WebView 原生 dialog 白屏）
 const dialog = reactive({
@@ -184,26 +168,24 @@ function showAlert(message, title = '提示') {
     dialog.reject  = null
   })
 }
-// providerInfo / refreshHealth / llm_provider watch 已删除（全局 DeepSeek）
 
-// ── 版本更新状态 ──
+// ── 版本更新状态（仅 Settings 底部 badge 展示）──
 const updateState    = ref('idle')       // idle | checking | has_update | latest | error
-const updateInfo     = ref(null)         // { latest_version, update_url, force_update, ... }
-const downloadProgress = ref(0)
-const _serverStatusText = ref('检测中…')
+const updateInfo     = ref(null)         // 仅存储版本信息供 badge 展示
 
-// ── 检查更新（用 SettingsView 的 api 实例走统一 baseURL）──
+// App.vue 启动时已经全局静默检查过一次，SettingsView 只在手动点"检查更新"时再查
+// onMounted 里不再自动调用 checkUpdate()
+
+// ── 检查更新（走 appUpdater.js 共享的 checkForUpdate，版本号从原生 APK 读）──
 async function checkUpdate() {
   updateState.value = 'checking'
   try {
-    const platform = /android/i.test(navigator.userAgent) ? 'android' : 'web'
-    const r = await api.get('/api/v1/version/app-update', {
-      params: { version: APP_VERSION, platform },
-    })
-    const data = r.data?.data ?? r.data
-    if (data?.has_update) {
-      updateInfo.value = data
+    const info = await checkForUpdate()
+    if (info.has_update) {
+      updateInfo.value = info
       updateState.value = 'has_update'
+      // ⚠️ 有更新时，App.vue 的 UpdateDialog 会自动弹
+      // SettingsView 只负责底部 badge 状态提示，不再自己弹 modal
     } else {
       updateState.value = 'latest'
       updateInfo.value = null
@@ -215,44 +197,19 @@ async function checkUpdate() {
   }
 }
 
-function closeUpdateModal() {
-  if (!updateInfo.value?.force_update) updateState.value = updateInfo.value ? 'idle' : updateState.value
-}
+// closeUpdateModal / downloadUpdate 已删除 —— 统一由 App.vue 的 UpdateDialog 处理
 
-async function downloadUpdate() {
-  if (!updateInfo.value?.update_url) return
-  const url = updateInfo.value.update_url
-  console.log('[Settings] 打开下载 URL:', url)
-  busy.value = 'download_update'
-  try {
-    // Android WebView 里 window.open 会被宿主拦截（没浏览器插件时）
-    // window.location.href = URL 最可靠：系统 DownloadManager 会接管 .apk 下载
-    // 下载完成后 Android 会自动弹出 Intent 让用户点安装
-    window.location.href = url
-    alert('下载已开始，APK 下载完成后请点击安装。')
-  } catch (e) {
-    alert('下载失败：' + (e?.message || '未知错误'))
-  } finally {
-    busy.value = null
-    downloadProgress.value = 0
-  }
-}
-
-// ── onMounted：静默检查版本 + 服务状态 ──
+// ── onMounted：后端可达性探测 ──
+const _serverStatusText = ref('检测中…')
 onMounted(async () => {
-  // 1. 静默检查版本（不阻塞 UI）
-  checkUpdate()
+  // App.vue 已全局静默检查过更新，这里不再重复
 
-  // 2. 后端可达性探测（ping 任意轻量端点）
+  // 后端可达性探测（ping version 端点 — 轻量）
   try {
-    const r = await api.get('/api/v1/version/app-update', {
-      params: { version: APP_VERSION, platform: 'web' },
-      timeout: 4000,
-    })
-    if (r.data?.disabled) _serverStatusText.value = '⚠️ 自动更新已关闭'
-    else _serverStatusText.value = '● 正常'
-  } catch (_) {
-    _serverStatusText.value = '⚠️ 离线'
+    const r = await api.get('/api/v1/version/manifest', { timeout: 4000 })
+    _serverStatusText.value = '● 正常'
+  } catch (e) {
+    _serverStatusText.value = '⚠️ ' + (e?.response?.status === 403 ? '自动更新已关闭' : '离线')
   }
 })
 
@@ -372,7 +329,7 @@ const groups = [
   {
     key: 'about', icon: 'info', title: '关于与更新',
     items: [
-      { key: 'app_version', type: 'readonly', icon: 'info', label: '当前版本', value: APP_VERSION },
+      { key: 'app_version', type: 'readonly', icon: 'info', label: '当前版本', value: () => currentVersion.value },
       { key: 'server_status', type: 'readonly', icon: 'chart', label: '服务状态',
         value: () => _serverStatusText }
     ]
