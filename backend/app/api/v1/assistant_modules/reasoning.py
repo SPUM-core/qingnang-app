@@ -406,22 +406,75 @@ def _almanac_today(year: int, month: int, day: int) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════
-# Rule-based lifestyle fallback — 根据 v_base 五形向量 + 今日干支 + 协纪辨方生成建议
+# Rule-based lifestyle fallback（v2 增益中庸范式）
+# —— 使用 spacetime_engine.tiao_hou_engine 找 SHENG 链断链点 → 增益链条
+# —— 经典 home/travel/solutions 处方保留，但触发条件从"最弱"改为"断链点"
 # ═══════════════════════════════════════════════════════════
 def _fallback_lifestyle(v: dict, payload: dict) -> dict:
-    from datetime import date
+    from datetime import datetime
     from ....utils.trajectory_algorithm import get_liunian, ganzhi_main_elem
+    from ....utils.spacetime_engine import tiao_hou_engine, spacetime_context, WUXING_CN
 
-    # 1. 今日干支 + 黄历
-    today = date.today()
+    # 1. 今日干支 + 黄历（保留，这是择吉层，与治理范式无关）
+    today = datetime.today()
     almanac = _almanac_today(today.year, today.month, today.day)
     ln = get_liunian(today.year)
-    day_elem = ganzhi_main_elem(ln["g"], ln["z"])  # 今日五行主气
+    day_elem = ganzhi_main_elem(ln["g"], ln["z"])
 
-    # 2. v_base 五形 → 找最弱/最旺
-    WUXING = ["wood", "fire", "earth", "metal", "water"]
-    WX_CN = {"wood": "木", "fire": "火", "earth": "土", "metal": "金", "water": "水"}
     WX_COLOR = {"wood": "青绿", "fire": "赤红", "earth": "黄褐", "metal": "白灰", "water": "黑蓝"}
+    
+    # 2. 🆕 用 tiao_hou_engine 找断链点（增益中庸范式）
+    ctx = spacetime_context(today, payload.get("birthplace") or "上海")
+    th = tiao_hou_engine(v, ctx)
+    broken_chain = th['broken_chain']
+    broken = broken_chain.get('broken_node')  # 断链点
+    peaks = broken_chain.get('peaks', [])     # 尖峰
+    valleys = broken_chain.get('valleys', []) # 凹谷
+
+    # 如果链条自洽 → 不干预
+    if not broken:
+        return {
+            "cloth_good": [], "cloth_bad": [],
+            "food_good": [], "food_bad": [],
+            "yi_text": f"今日{WUXING_CN[day_elem]}日·五形链条自洽·顺其自然",
+            "ji_text": "",
+            "home": [], "absolute": [], "relative": [],
+            "travel": almanac.get("timeline", []),
+            "solutions": [],
+            "chain_desc": "五形链条自洽",
+        }
+
+    broken_cn = WUXING_CN[broken]
+    broken_color = WX_COLOR[broken]
+    chain_from = broken_chain.get('prev')
+    chain_to = broken_chain.get('next')
+    chain_desc = f"{WUXING_CN[chain_from]}→{broken_cn}→{WUXING_CN[chain_to]}链断于{broken_cn}形"
+
+    # 3. 穿衣建议（增益断链点，而非补最弱）
+    cloth_good = [{
+        "id": "cloth-1",
+        "title": f"多穿{broken_color}系 · 增益{broken_cn}形链条",
+        "desc": f"链条断于{broken_cn}形，增益{broken_cn}让链条通 → "
+                f"{WUXING_CN[chain_from]}形堆积尖峰自消、{WUXING_CN[chain_to]}形凹谷自填",
+        "reason": chain_desc + (f"（尖峰：{'、'.join(WUXING_CN[p] for p in peaks)}）" if peaks else "")
+                  + (f"（凹谷：{'、'.join(WUXING_CN[v] for v in valleys)}）" if valleys else ""),
+        "detail": f"以{broken_color}色的上衣、围巾或配饰为主，贴身层优先{broken_color}色；"
+                  f"链条通了，尖峰凹谷自然平复，不需直接压制。",
+        "source_ref": "《黄帝内经·素问》——五色入五脏",
+        "governance": "增益中庸",
+    }]
+    cloth_bad = []
+    if day_elem == peaks[0] if peaks else None:
+        cloth_bad.append({
+            "id": "cloth-avoid-day",
+            "title": f"今日穿同尖峰色系会加剧堆积",
+            "desc": f"今日{WUXING_CN[day_elem]}主气（恰为尖峰），穿同色会加重堆积",
+            "reason": f"今日干支 {ln['g']}{ln['z']} 主气 {WUXING_CN[day_elem]}，与{broken_cn}形断链耦合",
+            "detail": f"今日避免{WX_COLOR[day_elem]}色整体穿搭；可用{broken_color}色配饰中和。",
+            "source_ref": "《千金要方》——随四时五行调节起居服色",
+        })
+
+    # 4. 饮食建议（增益断链点的经典食材，保留五形属性）
     WEAK_FOOD = {
         "wood": ["菠菜", "芹菜", "韭菜", "青梅", "枸杞"],
         "fire": ["红枣", "桂圆", "樱桃", "番茄"],
@@ -429,108 +482,101 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
         "metal": ["雪梨", "银耳", "百合", "莲藕"],
         "water": ["黑豆", "黑芝麻", "海带", "栗子"],
     }
+    # 不宜：尖峰的所生会继续推高尖峰
     STRONG_AVOID = {
-        "wood": ["辛辣", "茴香", "花椒"],  # 木旺火 → 火过旺需忌
-        "fire": ["煎炸", "烧烤", "辣椒"],   # 火生土 → 土过旺需忌
-        "earth": ["油腻", "甜品", "蜂蜜"],   # 土生金 → 金过旺需忌
-        "metal": ["生冷", "冰饮", "生菜"],   # 金生水 → 水过旺需忌
-        "water": ["咸腌", "酱菜", "盐"],     # 水生木 → 木过旺需忌
+        "wood": ["辛辣", "茴香", "花椒"],
+        "fire": ["煎炸", "烧烤", "辣椒"],
+        "earth": ["油腻", "甜品", "蜂蜜"],
+        "metal": ["生冷", "冰饮", "生菜"],
+        "water": ["咸腌", "酱菜", "盐"],
     }
-
-    scores = {w: v.get(w, 50) for w in WUXING}
-    weak = min(scores, key=scores.get)   # 最弱
-    strong = max(scores, key=scores.get)  # 最旺
-
-    # 3. 穿衣建议（补最弱）
-    cloth_good = [{
-        "id": "cloth-1",
-        "title": f"多穿{WX_COLOR[weak]}系",
-        "desc": f"补{WX_CN[weak]}形，抑制{WX_CN[strong]}形过旺",
-        "reason": f"v_base {WX_CN[weak]}={scores[weak]:.0f}（最低），{WX_CN[strong]}={scores[strong]:.0f}（最高）",
-        "detail": f"以{WX_COLOR[weak]}色的上衣、围巾或配饰为主，贴身层优先{WX_COLOR[weak]}色；"
-                  f"避开{WX_COLOR[strong]}系大面积穿搭。",
-        "source_ref": "《黄帝内经·素问》——五色入五脏",
-    }]
-    cloth_bad = []
-    if day_elem == strong:
-        cloth_bad.append({
-            "id": "cloth-avoid-day",
-            "title": f"忌穿{WX_COLOR[day_elem]}系",
-            "desc": f"今日{WX_CN[day_elem]}主气，穿同色助旺过甚",
-            "reason": f"今日干支 {ln['g']}{ln['z']} 主气 {WX_CN[day_elem]}",
-            "detail": f"今日避免{WX_COLOR[day_elem]}色整体穿搭；若衣柜所限，可用其他颜色配饰做中和。",
-            "source_ref": "《千金要方》——随四时五行调节起居服色",
-        })
-
-    # 4. 饮食建议
+    
     food_good = [{
         "id": "food-1",
-        "title": f"宜吃{WEAK_FOOD[weak][0]}等补{WX_CN[weak]}食物",
-        "desc": "、".join(WEAK_FOOD[weak]) + f" — 按相生律补{WX_CN[weak]}形",
-        "reason": f"五形相生：弱{WX_CN[weak]}需要滋养",
-        "detail": f"选其中1-2样，少量多次、细嚼慢咽；以煮、蒸、炖为主，避免煎炸油腻；"
-                  f"建议安排在辰时（7-9点）或午时（11-13点）食用。",
-        "source_ref": f"《本草纲目》——{WX_CN[weak]}类食材补益说明",
+        "title": f"宜吃{WEAK_FOOD[broken][0]}等 · 增益{broken_cn}形链条",
+        "desc": "、".join(WEAK_FOOD[broken]) + f" — 增益{broken_cn}形让{chain_desc}链条通",
+        "reason": chain_desc + f"。食材经典五形属性为{broken_cn}形，增益链条断链点",
+        "detail": f"选其中1-2样，少量多次、细嚼慢咽；以煮、蒸、炖为主。"
+                  f"建议安排在断链节点活跃的时辰（{broken_cn}形旺相时效果加倍）。",
+        "source_ref": f"《本草纲目》——{broken_cn}类食材补益说明",
+        "governance": "增益中庸",
     }]
-    food_bad = [{
-        "id": "food-bad-1",
-        "title": f"忌{STRONG_AVOID[strong][0]}",
-        "desc": "、".join(STRONG_AVOID[strong]) + f" — 避免助{WX_CN[strong]}形过旺",
-        "reason": f"{WX_CN[strong]}形分数 {scores[strong]:.0f} 最高",
-        "detail": f"今日少吃或不吃上述食物；若偶尔摄入，注意控制分量，一次不超过一拳体积；"
-                  f"出现腹胀、口干等不适立即停止。",
-        "source_ref": f"《黄帝内经·素问》——五味入五脏，过食则伤",
-    }]
-
-    # 5. 今日宜忌（干支 + v_base 综合）
-    yi_text = f"今日{WX_CN[day_elem]}日·宜{WX_COLOR[weak]}系·养{WX_CN[weak]}形"
-    ji_text = f"忌穿{WX_COLOR[strong]}系·忌{STRONG_AVOID[strong][0]}等助{WX_CN[strong]}食物"
-
-    # 6. 住房/作息提醒
-    home = []
-    if strong == "fire":
-        home.append({"id": "home-1", "title": "午后宜独处静养", "desc": "火形旺易焦躁，避开午后阳气盛时段",
-                     "detail": "13:00-15:00 尽量安排安静活动，避免高强度社交与争论；可闭目养神10分钟。",
-                     "source_ref": "《黄帝内经·素问》——阳气者，一日而主外，日中而阳气隆"})
-    if weak == "water":
-        home.append({"id": "home-2", "title": "亥时泡脚养肾", "desc": "21:00-23:00 是肾经主时，泡脚 40℃/15min",
-                     "detail": "用40℃左右温水，水位没过踝关节，泡15分钟微微出汗即可；"
-                               "泡后注意保暖，忌立即吹风；有糖尿病足或静脉曲张者慎泡。",
-                     "source_ref": "《千金要方》——以冷水暖足浴，以肾经相应"})
-    if weak == "earth":
-        home.append({"id": "home-3", "title": "辰时养胃", "desc": "7:00-9:00 辰时脾经旺，宜温热早餐",
-                     "detail": "辰时（7-9点）吃温热早餐，以小米粥、山药、南瓜等易消化为主；"
-                               "忌空腹冰饮、忌过量。",
-                     "source_ref": "《伤寒杂病论》——脾胃为后天之本"})
-
-    # 7. 禁忌
-    absolute = []
-    relative = []
-    if scores[strong] - scores[weak] > 25:
-        relative.append({
-            "id": "rel-1",
-            "title": f"慎用过{WX_CN[strong]}类事物",
-            "desc": f"避免{WX_CN[strong]}形进一步过旺（差值 {scores[strong]-scores[weak]:.0f}）",
-            "reason": "五形差 > 25 触发警示",
+    
+    food_bad = []
+    if peaks:
+        peak_main = peaks[0]
+        food_bad.append({
+            "id": "food-bad-1",
+            "title": f"忌{STRONG_AVOID[peak_main][0]}等助尖峰堆积",
+            "desc": "、".join(STRONG_AVOID[peak_main]) + f" — 避免助{WUXING_CN[peak_main]}形尖峰继续堆积",
+            "reason": f"{WUXING_CN[peak_main]}形堆积为尖峰（因{broken_cn}形断链没人接），"
+                      f"尖峰越堆越难通链条",
+            "detail": f"今日少吃或不吃上述食物；等{broken_cn}形增益、链条通了自然放开。",
+            "source_ref": f"《黄帝内经·素问》——五味入五脏，过食则伤",
         })
 
-    # 8. 时辰出行提醒（SPUM × 时辰五行 × 黄历建除）
+    # 5. 今日宜忌
+    yi_text = f"今日{WUXING_CN[day_elem]}日·宜{broken_color}系·增益{broken_cn}形·通{chain_desc}链"
+    ji_text = f"忌穿{'、'.join(WX_COLOR[p] for p in peaks)}系·忌助尖峰堆积食物" if peaks else ""
+
+    # 6. 住房/作息提醒（经典处方保留，触发条件从 weak== 改为 broken==）
+    home = []
+    if broken == "fire":
+        home.append({"id": "home-1", "title": "增益火形 · 上午晒太阳活动", "desc": "链条断于火形（木→土衔接断），上午补火效佳",
+                     "detail": "上午9-11点适度晒太阳、轻度活动（散步/拉伸），增益火形让木→土衔接通。",
+                     "source_ref": "《黄帝内经·素问》——阳气者，一日而主外",
+                     "governance": "增益中庸"})
+    if broken == "water":
+        home.append({"id": "home-2", "title": "增益水形 · 亥时泡脚", "desc": "21:00-23:00 肾经主时，泡脚增益水形",
+                     "detail": "用40℃左右温水，水位没过踝关节，泡15分钟微微出汗；增益水形让金→水→木承接通。",
+                     "source_ref": "《千金要方》——以冷水暖足浴，以肾经相应",
+                     "governance": "增益中庸"})
+    if broken == "earth":
+        home.append({"id": "home-3", "title": "增益土形 · 辰时养胃", "desc": "7:00-9:00 辰时脾经旺，增益土形通金→水→土→火链",
+                     "detail": "辰时（7-9点）吃温热早餐，以小米粥、山药、南瓜等增益土形为主；忌空腹冰饮。",
+                     "source_ref": "《伤寒杂病论》——脾胃为后天之本",
+                     "governance": "增益中庸"})
+    if broken == "metal":
+        home.append({"id": "home-4", "title": "增益金形 · 酉时收敛", "desc": "17:00-19:00 酉时肺经旺，增益金形让土→水桥通",
+                     "detail": "酉时深呼吸/八段锦调息，润肺收敛（梨/百合/银耳）；增益金形让土→水桥节点恢复。",
+                     "source_ref": "《本草纲目》——润肺收敛",
+                     "governance": "增益中庸"})
+    if broken == "wood":
+        home.append({"id": "home-5", "title": "增益木形 · 晨间舒展", "desc": "辰时前（7点前）晨间拉伸步散，增益木形疏水→火衔接",
+                     "detail": "晨间先深呼吸三次，做拉伸/瑜伽或散步15分钟；增益木形让水→火衔接通。",
+                     "source_ref": "《黄帝内经·素问》——木主生发调达",
+                     "governance": "增益中庸"})
+
+    # 7. 禁忌（相对禁忌：尖峰差大时慎助尖峰）
+    absolute = []
+    relative = []
+    if peaks and valleys:
+        # 尖峰+凹谷差距大 → 链条断得严重
+        broken_dev = 50 - v.get(broken, 50)
+        if broken_dev > 20:
+            relative.append({
+                "id": "rel-1",
+                "title": f"链条断得较重，不宜猛增益",
+                "desc": f"增益{broken_cn}形让链条通，过程中会牵动尖峰/凹谷自然调整",
+                "reason": chain_desc + f"（断链偏离 {broken_dev:.0f}）",
+                "governance": "增益中庸",
+            })
+
+    # 8. 时辰出行提醒（保留黄历+建除，治理提示改为链条增益）
     travel = []
     for item in almanac["timeline"]:
-        # 时辰五行与 v_base 的生克关系
         sc_elem_cn = item["elem"]
         sc_elem_map = {"木": "wood", "火": "fire", "土": "earth", "金": "metal", "水": "water"}
         sc_elem_en = sc_elem_map.get(sc_elem_cn, "wood")
-        # 该时辰五行在 v_base 中是旺还是弱
-        sc_score = v.get(sc_elem_en, 50)
-        if sc_score < 40:
-            personal_hint = f"此时辰{sc_elem_cn}形弱，宜补{['木','火','土','金','水'][(list(sc_elem_map.values()).index(sc_elem_en) + 1) % 5]}形活动"
-        elif sc_score > 65:
-            personal_hint = f"此时辰{sc_elem_cn}形旺，宜舒缓{sc_elem_cn}形过旺"
-        else:
-            personal_hint = f"此时辰与你的体质平和"
         
-        # 时辰建除黄历宜忌
+        # 🆕 治理提示：此时辰五行是否是断链节点？是的话→天赐良机
+        if sc_elem_en == broken:
+            personal_hint = f"✨ 此时辰{sc_elem_cn}形是断链节点活跃时，增益效倍！"
+        elif sc_elem_en in peaks:
+            personal_hint = f"⚠️ 此时辰{sc_elem_cn}形是尖峰堆积，不宜助益"
+        else:
+            personal_hint = f"此时辰与你的链条增益方向平和"
+        
         jianchu = item.get("jianchu", "")
         if jianchu in ("破", "闭"):
             travel_hint = f"【{jianchu}日】今日此辰宜静不宜动，大事不举"
@@ -551,57 +597,59 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
             "desc": travel_hint + "；" + personal_hint,
             "detail": f"时辰宜忌：宜{'、'.join(item['yi'][:3]) if item['yi'] else '诸事'}；"
                       f"忌{'、'.join(item['ji'][:3]) if item['ji'] else '无'}。"
-                      f"SPUM 提示：{personal_hint}。",
+                      f"治理提示：{personal_hint}。",
             "source_ref": "《协纪辨方书》· 十二建除 + 《玉匣记》· 彭祖百忌",
         })
     
-    # 9. 破煞方案（SPUM × 黄历交叉）
+    # 9. 破煞方案（保留黄历破煞，治理提示改为链条增益）
     solutions = []
     if almanac["jianchu"] in ("破", "危"):
         solutions.append({
             "id": "sol-jianchu",
             "title": f"今日{almanac['jianchu']}日化解方案",
-            "desc": f"黄历{almanac['jianchu']}日主冲克，建议用五行通关法化解",
+            "desc": f"黄历{almanac['jianchu']}日主冲克，增益链条断链点同时避凶就吉",
             "target": almanac["jianchu"],
             "steps": [
                 f"第一步：避开{almanac['jianchu_ji'][:3]}等不宜事项",
-                f"第二步：多做{almanac['jianchu_yi'][:3]}等合宜之事",
+                f"第二步：增益{broken_cn}形（穿{broken_color}系、吃{WEAK_FOOD[broken][0]}等）让链条通",
                 "第三步：遇事三思而后行，避免冲动决策",
             ],
-            "reason": "建除神煞化解原则：避凶就吉，五行通关",
+            "reason": chain_desc + "。链条通了自然有缓冲力抵御冲克",
+            "governance": "增益中庸",
         })
     
-    if almanac["chong"] and weak in ("wood", "water"):
+    if almanac["chong"]:
         solutions.append({
             "id": "sol-chong",
-            "title": f"冲煞日五行通关",
-            "desc": f"今日{almanac['chong']}，你的{WX_CN[weak]}形偏弱，需主动通关",
+            "title": f"冲煞日 · 增益链条自然通关",
+            "desc": f"今日{almanac['chong']}，增益{broken_cn}形让链条通，五形自洽则冲煞化",
             "target": f"冲{almanac['chong']}",
             "steps": [
-                f"第一步：多穿{WX_COLOR[weak]}色衣物配饰",
-                f"第二步：饮食侧重{WEAK_FOOD[weak][:3]}等补{WX_CN[weak]}食材",
-                f"第三步：避开{WX_COLOR[strong]}色大面积穿搭",
+                f"第一步：多穿{broken_color}色衣物配饰 · 增益{broken_cn}形",
+                f"第二步：饮食侧重{WEAK_FOOD[broken][:3]}等增益{broken_cn}食材",
+                f"第三步：避开{WUXING_CN.get(almanac['chong'])}形同系大面积穿搭助尖峰堆积",
             ],
             "reason": "冲煞日 + 五形偏弱 → 双压叠加，需主动调和",
         })
     
-    if scores[strong] - scores[weak] > 25:
-        diff = scores[strong] - scores[weak]
+    if broken_dev > 20:
+        diff = broken_dev
         solutions.append({
             "id": "sol-vbase",
-            "title": f"五形偏胜修正方案（差值 {diff:.0f}）",
-            "desc": f"你的{WX_CN[strong]}形明显过旺，{WX_CN[weak]}形明显偏弱",
-            "target": f"补{WX_CN[weak]}抑{WX_CN[strong]}",
+            "title": f"链条断链修正方案（偏离 {diff:.0f}）",
+            "desc": chain_desc + f"，增益{broken_cn}形让链条通",
+            "target": f"增益{broken_cn}形",
             "steps": [
-                f"第一步：连续3天多穿{WX_COLOR[weak]}系",
-                f"第二步：每天吃1-2样{WEAK_FOOD[weak]}",
-                f"第三步：暂时减少{STRONG_AVOID[strong]}摄入",
-                f"第四步：每天15分钟静坐，调息养{WX_CN[weak]}形",
+                f"第一步：连续3天多穿{broken_color}系",
+                f"第二步：每天吃1-2样增益{broken_cn}食材（{'、'.join(WEAK_FOOD[broken])}）",
+                f"第三步：避开{'、'.join(STRONG_AVOID[peaks[0]] if peaks else [])}助尖峰堆积",
+                f"第四步：每天15分钟静坐调息，配合增益{broken_cn}形",
             ],
-            "reason": f"五形差 {diff:.0f} > 25 阈值，触发修正方案",
+            "reason": chain_desc + f"（偏离 {diff:.0f}），增益链条让尖峰凹谷自然平复",
+            "governance": "增益中庸",
         })
     
-    # 10. 矿物避忌（简化 SPUM 五色石对应）
+    # 10. 矿物避忌（经典五色石映射 + 链条增益治理）
     stone_map = {
         "wood": {"good": ["绿幽灵", "孔雀石", "翡翠"], "bad": ["白水晶"]},
         "fire": {"good": ["红玛瑙", "石榴石", "碧玺"], "bad": ["黑玛瑙", "黑曜石"]},
@@ -609,22 +657,23 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
         "metal": {"good": ["白水晶", "银饰", "白金"], "bad": ["红玛瑙"]},
         "water": {"good": ["蓝水晶", "黑曜石", "海蓝宝"], "bad": ["黄水晶"]},
     }
-    stone_good = stone_map.get(weak, {}).get("good", [])
-    stone_bad = stone_map.get(strong, {}).get("bad", [])
+    stone_good = stone_map.get(broken, {}).get("good", [])
+    stone_bad = stone_map.get(peaks[0] if peaks else None, {}).get("bad", [])
     stone = []
     if stone_good:
         stone.append({
             "id": "stone-good",
             "title": f"宜佩戴{'、'.join(stone_good)}",
-            "desc": f"补{WX_CN[weak]}形，选其中1-2件贴身佩戴",
-            "reason": f"五色入五脏——{WX_COLOR[weak]}色矿物补益{WX_CN[weak]}形",
+            "desc": f"增益{broken_cn}形链条断链点，选其中1-2件贴身佩戴",
+            "reason": f"五色入五脏——{broken_color}色矿物增益{broken_cn}形",
+            "governance": "增益中庸",
         })
     if stone_bad:
         stone.append({
             "id": "stone-bad",
             "title": f"暂避{'、'.join(stone_bad)}",
-            "desc": f"可能助{WX_CN[strong]}形过旺，今日不戴为宜",
-            "reason": f"同类相感——{WX_COLOR[strong]}色矿物助旺已过旺之形",
+            "desc": f"可能助尖峰堆积，今日不戴为宜",
+            "reason": f"同类相感——尖峰色系矿物助旺已堆积之形",
         })
     
     # 11. 绝对禁忌（结合建除 + 彭祖 + v_base）
@@ -643,24 +692,23 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
             "reason": "《玉匣记》· 彭祖百忌",
         })
     
-    # ════ 12. 时辰 × v_base 生克 → 助我/平/耗我（吉时轴三态）════
+    # ════ 12. 时辰 × 断链点 → 助我/平/耗我（吉时轴三态 · 链条增益版）════
     SHICHEN_ELEM_EN = {"木": "wood", "火": "fire", "土": "earth", "金": "metal", "水": "water"}
     for item in almanac["timeline"]:
         sc_elem = SHICHEN_ELEM_EN.get(item["elem"], "wood")
-        base_el = weak  # 以最弱之形为参照（补弱为助我）
-        rel = _wx_relation(base_el, sc_elem)  # 弱形 vs 时辰五行
+        base_el = broken  # 🆕 以断链点为参照（增益断链点为助我）
+        rel = _wx_relation(base_el, sc_elem)
         sc_score = v.get(sc_elem, 50)
         
-        # 三态判定（SPUM × 时辰）
-        if rel == "generate_me":      # 时辰生我 → 助我（吉）
+        if rel == "generate_me":      # 时辰生断链点 → 助我（吉）
             ptype, plabel = "good", "助我"
-        elif rel == "overcome_me":    # 时辰克我 → 耗我（凶）
+        elif rel == "overcome_me":    # 时辰克断链点 → 耗我（凶）
             ptype, plabel = "bad", "耗我"
-        elif rel == "same" and sc_score < 45:  # 同五行但弱 → 助我
+        elif rel == "same" and sc_score < 45:  # 同断链点且此时辰弱 → 助我补
             ptype, plabel = "good", "助我"
-        elif rel == "same" and sc_score > 65:  # 同五行但过旺 → 平
-            ptype, plabel = "neutral", "平"
-        elif rel == "generated_by_me":  # 我生时辰 → 微耗
+        elif rel == "same" and sc_score > 65:  # 同断链点且此时辰旺 → 天赐良机
+            ptype, plabel = "good", "✨增益效倍"
+        elif rel == "generated_by_me":  # 断链点生时辰 → 微耗
             ptype, plabel = "neutral", "平"
         else:
             ptype, plabel = "neutral", "平"
@@ -668,10 +716,7 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
         item["personal_type"] = ptype
         item["personal_label"] = plabel
 
-    # ════ 13. 飞星落宫 → 今日方位（宜取/宜避）════
-    # ⚠️ 旧实现用正则 \d 从飞星名（"一白水天枢"）提取星号，中文数字永不匹配，
-    #    导致 fx_num 恒等于 1，整个方位块每天都是"一白水落坎位"。
-    #    现直接取库对象的 getIndex()（0 基），+1 转成 1-9。
+    # ════ 13. 飞星落宫 → 今日方位（以断链点为参照）════
     ns_day = almanac.get("_nine_star_day")
     ns_year = almanac.get("_nine_star_year")
     feixing_day_num = _nine_star_num(ns_day)
@@ -682,23 +727,22 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
     fx_dir = fx["dir"]
     fx_gong = fx["gong"]
     
-    # 宜取 = 飞星生我 / 同我（飞星五行 × v_base 最弱之形）
-    fx_rel_weak = _wx_relation(weak, fx_el)
-    fx_rel_strong = _wx_relation(strong, fx_el)
+    peak_main = peaks[0] if peaks else None
+    fx_rel_broken = _wx_relation(broken, fx_el)
+    fx_rel_peak = _wx_relation(peak_main, fx_el) if peak_main else None
     
-    # 宜取方: 飞星生弱形 或 飞星同弱形（弱形分数低 → 同形补之）
-    if fx_rel_weak in ("generate_me",) or (fx_rel_weak == "same" and scores[weak] < 45):
-        good_dir, good_reason = fx_dir, f"日飞星{fx['name']}落{fx_gong}宫（{fx_dir}），生我{WX_CN[weak]}形"
-        # 宜避方 = 对冲宫
+    # 宜取 = 飞星生断链点 / 同断链点
+    if fx_rel_broken in ("generate_me",) or (fx_rel_broken == "same" and v.get(broken, 50) < 45):
+        good_dir, good_reason = fx_dir, f"日飞星{fx['name']}落{fx_gong}宫（{fx_dir}），生我断链点{broken_cn}形"
         bad_dir = _opposite_dir(fx_dir)
-        bad_reason = f"与{fx_dir}对冲，此方叠{WX_CN[fx_el]}气，与你的{WX_CN[weak]}形不合"
-    elif fx_rel_strong in ("overcome_me",) or (fx_rel_strong == "same" and scores[strong] > 65):
-        good_dir, good_reason = fx_dir, f"日飞星{fx['name']}落{fx_gong}宫（{fx_dir}），宜纳气"
-        bad_dir, bad_reason = fx_dir, f"飞星同{WX_CN[strong]}形，今日{WX_CN[strong]}已过旺，避免叠加"
+        bad_reason = f"与{fx_dir}对冲，与断链增益方向不合"
+    elif peak_main and (fx_rel_peak in ("overcome_me",) or fx_rel_peak == "same"):
+        good_dir, good_reason = fx_dir, f"日飞星{fx['name']}落{fx_gong}宫（{fx_dir}），避开尖峰叠加"
+        bad_dir, bad_reason = fx_dir, f"飞星与尖峰{WUXING_CN[peak_main]}形同相，今日避免叠加"
     else:
-        good_dir, good_reason = fx_dir, f"日飞星{fx['name']}落{fx_gong}宫（{fx_dir}），平和之气，宜居中"
+        good_dir, good_reason = fx_dir, f"日飞星{fx['name']}落{fx_gong}宫（{fx_dir}），平和之气"
         bad_dir = _opposite_dir(fx_dir)
-        bad_reason = f"对冲方位，叠{WX_CN[fx_el]}气，与你今日用神不合"
+        bad_reason = f"对冲方位，与断链增益方向不合"
     
     orientation = {
         "feixing_num": fx_num,
@@ -713,11 +757,9 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
         "bad_advice": f"办公尽量避开{bad_dir}背门位",
     }
 
-    # ════ 14. 替换表（不要 A → 改做 B）════
+    # ════ 14. 替换表（以断链偏离为参照）════
     swaps = []
-    # 基于 v_base 偏胜
-    if scores[strong] - scores[weak] > 15:
-        # 过旺之形对应的典型"坏事"
+    if broken_dev > 15:
         swap_map = {
             "wood":  {"bad": "久坐不动 · 肝木郁结", "good": "每坐 1 小时起身 3 分钟舒展"},
             "fire":  {"bad": "午后急躁易怒 · 心火上炎", "good": "午后闭目养神 10 分钟静坐"},
@@ -726,46 +768,50 @@ def _fallback_lifestyle(v: dict, payload: dict) -> dict:
             "water": {"bad": "熬夜过 23 点 · 肾水亏虚", "good": "22:30 前放下手机准备入睡"},
         }
         swaps.append({
-            "bad": swap_map.get(strong, {}).get("bad", "无"),
-            "good": swap_map.get(strong, {}).get("good", "无"),
-            "reason": f"{WX_CN[strong]}形分数 {scores[strong]:.0f} 偏旺",
+            "bad": swap_map.get(broken, {}).get("bad", "无"),
+            "good": swap_map.get(broken, {}).get("good", "无"),
+            "reason": chain_desc,
         })
     
-    # 时辰宜忌
-    today_elem_main = day_elem  # 今日主气
+    today_elem_main = day_elem
     if today_elem_main in ("wood",):
         swaps.append({"bad": "寅卯时 3-7 点剧烈运动", "good": "移至申酉时 15-19 点", "reason": "肝木当令忌泄"})
     if almanac["jianchu"] in ("破", "危", "闭"):
         swaps.append({"bad": "今日大事冲动决策", "good": "遇事三思，暂缓签约/出行", "reason": f"{almanac['jianchu']}日宜静不宜动"})
-    if weak == "water":
-        swaps.append({"bad": "午后饮浓茶/咖啡", "good": "13-15 时改饮温水或淡枸杞茶", "reason": "肾形偏弱，忌浓茶夺肾"})
+    if broken == "water":
+        swaps.append({"bad": "午后饮浓茶/咖啡", "good": "13-15 时改饮温水或淡枸杞茶", "reason": "链条断于水形，忌浓茶夺水"})
     
-    # 最多 3 条
     swaps = swaps[:3]
     
     # ════ 组装完整返回 ════
-    anchor = almanac  # 整个黄历对象作为 anchor
+    anchor = almanac
     anchor["ganzhi"] = f"{almanac['ganzhi_year']}{almanac['ganzhi_month']}{almanac['ganzhi_day']}"
-    anchor["dangling_elem"] = WX_CN[weak]
-    anchor["state"] = f"补{WX_CN[weak]}抑{WX_CN[strong]}"
-    anchor["engine"] = "rule_almanac_v2"
+    anchor["dangling_elem"] = broken_cn
+    anchor["state"] = chain_desc
+    anchor["engine"] = "rule_almanac_v4"
+    anchor["governance"] = "增益中庸"
     
     return {
         "anchor": anchor,
-        "timeline": almanac["timeline"],  # ✅ 12 时辰 + personal_type(助我/平/耗我)
-        "orientation": orientation,       # ✅ 今日方位（飞星落宫 → 宜取/宜避）
-        "swaps": swaps,                   # ✅ 替换表（不要 A → 改做 B）
+        "timeline": almanac["timeline"],
+        "orientation": orientation,
+        "swaps": swaps,
         "cloth_reminders": cloth_good + cloth_bad,
         "food_good": food_good,
         "food_bad": food_bad,
         "home_reminders": home,
-        "absolute_avoid": absolute,      # ✅ 有内容了
-        "relative_avoid": relative,      # ✅ 可能有
-        "stone": stone,                  # ✅ 新增：矿物避忌
-        "travel": travel,                # ✅ 新增：时辰出行
-        "solutions": solutions,          # ✅ 新增：破煞方案
-        "engine": "rule_almanac_v3",
-        "note": "协纪辨方 + 玉匣记 + SPUM 五行交叉推演（v3: 加 personal_type/方位/替换）",
+        "absolute_avoid": absolute,
+        "relative_avoid": relative,
+        "stone": stone,
+        "travel": travel,
+        "solutions": solutions,
+        "chain_desc": chain_desc,
+        "broken_node": broken,
+        "peaks": peaks,
+        "valleys": valleys,
+        "engine": "rule_almanac_v4",
+        "governance": "增益中庸",
+        "note": "协纪辨方 + 玉匣记 + SPUM 链条增益治理（v4: 增益中庸范式，替代 v3 补缺抑强）",
     }
 
 

@@ -4,8 +4,7 @@
   TodoCard / PunchModal / DetailModal 全由装配层管理
 ══════════════════════════════════════════════════════════════ -->
 <template>
-  <template v-if="maturityStage >= 2">
-    <div class="section-head scroll-target-advice">
+  <div class="section-head scroll-target-advice">
       <h2 class="section-title"><QIcon name="doc" :size="15" /> 今日生活建议</h2>
       <div class="seg-control">
         <button v-for="t in segTabs" :key="t.key" class="seg-btn"
@@ -52,7 +51,6 @@
       </div>
       <p v-else class="placeholder">暂无归档 · 完成今日待办后，每日自动归档</p>
     </div>
-  </template>
 </template>
 
 <script setup>

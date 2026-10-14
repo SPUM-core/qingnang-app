@@ -86,6 +86,7 @@
   --qn-border-strong: #7E9A92;     /* ≥3:1 强描边 */
   --qn-border-base:   #A8BDB6;     /* ≥3:1 卡片描边（原 #B5C9C4 仅 1.66:1） */
   --qn-border-subtle: #D8E2DE;     /* 仅装饰，不承载信息 */
+  --qn-border-input:  var(--qn-border-base);   /* 输入框描边 */
 
   --qn-text-primary:   #33403B;    /* 10.37:1，正文不变 */
   --qn-text-secondary: #5F6E68;    /* 5.13:1，元信息标准值（原 #8A9A94 仅 2.82:1） */
@@ -283,6 +284,38 @@ html[data-theme="dark"] {
   --qn-ink-2:     #B0ACA0;
   --qn-ink-3:     #6E6A5F;
   --qn-line:      #323834;
+
+  /* ⭐ 2026-10-14 补：暗色下 Surface 系列覆盖 —— 组件 msg-area/input-area/disclaimer 依赖 */
+  --qn-surface-page:    #141816;   /* 页面深底 */
+  --qn-surface-card:    #1E2220;   /* 输入区底 */
+  --qn-surface-bubble:  #3A3E3C;   /* 用户气泡 — 比页面底亮一档，保证可见 */
+  --qn-surface-footer:  #1A1E1C;   /* 页脚 */
+
+  /* ⭐ 2026-10-14 补：暗色下 Spec Border/Text 覆盖 */
+  --qn-border-strong: #4A6A60;
+  --qn-border-base:   #3D554E;
+  --qn-border-subtle: #2E3A36;
+  --qn-border-input:  var(--qn-border-strong);   /* 暗色下输入框描边用更亮一档 */
+  --qn-text-primary:   #E8E5DD;
+  --qn-text-secondary: #B0ACA0;
+  --qn-text-tertiary:  #7A7669;
+  --qn-text-on-brand:  #F2EFE7;
+
+  /* Spec 对齐 Brand 色在暗色下的覆盖 */
+  --qn-brand-900: #1A3E38;
+  --qn-brand-800: #1E5A4E;   /* 亮一些，在深底上对比度够 */
+  --qn-brand-700: #2E6B60;
+  --qn-brand-600: #4FA08C;
+  --qn-brand-500: #5CC4B2;
+  --qn-brand-300: #6B8A80;
+  --qn-brand-200: #3D554E;
+  --qn-brand-100: #2A3A35;
+  --qn-brand-050: #1E2A28;   /* 骨架屏 shimmer 基色 */
+
+  /* Spec 对齐 Shadow 在暗色下的值 */
+  --qn-shadow-card: 0 1px 2px rgba(0,0,0,0.3), 0 1px 1px rgba(0,0,0,0.2);
+  --qn-shadow-1: 0 1px 2px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.4);
+  --qn-shadow-2: 0 2px 4px rgba(0,0,0,0.3), 0 6px 16px rgba(0,0,0,0.5);
 
   /* 标签底色透明度上调，暗底上 0.08 几乎不可见 */
   --qn-ok-bg:   rgba(67,160,71,.15);

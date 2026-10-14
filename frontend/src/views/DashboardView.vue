@@ -1,7 +1,7 @@
 <template>
   <!-- ══ M1 下拉刷新 + 页面容器
        手势/动画已抽离 → modules/PullRefreshBar.vue ══ -->
-  <section class="page home" data-page-id="P02">
+  <section class="page home" data-page-id="P02" style="position: relative">
     <PullRefreshBar :refresh-fn="_lightRefresh">
     <!-- 问候头部（已抽离 → modules/GreetingHeader.vue） -->
     <GreetingHeader
@@ -15,135 +15,185 @@
     />
 
     <!-- 📅 今日时空英雄卡 · 点击进入时空详情页 -->
-    <SpacetimeHeroCard />
-
-    <!-- 🎖️ 数字模型成熟度进度卡（4 阶段节点 + 总进度 + next_target）
-         2026-10-04 隐藏：成熟度是后台隐形设定，AI 用它引导用户完善采集，不需要给用户看
-         如需恢复：把 v-if="false" 改成 v-if="maturity" -->
-    <div v-if="false && maturity" :class="['maturity-card', `stage-${maturity.stage}`]">
-      <!-- 4 阶段节点横向进度 -->
-      <div class="mc-track">
-        <div class="mc-line">
-          <div class="mc-fill" :style="{ width: maturityPercent + '%' }"></div>
-        </div>
-        <div v-for="(node, idx) in STAGE_NODES" :key="idx"
-             :class="['mc-node', { done: idx + 1 < maturity.stage, current: idx + 1 === maturity.stage, locked: idx + 1 > maturity.stage }]">
-          <span class="mc-node-ico">{{ node.icon }}</span>
-          <span class="mc-node-label">{{ node.name }}</span>
-          <span v-if="idx + 1 === maturity.stage" class="mc-node-cur">当前</span>
-        </div>
+    <!-- ══════ 可拖拽排序容器（长按卡片 2s 进入编辑模式） ══════ -->
+    <!-- 非编辑模式：纯 div（零 SortableJS touch 监听，不干扰滚动/点击） -->
+    <div v-if="!isReordering" class="dash-cards"
+         @touchstart="onLongPressStart"
+         @touchend="onLongPressEnd"
+         @touchcancel="onLongPressEnd"
+         @touchmove="onLongPressMove">
+      <div class="sortable-wrap" :data-id="'spacetime'">
+        <SpacetimeHeroCard />
       </div>
-      <!-- 分数 + 分项进度 -->
-      <div class="mc-body">
-        <div class="mc-score">
-          <span class="mc-score-num">{{ maturity.score }}</span>
-          <span class="mc-score-max">/ {{ maturity.max_score || 11 }}</span>
-          <span class="mc-score-pct">({{ maturityPercent }}%)</span>
-        </div>
-        <!-- 分项进度条（数据源：后端 /maturity 端点返回的 progress 字段） -->
-        <div class="mc-items">
-          <div class="mc-item" :class="{ done: maturity.progress?.profile_complete >= 4 }">
-            <span class="mc-item-lbl">基本资料</span>
-            <div class="mc-item-bar"><div class="mc-item-fill" :style="{ width: (maturity.progress?.profile_complete / 4 * 100) + '%' }"></div></div>
-            <span class="mc-item-val">{{ maturity.progress?.profile_complete || 0 }}/4</span>
-          </div>
-          <div class="mc-item" :class="{ done: maturity.progress?.has_baseline }">
-            <span class="mc-item-lbl">建档 + 基线</span>
-            <div class="mc-item-bar"><div class="mc-item-fill" :style="{ width: maturity.progress?.has_baseline ? '100%' : '0%' }"></div></div>
-            <span class="mc-item-val">{{ maturity.progress?.has_baseline ? '✅' : '—' }}</span>
-          </div>
-          <div class="mc-item" :class="{ done: (maturity.progress?.observation_count || 0) >= 3 }">
-            <span class="mc-item-lbl">脉搏采集</span>
-            <div class="mc-item-bar"><div class="mc-item-fill" :style="{ width: Math.min(100, (maturity.progress?.observation_count || 0) / 3 * 100) + '%' }"></div></div>
-            <span class="mc-item-val">{{ maturity.progress?.observation_count || 0 }}/3</span>
-          </div>
-          <div class="mc-item" :class="{ done: maturity.progress?.inquiry_done }">
-            <span class="mc-item-lbl">深度了解</span>
-            <div class="mc-item-bar"><div class="mc-item-fill" :style="{ width: maturity.progress?.inquiry_done ? '100%' : '0%' }"></div></div>
-            <span class="mc-item-val">{{ maturity.progress?.inquiry_done ? '✅' : '—' }}</span>
-          </div>
-          <div class="mc-item" :class="{ done: (maturity.progress?.signal_tag_count || 0) >= 3 }">
-            <span class="mc-item-lbl">生活信号</span>
-            <div class="mc-item-bar"><div class="mc-item-fill" :style="{ width: Math.min(100, (maturity.progress?.signal_tag_count || 0) / 3 * 100) + '%' }"></div></div>
-            <span class="mc-item-val">{{ maturity.progress?.signal_tag_count || 0 }}/3</span>
-          </div>
-        </div>
+      <div class="sortable-wrap" :data-id="'herotodo'">
+        <HeroTodoCard
+          :hero-todo="heroTodo"
+          :anchor-safe="anchorSafe"
+          @go-pending="goPending"
+        />
       </div>
-      <!-- next_target 引导 -->
-      <p v-if="maturity.next_target" class="mc-next">
-        🎯 下一站：{{ maturity.next_target }}
-      </p>
-      <p v-if="maturity.missing_signals?.length" class="mc-missing">
-        还差：{{ maturity.missing_signals.join(' · ') }}
-      </p>
+      <div class="sortable-wrap" :data-id="'curve'">
+        <ConstitutionCurveCard
+          v-model:chart-mode="chartMode"
+          :drift-trajectory="driftTrajectory"
+          :drift-series="driftSeries"
+          :lifetime-available="!!vectorStore.lifetimeTrajectory"
+          :chip-text="chartChipText"
+          @navigate="$router.push({ name: 'trajectory' })"
+        />
+      </div>
+      <div class="sortable-wrap" :data-id="'reminder'">
+        <LifestyleReminderCard
+          :maturity-stage="maturity?.stage ?? 0"
+          v-model:expanded="remExpanded"
+          v-model:active-tab="activeRem"
+          :rem-total="remTotal"
+          :rem-tabs="remTabs"
+          :lifestyle-loading="lifestyleLoading"
+          :lifestyle-preview="lifestylePreview"
+          :cloth-good-select="clothGoodSelect"
+          :cloth-bad-select="clothBadSelect"
+          :food-good-select="foodGoodSelect"
+          :food-bad-select="foodBadSelect"
+          :home-select="homeSelect"
+          :relative-select="relativeSelect"
+          :absolute-select="absoluteSelect"
+          :stone-select="stoneSelect"
+        />
+      </div>
+      <div class="sortable-wrap" :data-id="'advice'">
+        <LifeAdviceCard
+          :maturity-stage="maturity?.stage ?? 0"
+          v-model:filter="activeFilter"
+          :seg-tabs="segTabs"
+          :filtered-todos="filteredTodos"
+          :feedbacks-map="feedbacksMap"
+          :archives="archives"
+          :archived-days="archivedDays"
+          :total-feedbacks="totalFeedbacks"
+          :exec-label-fn="execLabel"
+          @open-punch="openPunchModal"
+          @open-detail="openDetailModal"
+        />
+      </div>
+      <div class="sortable-wrap" :data-id="'radar'">
+        <TrendRadarCard
+          :v-base="vBase"
+          :v-obs="latestObs"
+          :trend-state-label="vectorStore.trendStateLabel"
+          :delta-summary="deltaSummary"
+          @go-case="goCase"
+        />
+      </div>
+      <div class="sortable-wrap" :data-id="'drift'">
+        <DriftVectorCard :rows="deltaTable" />
+      </div>
     </div>
 
-    <!-- 注：了解报告已迁移到「体质 → 报告时间线」统一展示，这里不再重复 -->
+    <!-- 编辑模式：VueDraggable（长按 grip 图标才激活拖动） -->
+    <template v-else>
+      <VueDraggable
+        handle=".drag-handle"
+        animation="220"
+        ghost-class="qn-drag-ghost"
+        chosen-class="qn-drag-chosen"
+        drag-class="qn-drag-dragging"
+        :delay="350"
+        :delay-on-touch-only="true"
+        :touch-start-threshold="10"
+        @end="onCardDragEnd"
+      >
+        <div class="sortable-wrap" :data-id="'spacetime'">
+          <span class="drag-handle" title="拖动排序">⠿</span>
+          <SpacetimeHeroCard />
+        </div>
+        <div class="sortable-wrap" :data-id="'herotodo'">
+          <span class="drag-handle" title="拖动排序">⠿</span>
+          <HeroTodoCard
+            :hero-todo="heroTodo"
+            :anchor-safe="anchorSafe"
+            @go-pending="goPending"
+          />
+        </div>
+        <div class="sortable-wrap" :data-id="'curve'">
+          <span class="drag-handle" title="拖动排序">⠿</span>
+          <ConstitutionCurveCard
+            v-model:chart-mode="chartMode"
+            :drift-trajectory="driftTrajectory"
+            :drift-series="driftSeries"
+            :lifetime-available="!!vectorStore.lifetimeTrajectory"
+            :chip-text="chartChipText"
+            @navigate="$router.push({ name: 'trajectory' })"
+          />
+        </div>
+        <div class="sortable-wrap" :data-id="'reminder'">
+          <span class="drag-handle" title="拖动排序">⠿</span>
+          <LifestyleReminderCard
+            :maturity-stage="maturity?.stage ?? 0"
+            v-model:expanded="remExpanded"
+            v-model:active-tab="activeRem"
+            :rem-total="remTotal"
+            :rem-tabs="remTabs"
+            :lifestyle-loading="lifestyleLoading"
+            :lifestyle-preview="lifestylePreview"
+            :cloth-good-select="clothGoodSelect"
+            :cloth-bad-select="clothBadSelect"
+            :food-good-select="foodGoodSelect"
+            :food-bad-select="foodBadSelect"
+            :home-select="homeSelect"
+            :relative-select="relativeSelect"
+            :absolute-select="absoluteSelect"
+            :stone-select="stoneSelect"
+          />
+        </div>
+        <div class="sortable-wrap" :data-id="'advice'">
+          <span class="drag-handle" title="拖动排序">⠿</span>
+          <LifeAdviceCard
+            :maturity-stage="maturity?.stage ?? 0"
+            v-model:filter="activeFilter"
+            :seg-tabs="segTabs"
+            :filtered-todos="filteredTodos"
+            :feedbacks-map="feedbacksMap"
+            :archives="archives"
+            :archived-days="archivedDays"
+            :total-feedbacks="totalFeedbacks"
+            :exec-label-fn="execLabel"
+            @open-punch="openPunchModal"
+            @open-detail="openDetailModal"
+          />
+        </div>
+        <div class="sortable-wrap" :data-id="'radar'">
+          <span class="drag-handle" title="拖动排序">⠿</span>
+          <TrendRadarCard
+            :v-base="vBase"
+            :v-obs="latestObs"
+            :trend-state-label="vectorStore.trendStateLabel"
+            :delta-summary="deltaSummary"
+            @go-case="goCase"
+          />
+        </div>
+        <div class="sortable-wrap" :data-id="'drift'">
+          <span class="drag-handle" title="拖动排序">⠿</span>
+          <DriftVectorCard :rows="deltaTable" />
+        </div>
+      </VueDraggable>
 
-    <!-- ════ 英雄卡组：今日最重要的事 + 今日宜忌（独立两卡）
-         内部组件已抽离 → modules/HeroTodoCard.vue + HeroDailyTipsCard.vue ════ -->
-    <div class="hero-row">
-      <HeroTodoCard
-        :hero-todo="heroTodo"
-        :anchor-safe="anchorSafe"
-        @go-pending="goPending"
-      />
-      <HeroDailyTipsCard
-        :anchor-safe="anchorSafe"
-        :avoidance-notes="avoidanceNotes"
-        @open-reminders="openReminders"
-      />
-    </div>
+      <!-- 编辑模式退出提示条 -->
+      <div class="reorder-hint">
+        <span>长按卡角 ⠿ 图标拖动排序</span>
+        <button class="reorder-done" @click="isReordering = false">完成</button>
+      </div>
+    </template>
 
-    <!-- ════ 第二行：体质调理曲线 ════ -->
-    <div class="top-row">
-      <ConstitutionCurveCard
-        v-model:chart-mode="chartMode"
-        :drift-trajectory="driftTrajectory"
-        :drift-series="driftSeries"
-        :lifetime-available="!!vectorStore.lifetimeTrajectory"
-        :chip-text="chartChipText"
-        @navigate="$router.push({ name: 'trajectory' })"
-      />
-    </div>
-
-    <!-- ════ 生活提醒：Stage 2+ 才显示
-         SSE / 缓存 / fallback 全留装配层 → modules/LifestyleReminderCard.vue 纯展示 ════ -->
-    <LifestyleReminderCard
-      :maturity-stage="maturity?.stage ?? 0"
-      v-model:expanded="remExpanded"
-      v-model:active-tab="activeRem"
-      :rem-total="remTotal"
-      :rem-tabs="remTabs"
-      :lifestyle-loading="lifestyleLoading"
-      :lifestyle-preview="lifestylePreview"
-      :cloth-good-select="clothGoodSelect"
-      :cloth-bad-select="clothBadSelect"
-      :food-good-select="foodGoodSelect"
-      :food-bad-select="foodBadSelect"
-      :home-select="homeSelect"
-      :relative-select="relativeSelect"
-      :absolute-select="absoluteSelect"
-      :stone-select="stoneSelect"
+    <!-- ════ M12 AI 大白话解读 Modal → modules/AiExplainModal.vue ════ -->
+    <AiExplainModal
+      :modal="anchorModal"
+      :render-markdown-fn="renderMarkdown"
+      @close="anchorModal.show = false"
+      @ask-assistant="continueWithAssistant"
     />
 
-    <!-- ════ 第二行：待办卡片网格 + 归档视图
-         已抽离 → modules/LifeAdviceCard.vue（M8 PunchModal / M9 DetailModal 留在装配层） ════ -->
-    <LifeAdviceCard
-      :maturity-stage="maturity?.stage ?? 0"
-      v-model:filter="activeFilter"
-      :seg-tabs="segTabs"
-      :filtered-todos="filteredTodos"
-      :feedbacks-map="feedbacksMap"
-      :archives="archives"
-      :archived-days="archivedDays"
-      :total-feedbacks="totalFeedbacks"
-      :exec-label-fn="execLabel"
-      @open-punch="openPunchModal"
-      @open-detail="openDetailModal"
-    />
-
-    <!-- ════ M8 打卡弹窗 → modules/PunchModal.vue（props 进、emit 出） ════ -->
+    <!-- ════ M8 PunchModal → modules/PunchModal.vue（补回：重构 sortable-wrap 时被误删） ════ -->
     <PunchModal
       :todo="punchModal.todo"
       :feedbacks="punchModal.feedbacks"
@@ -154,7 +204,7 @@
       @submit="handlePunchSubmit"
     />
 
-    <!-- ════ M9 详情弹窗 → modules/DetailModal.vue ════ -->
+    <!-- ════ M9 DetailModal → modules/DetailModal.vue（补回） ════ -->
     <DetailModal
       :modal="detailModal"
       :detail="dmDetail"
@@ -163,27 +213,6 @@
       @ask-qa="askDetailQA"
     />
 
-    <!-- ════ 第三行：体质趋势（雷达图） ════
-         已抽离 → modules/TrendRadarCard.vue -->
-    <TrendRadarCard
-      :v-base="vBase"
-      :v-obs="latestObs"
-      :trend-state-label="vectorStore.trendStateLabel"
-      :delta-summary="deltaSummary"
-      @go-case="goCase"
-    />
-
-    <!-- ════ 第四行：漂移矢量一览
-         已抽离 → modules/DriftVectorCard.vue ════ -->
-    <DriftVectorCard :rows="deltaTable" />
-
-    <!-- ════ M12 AI 大白话解读 Modal → modules/AiExplainModal.vue ════ -->
-    <AiExplainModal
-      :modal="anchorModal"
-      :render-markdown-fn="renderMarkdown"
-      @close="anchorModal.show = false"
-      @ask-assistant="continueWithAssistant"
-    />
     </PullRefreshBar>
   </section>
 </template>
@@ -194,6 +223,7 @@ import { useRouter } from 'vue-router'
 import { useVectorStore } from '../stores/vector'
 import { useUserStore } from '../stores/user'
 import * as storage from '../utils/storage'
+import { VueDraggable } from 'vue-draggable-plus'
 import { healthCheck, api, assistant as assistantApi, notifications as notifApi, lifestyleStream } from '../api/client'
 import RadarChart from '../components/charts/RadarChart.vue'
 import DriftChart from '../components/charts/DriftChart.vue'
@@ -205,7 +235,6 @@ import TrendRadarCard from '../modules/TrendRadarCard.vue'
 import DriftVectorCard from '../modules/DriftVectorCard.vue'
 import PullRefreshBar from '../modules/PullRefreshBar.vue'
 import HeroTodoCard from '../modules/HeroTodoCard.vue'
-import HeroDailyTipsCard from '../modules/HeroDailyTipsCard.vue'
 import LifestyleReminderCard from '../modules/LifestyleReminderCard.vue'
 import LifeAdviceCard from '../modules/LifeAdviceCard.vue'
 import ConstitutionCurveCard from '../modules/ConstitutionCurveCard.vue'
@@ -357,10 +386,6 @@ function goPending() {
 }
 function goCase() {
   router.push({ name: 'case' })
-}
-function openReminders() {
-  remExpanded.value = true
-  nextTick(() => document.querySelector('.scroll-target-life')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
 }
 
 // 精选筛选（压缩版：分类选 2 条 + 全部宜 3 条）
@@ -626,9 +651,6 @@ const feedbacksMap = computed(() => {
 const todos = ref(loadToday())
 watch(todos, saveToday, { deep: true })
 
-// ⚠️ 后端聚合返回的注意事项（不可执行，只做顶部提醒）
-const avoidanceNotes = ref([])
-
 function toggleTodo(id) {
   const t = todos.value.find(x => x.id === id)
   if (t) { t.done = !t.done }
@@ -808,8 +830,86 @@ function _resetAllLocalState() {
   lifestylePreview.value = ''
 }
 
+// ═══════════════════════════════════════════════════════════
+// 卡片拖拽排序 — 编辑模式切换
+// ═══════════════════════════════════════════════════════════
+const isReordering = ref(false)   // false=纯div零touch干扰 / true=VueDraggable激活
+const CARD_IDS = ['spacetime', 'herotodo', 'curve', 'reminder', 'advice', 'radar', 'drift']
+const CARD_ORDER_KEY = 'qn_dash_card_order_v2'
+
+// ═══════════════════════════════════════════════════════════
+// 长按 2s 触发排序模式（替代原来的铅笔按钮）
+// ═══════════════════════════════════════════════════════════
+let _lpTimer = null
+let _lpMoveCanceled = false
+const LONG_PRESS_MS = 2000
+const LONG_PRESS_MOVE_TOLERANCE = 10  // 移动超过此像素视为滚动，取消长按
+
+function onLongPressStart(e) {
+  if (isReordering.value) return
+  _lpMoveCanceled = false
+  const startX = e.touches[0].clientX
+  const startY = e.touches[0].clientY
+  _lpTimer = setTimeout(() => {
+    if (_lpMoveCanceled) return
+    isReordering.value = true
+  }, LONG_PRESS_MS)
+  // 闭包捕获起点
+  _lpCheckMove = (moveX, moveY) => {
+    if (Math.abs(moveX - startX) > LONG_PRESS_MOVE_TOLERANCE ||
+        Math.abs(moveY - startY) > LONG_PRESS_MOVE_TOLERANCE) {
+      _lpMoveCanceled = true
+      clearTimeout(_lpTimer)
+    }
+  }
+}
+let _lpCheckMove = null
+function onLongPressMove(e) {
+  if (!_lpTimer) return
+  _lpCheckMove?.(e.touches[0].clientX, e.touches[0].clientY)
+}
+function onLongPressEnd() {
+  clearTimeout(_lpTimer)
+  _lpTimer = null
+  _lpCheckMove = null
+}
+
+/** 从 localStorage 恢复排序并重排 DOM */
+async function _restoreCardOrder() {
+  const saved = storage.get(CARD_ORDER_KEY)
+  if (!saved) return
+  if (!Array.isArray(saved)) return
+  // 校验完整性（防止旧版本缺卡/多卡）
+  const valid = saved.filter(id => CARD_IDS.includes(id))
+  const finalOrder = [...valid, ...CARD_IDS.filter(id => !valid.includes(id))]
+  await nextTick()
+  const container = document.querySelector('.page home')
+  // 找到 VueDraggable 的容器（第一个 .sortable-wrap 的 parent）
+  const firstWrap = document.querySelector('.sortable-wrap')
+  if (!firstWrap) return
+  const parent = firstWrap.parentElement
+  if (!parent) return
+  finalOrder.forEach(id => {
+    const el = parent.querySelector(`.sortable-wrap[data-id="${id}"]`)
+    if (el) parent.appendChild(el)  // 移动到末尾 → 自然按 finalOrder 排
+  })
+}
+
+/** 拖拽结束：读取 DOM 顺序存 localStorage */
+function onCardDragEnd() {
+  const firstWrap = document.querySelector('.sortable-wrap')
+  if (!firstWrap) return
+  const parent = firstWrap.parentElement
+  if (!parent) return
+  const order = [...parent.querySelectorAll('.sortable-wrap')]
+    .map(el => el.dataset.id)
+    .filter(Boolean)
+  storage.set(CARD_ORDER_KEY, order)
+}
+
 onMounted(async () => {
   _resetAllLocalState()   // 首次进 Dashboard，清旧状态
+  _restoreCardOrder()     // 恢复卡片拖拽顺序（不阻塞 LLM）
   await _onBoard()
 })
 
@@ -850,7 +950,6 @@ async function _lightRefresh() {
   try {
     const r = await api.get('/api/v1/cases/today-todos')
     todos.value = (r.data?.todos || []).map(mapBackendTodo)
-    avoidanceNotes.value = r.data?.avoidances || []
     saveToday()
   } catch {}
   // ⚠️ 注意：不清 anchor / food / cloth / lifestyle —— 这些是按天缓存的
@@ -890,10 +989,8 @@ async function _onBoard() {
     // ⚠️ 2026-10-05 修复：无条件覆盖 todos，不要用 length > 0 判断
     // 否则 reset 后后端返回空时，localStorage 残留的旧 todos 不会被清掉
     todos.value = todosFromBackend
-    // 🎯 注意事项单独存（不进 todos，进顶部提醒栏）
-    avoidanceNotes.value = r.data?.avoidances || []
     saveToday()
-    console.log(`[Dashboard] ✅ 今日待办来自后端聚合：${todosFromBackend.length} 条，注意事项 ${avoidanceNotes.value.length} 条`)
+    console.log(`[Dashboard] ✅ 今日待办来自后端聚合：${todosFromBackend.length} 条`)
     // 也存一下 chief_complaint 方便青囊聊天读
     if (r.data?.chief_complaint) {
       storage.set('qingnang_chief_complaint', r.data.chief_complaint)
@@ -1099,18 +1196,95 @@ function _applyLifestyleResult(d) {
   .mc-item { grid-template-columns: 60px 1fr 36px; font-size: calc(11px * var(--qn-fs-scale)); }
 }
 
-/* ── 英雄卡组容器（子卡样式已抽离 → HeroTodoCard.vue + HeroDailyTipsCard.vue） ── */
-.hero-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-bottom: 16px; }
-@media (max-width: 720px) {
-  .hero-row { grid-template-columns: 1fr; gap: 12px; }
+/* ══════ 排序 toggle 按钮（GreetingHeader 右侧） ══════ */
+.reorder-toggle {
+  position: absolute; right: 14px; top: 170px; z-index: 500;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(30,107,80,0.85); color: #fff;
+  border: 1px solid rgba(255,255,255,0.2);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 14px rgba(30,107,80,0.4);
+  transition: transform 0.15s;
+}
+.reorder-toggle:active { transform: scale(0.92) }
+
+/* ══════ 编辑模式提示条（固定底部） ══════ */
+.reorder-hint {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  margin: 4px 0 8px;
+  background: rgba(30,107,80,0.35);
+  border: 1px solid #2E7355;
+  border-radius: 12px;
+  font-size: 12px; color: #F2F7F4;
+}
+.reorder-done {
+  padding: 5px 14px; border-radius: 999px;
+  background: #2A7A57; color: #F0F7F3; border: none;
+  font-size: 12px; font-weight: 600;
 }
 
-/* M5 ConstitutionCurveCard → modules/ConstitutionCurveCard.vue scoped */
-/* M5b AnchorTimelineCard → modules/AnchorTimelineCard.vue scoped */
-/* M12 AiExplainModal → modules/AiExplainModal.vue scoped */
+/* ══════ 可拖拽排序容器（SortableJS） ══════ */
+.sortable-wrap {
+  position: relative;
+  margin-bottom: 12px;
+}
+/* 拖动把手（每张卡右上角的 grip 图标） */
+.drag-handle {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  z-index: 10;
+  width: 20px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1;
+  color: rgba(255,255,255,0.35);   /* 默认极淡，不干扰阅读 */
+  cursor: grab;
+  border-radius: 4px;
+  user-select: none;
+  /* 确保不吞掉卡片的点击事件 */
+  pointer-events: auto;
+  transition: color 0.2s, background 0.2s;
+  /* 深色卡片（SpacetimeHeroCard/HeroTodoCard）用白色，浅色卡片用深色 */
+}
+.sortable-wrap:has(.hero-card) .drag-handle,
+.sortable-wrap:has(.st-hero-card) .drag-handle {
+  color: rgba(255,255,255,0.45);
+}
+.drag-handle:hover { color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.1); }
+.drag-handle:active { cursor: grabbing; }
 
-/* ── 顶部并列 ── */
-.top-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; align-items: stretch; }
+/* ══════ SortableJS 拖拽动画类 ══════ */
+/* 被拖动的"幽灵"占位（原位置留空的动画） */
+.qn-drag-ghost {
+  opacity: 0.35;
+  background: rgba(100,100,100,0.1);
+  border: 2px dashed rgba(100,100,100,0.4);
+  border-radius: 12px;
+}
+/* 正在被选中准备拖动的元素 */
+.qn-drag-chosen {
+  transform: scale(1.02);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  z-index: 1000;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+/* 正在拖动的主元素 */
+.qn-drag-dragging {
+  transform: rotate(1.2deg) scale(1.01);
+  box-shadow: 0 15px 40px rgba(0,0,0,0.25);
+  z-index: 9999;
+  opacity: 0.95;
+}
+
+/* VueDraggable 内部容器：让子元素垂直排列 */
+[class*="sortable-wrap"]:not(.sortable-wrap) {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+}
+
+/* 旧 hero-row / top-row 已废弃，保留旧类名兼容但不生效 */
 /* ⚠️ .card 基础样式已统一到 App.vue 全局（无 border、shadow-only、圆角 16）
    Dashboard 独有：只覆盖 h2 的 margin-bottom */
 .card h2 { margin-bottom: 12px; }

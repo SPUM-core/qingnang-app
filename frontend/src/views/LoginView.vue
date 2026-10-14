@@ -199,7 +199,7 @@ async function doRegister() {
 .splash-root {
   position: fixed; inset: 0;
   overflow: hidden;
-  background: #F2EFE7;   /* 宣纸米，与海报边缘同色 */
+  background: var(--qn-bg-light);   /* 宣纸米，与海报边缘同色 — 主题联动 */
 }
 
 /* ══════════ 舞台一：启动动画 ══════════ */
@@ -331,7 +331,7 @@ async function doRegister() {
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-row { display: flex; gap: 10px; }
 .field-half { flex: 1; min-width: 0; }
-.field span { font-size: calc(13px * var(--qn-fs-scale)); color: #2C3E3C; font-weight: 500; }
+.field span { font-size: calc(13px * var(--qn-fs-scale)); color: var(--qn-text-primary); font-weight: 500; }
 .field input, .field select {
   padding: 11px 14px;
   border: 1px solid rgba(var(--qn-emerald-rgb),0.20);
@@ -367,8 +367,8 @@ async function doRegister() {
 .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; filter: grayscale(0.3); }
 
 .error-hint {
-  background: rgba(168,68,47,0.08);
-  border: 1px solid rgba(168,68,47,0.35);
+  background: rgba(var(--qn-cinnabar-rgb),0.08);
+  border: 1px solid rgba(var(--qn-cinnabar-rgb),0.35);
   color: var(--qn-cinnabar);
   padding: 8px 12px;
   border-radius: 8px;
@@ -378,7 +378,7 @@ async function doRegister() {
 .switch-mode {
   text-align: center;
   font-size: calc(13px * var(--qn-fs-scale));
-  color: #6B7277;
+  color: var(--qn-ink-3);
   margin: 6px 0 0;
 }
 .link-btn {
@@ -408,5 +408,51 @@ async function doRegister() {
   .lockup-wordmark { height: 70px; }
   .auth-card { padding: 22px 20px 18px; }
   .end-content { gap: 24px; }
+}
+
+/* ═══════════════════════════════════════════════════════
+   暗色主题覆盖 —— B 类硬编码（视觉概念需在暗色下反转）
+   不新增全局 token，scoped 处理
+   ═══════════════════════════════════════════════════════ */
+html[data-theme="dark"] .splash-root {
+  background: var(--qn-bg-light);  /* 自动覆盖为 #1A1E1C */
+}
+
+/* 跳过提示胶囊 — 深色底 + 浅色字 */
+html[data-theme="dark"] .skip-hint {
+  color: rgba(232,229,221,0.55);
+  border: 1px solid rgba(232,229,221,0.25);
+  background: rgba(26,30,28,0.6);
+}
+
+/* 中央宣纸提亮 — 深背景下改为暗色渐变 */
+html[data-theme="dark"] .end-wash {
+  background: radial-gradient(
+    ellipse 90% 70% at 50% 55%,
+    rgba(26,30,28,0.75) 0%,
+    rgba(26,30,28,0.4) 55%,
+    rgba(26,30,28,0) 100%
+  );
+}
+
+/* 玻璃态登录卡片 — 深色玻璃 */
+html[data-theme="dark"] .auth-card {
+  background: rgba(30,34,32,0.85);
+  border: 1px solid rgba(79,160,140,0.35);
+  box-shadow:
+    0 1px 0 rgba(79,160,140,0.15) inset,
+    0 20px 60px rgba(0,0,0,0.5);
+}
+html[data-theme="dark"] .field span { color: var(--qn-ink); }
+html[data-theme="dark"] .field input,
+html[data-theme="dark"] .field select {
+  background: rgba(30,34,32,0.9);
+  color: var(--qn-ink);
+}
+html[data-theme="dark"] .field input::placeholder { color: var(--qn-ink-3); }
+
+/* 页脚小字 */
+html[data-theme="dark"] .splash-footer {
+  color: rgba(232,229,221,0.35);
 }
 </style>

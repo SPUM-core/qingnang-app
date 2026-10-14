@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
   <div class="assistant-root" ref="rootRef" :style="fabPosStyle">
     <!-- 悬浮触发按钮（可拖动） -->
     <button class="fab" :class="{ minimized: isOpen, dragging: isDragging }"
@@ -1208,7 +1208,7 @@ function showToast(text) {
 }
 /* history-sidebar 本体（被 overlay 嵌套时自动继承 280px 宽） */
 .history-sidebar {
-  background: linear-gradient(180deg, #faf9f5, #f3f1ea);
+  background: linear-gradient(180deg, var(--qn-surface), var(--qn-bg-paper));
   border-right: 1px solid var(--qn-line);
   overflow: hidden;
 }
@@ -1536,7 +1536,7 @@ function showToast(text) {
   text-align: left; font-weight: 500;
 }
 .action-btn:hover {
-  background: linear-gradient(135deg, #e0f5ee, #f5fff9);
+  background: linear-gradient(135deg, rgba(var(--qn-emerald-accent-rgb),0.15), var(--qn-surface));
   border-color: var(--qn-emerald);
   transform: translateX(2px);
 }
@@ -1603,7 +1603,7 @@ function showToast(text) {
   border-radius: 4px; text-align: center; font-size: calc(10px * var(--qn-fs-scale)); font-weight: 600;
 }
 .brief-row.yi .brief-tag-tag { background: rgba(var(--qn-emerald-accent-rgb),0.2); color: var(--qn-emerald); }
-.brief-row.ji .brief-tag-tag { background: rgba(216,67,21,0.15); color: var(--qn-fire); }
+.brief-row.ji .brief-tag-tag { background: rgba(var(--qn-fire-rgb),0.15); color: var(--qn-fire); }
 .brief-section { margin-top: 6px; }
 .brief-section-title {
   display: block; font-size: calc(11px * var(--qn-fs-scale)); color: var(--qn-ink-3);
@@ -1615,7 +1615,7 @@ function showToast(text) {
   cursor: default;
 }
 .brief-item.good { background: rgba(var(--qn-emerald-accent-rgb),0.12); color: var(--qn-emerald); }
-.brief-item.bad { background: rgba(216,67,21,0.1); color: var(--qn-fire); }
+.brief-item.bad { background: rgba(var(--qn-fire-rgb),0.1); color: var(--qn-fire); }
 .brief-item.cloth { background: rgba(156,39,176,0.08); color: #6A1B9A; }
 
 .msg-footnote {
@@ -1736,4 +1736,20 @@ function showToast(text) {
 }
 
 /* 注：旧的 520px media query 已合并入上面 720px 规则 —— 手机端抽屉始终全屏铺满 */
+
+/* ═══════════════════════════════════════════════════════
+   暗色主题 scoped 覆盖 —— 组件内 B 类硬编码
+   （token.css 已覆盖 Surface/Text/Brand，此处仅处理组件特有项）
+   ═══════════════════════════════════════════════════════ */
+html[data-theme="dark"] .recording-bar {
+  background: #0a0e0d;       /* 比默认 #333 更深，避免融入暗底 */
+  border: 1px solid rgba(79,160,140,0.25);
+}
+html[data-theme="dark"] .rec-hint { color: #7A7669; }
+
+/* 紫色穿搭标签 — 五形体系外的装饰色，暗色下调高明度 */
+html[data-theme="dark"] .brief-item.cloth {
+  background: rgba(180,120,220,0.15);
+  color: #B87DDC;
+}
 </style>

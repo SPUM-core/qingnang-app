@@ -3,7 +3,7 @@
   英雄卡 + 黄历日历 + 宜忌 + 十二时辰 + 调候报告 + AI 解读
 ══════════════════════════════════════════════════════════════ -->
 <template>
-  <div class="st-page">
+  <div class="st-page page">
     <!-- 顶部导航 -->
     <div class="st-nav">
       <button class="st-back" @click="$router.back()">‹ 返回</button>
@@ -15,13 +15,13 @@
     <div v-if="ctx" class="st-hero-mini">
       <div class="st-top">
         <div class="st-gz-row">
-          <span class="st-gz-cell" v-for="(gz, key) in ctx.sizhu" :key="key">
-            <span class="st-gz-zhi">{{ gz[1] }}</span>
-            <span class="st-gz-tg">{{ gz[0] }}</span>
-          </span>
-        </div>
+        <span v-for="key in ['year','month','day','hour']" :key="key" class="st-gz-cell">
+          <span class="st-gz-zhi">{{ (ctx.sizhu?.ganzhi?.[key] || ['',''])[1] }}</span>
+          <span class="st-gz-tg">{{ (ctx.sizhu?.ganzhi?.[key] || ['',''])[0] }}</span>
+        </span>
+      </div>
         <div class="st-qi-col">
-          <span class="st-qi-val">🌤️ {{ ctx.jieqi?.current_term || '--' }}</span>
+          <span class="st-qi-val">🌤️ {{ (typeof ctx.jieqi === 'string') ? ctx.jieqi : (ctx.jieqi?.current_term || '--') }}</span>
         </div>
       </div>
       <div class="st-lingshou-row">
@@ -60,61 +60,49 @@
       <div class="cal-grid">
         <div v-for="(cell, i) in calCells" :key="i"
              class="cal-cell"
-             :class="{ today: cell.isToday, other: !cell.inMonth, 'solar-term': cell.jieqi, selected: cell.date === selectedDate }"
+             :class="{
+               today: cell.isToday, other: !cell.inMonth, selected: cell.isSelected,
+               'has-jq': cell.jieqi,
+             }"
              @click="selectDate(cell)">
           <span class="cal-day">{{ cell.day || '' }}</span>
-          <span class="cal-lunar" v-if="cell.lunar && cell.inMonth">{{ cell.lunar }}</span>
-          <span class="cal-jq" v-if="cell.jieqi">🌤️</span>
+          <template v-if="cell.inMonth">
+            <span class="cal-jq" v-if="cell.jieqi">{{ cell.jieqi }}</span>
+            <span class="cal-lunar" v-else>{{ cell.lunar }}</span>
+          </template>
         </div>
       </div>
-    </div>
 
-    <!-- ═══ 黄历宜忌 ═══ -->
-    <div class="st-section">
-      <div class="sec-head">
-        <span class="sec-title" style="--dot-color:#D4A017"><span class="sec-dot"></span>黄历宜忌</span>
-        <span class="sec-sub">经典择日 · 通用</span>
+      <!-- 选中日期的完整详情 -->
+      <div v-if="dayDetail" class="cal-detail">
+        <div class="cd-head">
+          <span class="cd-date">{{ dayDetail.date }}</span>
+          <span class="cd-gz">{{ dayDetail.ganzhi_year }} {{ dayDetail.ganzhi_month }} {{ dayDetail.ganzhi_day }}</span>
+          <span class="cd-lunar">{{ dayDetail.lunar_month }}月{{ dayDetail.lunar_day }} · {{ dayDetail.shengxiao }}</span>
+        </div>
+        <div class="cd-meta">
+          <span class="cd-jc">{{ dayDetail.jianchu }}日</span>
+          <span class="cd-tianshen" :class="dayDetail.tianshen_luck === '吉' ? 't-good' : 't-bad'">
+            {{ dayDetail.tianshen_type }} · {{ dayDetail.tianshen_luck }}
+          </span>
+          <span class="cd-xiu">{{ dayDetail.xiu }}宿 {{ dayDetail.xiu_luck }}</span>
+          <span class="cd-chong" v-if="dayDetail.chong">冲{{ dayDetail.chong }}</span>
+          <span class="cd-sha" v-if="dayDetail.sha">煞{{ dayDetail.sha }}</span>
+        </div>
+        <div v-if="dayDetail.festival" class="cd-festival">
+          <span class="cd-f-label">三元五腊</span>
+          <span class="cd-f-name">{{ dayDetail.festival }}</span>
+        </div>
+        <div class="cd-yj">
+          <div class="cd-row"><span class="cd-k g">宜</span><span class="cd-v">{{ (dayDetail.yi||[]).join('、') || '无' }}</span></div>
+          <div class="cd-row"><span class="cd-k b">忌</span><span class="cd-v">{{ (dayDetail.ji||[]).join('、') || '无' }}</span></div>
+        </div>
+        <div v-if="dayDetail.pengzu" class="cd-pz">彭祖百忌：{{ dayDetail.pengzu }}</div>
+        <div v-if="(dayDetail.ji_shen||[]).length" class="cd-shen">
+          <span class="cd-shen-label">吉神：</span>
+          <span class="cd-shen-v">{{ dayDetail.ji_shen.join('、') }}</span>
+        </div>
       </div>
-
-      <div class="yj-tabs">
-        <span v-for="t in yjTabs" :key="t.key"
-              class="yj-tab" :class="{ on: activeYjTab === t.key }"
-              @click="activeYjTab = t.key">{{ t.label }}</span>
-      </div>
-
-      <!-- Tab: 宜忌 -->
-      <div v-if="activeYjTab === 'yj'" class="yj-panel">
-        <div class="yj-row"><span class="yj-k g">宜</span><span class="yj-v">{{ yiText }}</span></div>
-        <div class="yj-row"><span class="yj-k b">忌</span><span class="yj-v">{{ jiText }}</span></div>
-        <div v-if="ctx?.jianchu" class="yj-row"><span class="yj-k g">建除</span>
-          <span class="yj-v"><b>{{ ctx.jianchu }}日</b> — {{ jianchuDesc }}</span></div>
-        <div class="yj-empty" v-if="!yiText && !jiText && !ctx?.jianchu">本时段无宜忌记录</div>
-      </div>
-
-      <!-- Tab: 建除 -->
-      <div v-if="activeYjTab === 'jianchu'" class="yj-panel">
-        <div v-if="ctx?.jianchu" class="yj-row"><span class="yj-k g">{{ ctx.jianchu }}</span>
-          <span class="yj-v">{{ jianchuDesc }}</span></div>
-        <div class="yj-empty" v-else>无建除数据</div>
-      </div>
-
-      <!-- Tab: 彭祖 -->
-      <div v-if="activeYjTab === 'pengzu'" class="yj-panel">
-        <div v-if="anchor?.pengzu" class="pz-line"><b>彭祖百忌</b>　{{ anchor.pengzu }}</div>
-        <div class="yj-empty" v-else>无彭祖百忌记录</div>
-      </div>
-
-      <!-- Tab: 神煞 -->
-      <div v-if="activeYjTab === 'shensha'" class="yj-panel">
-        <template v-if="anchor">
-          <div v-if="anchor.chong" class="yj-row"><span class="yj-k b">冲煞</span><span class="yj-v">{{ anchor.chong }}</span></div>
-          <div v-if="anchor.sha" class="yj-row"><span class="yj-k g">煞方</span><span class="yj-v">煞{{ anchor.sha }}方</span></div>
-          <div v-if="anchor.feixing" class="yj-row"><span class="yj-k g">飞星</span><span class="yj-v">{{ anchor.feixing }}</span></div>
-        </template>
-        <div class="yj-empty" v-if="!anchor?.chong && !anchor?.sha && !anchor?.feixing">无神煞记录</div>
-      </div>
-
-      <div class="yj-more" @click="showExplain = true">🤖 AI 解读全部宜忌 ›</div>
     </div>
 
     <!-- ═══ 十二时辰 ═══ -->
@@ -167,7 +155,10 @@
             <span class="thp-dir" :class="'d-' + p.direction">{{ p.direction }}</span>
           </div>
           <div class="thp-raw">静态偏值 {{ p.raw?.toFixed(1) || '-' }}（{{ p.status || '平' }}）</div>
-          <div class="thp-why">{{ p.why }}</div>
+          <div class="thp-why">
+            <template v-if="p.chain_from">五形{{ p.chain_from }}→{{ p.cn }}→{{ p.chain_to }}链{{ p.peaks?.length ? '，'+p.peaks.join('/')+'形堆积为峰' : '' }}{{ p.valleys?.length ? '，'+p.valleys.join('/')+'形匮乏为谷' : '' }}</template>
+            {{ p.reason }}
+          </div>
         </div>
       </div>
     </div>
@@ -212,28 +203,8 @@ const wxList = ['wood', 'fire', 'earth', 'metal', 'water']
 
 const thEmoji = computed(() => {
   if (!tiaoHou.value?.priorities?.length) return '🧭'
-  const map = { '补': '💊', '泻': '🌊', '养': '🌿', '平': '⚖️', '换时辰': '⏰' }
+  const map = { '增益': '🔧', '顺势增益': '✨', '增益待时': '⏸', '不干预': '⚖️' }
   return map[tiaoHou.value.priorities[0].direction] || '🧭'
-})
-
-// ── 黄历宜忌 tab ──
-const activeYjTab = ref('yj')
-const yjTabs = [
-  { key: 'yj', label: '宜忌' },
-  { key: 'jianchu', label: '建除' },
-  { key: 'pengzu', label: '彭祖' },
-  { key: 'shensha', label: '神煞' },
-]
-
-const yiText = computed(() => {
-  if (!anchor.value) return ''
-  const lst = anchor.value.yi_list || []
-  return lst.length ? lst.join('、') : (anchor.value.yi || '')
-})
-const jiText = computed(() => {
-  if (!anchor.value) return ''
-  const lst = anchor.value.ji_list || []
-  return lst.length ? lst.join('、') : (anchor.value.ji || '')
 })
 
 const jianchuDesc = computed(() => {
@@ -247,8 +218,10 @@ const jianchuDesc = computed(() => {
 // ── 日历 ──
 const today = new Date()
 const calYear = ref(today.getFullYear())
-const calMonth = ref(today.getMonth())
+const calMonth = ref(today.getMonth())  // 0-indexed
 const selectedDate = ref(today.getDate())
+const monthlyData = ref({})   // { day: { lunar, jieqi, jianchu } }
+const dayDetail = ref(null)
 
 function prevMonth() {
   if (calMonth.value === 0) { calMonth.value = 11; calYear.value-- }
@@ -259,36 +232,85 @@ function nextMonth() {
   else calMonth.value++
 }
 
+// 日历格子：从 monthlyData 合并农历/节气/建除
 const calCells = computed(() => {
   const firstDay = new Date(calYear.value, calMonth.value, 1).getDay()
   const daysInMonth = new Date(calYear.value, calMonth.value + 1, 0).getDate()
   const cells = []
-  // 上月尾部
   const prevDays = new Date(calYear.value, calMonth.value, 0).getDate()
   for (let i = firstDay - 1; i >= 0; i--) {
-    cells.push({ day: prevDays - i, inMonth: false, date: prevDays - i, lunar: '', jieqi: false, isToday: false })
+    cells.push({ day: prevDays - i, inMonth: false, date: prevDays - i, lunar: '', jieqi: false, isToday: false, isSelected: false })
   }
-  // 本月
   const isCurMonth = (calYear.value === today.getFullYear() && calMonth.value === today.getMonth())
   for (let d = 1; d <= daysInMonth; d++) {
+    const md = monthlyData.value[d] || {}
     cells.push({
       day: d, inMonth: true, date: d,
-      lunar: '', jieqi: false,
+      lunar: md.lunar || '',
+      jieqi: md.jieqi || '',
+      festival: md.festival || '',
+      jianchu: md.jianchu || '',
       isToday: isCurMonth && d === today.getDate(),
+      isSelected: d === selectedDate.value,
     })
   }
-  // 下月头部
   const total = cells.length
   const pad = (7 - total % 7) % 7
   for (let d = 1; d <= pad; d++) {
-    cells.push({ day: d, inMonth: false, date: d, lunar: '', jieqi: false, isToday: false })
+    cells.push({ day: d, inMonth: false, date: d, lunar: '', jieqi: false, isToday: false, isSelected: false })
   }
   return cells
 })
 
 function selectDate(cell) {
-  if (cell.inMonth) selectedDate.value = cell.date
+  if (!cell.inMonth) return
+  selectedDate.value = cell.date
+  fetchDayDetail()
 }
+
+// 拉月历（切换月份时触发）
+let _monthlyLoading = false
+async function fetchMonthly() {
+  if (_monthlyLoading) return
+  _monthlyLoading = true
+  try {
+    const r = await api.get('/api/v1/spacetime/monthly', {
+      params: { year: calYear.value, month: calMonth.value + 1 }  // 后端 month 1-indexed
+    })
+    const obj = {}
+    for (const d of r.data?.days || []) {
+      obj[d.day] = { lunar: d.lunar || '', jieqi: d.jieqi || '', festival: d.festival || '', jianchu: d.jianchu || '' }
+    }
+    monthlyData.value = obj
+  } catch (e) {
+    console.warn('[Spacetime] monthly 加载失败:', e.message)
+  } finally {
+    _monthlyLoading = false
+  }
+}
+
+// 拉单日详情（选中日期时触发）
+async function fetchDayDetail() {
+  const mm = String(calMonth.value + 1).padStart(2, '0')
+  const dd = String(selectedDate.value).padStart(2, '0')
+  const dateStr = `${calYear.value}-${mm}-${dd}`
+  try {
+    const r = await api.get('/api/v1/spacetime/day-detail', { params: { date: dateStr } })
+    dayDetail.value = r.data
+  } catch (e) {
+    console.warn('[Spacetime] day-detail 加载失败:', e.message)
+    dayDetail.value = null
+  }
+}
+
+// 监听月份变化 → 重新拉月历
+watch([calYear, calMonth], () => {
+  monthlyData.value = {}
+  fetchMonthly()
+  // 选中月份第一天
+  selectedDate.value = 1
+  fetchDayDetail()
+})
 
 // ── 时辰 ──
 const activePeriod = ref(null)
@@ -387,32 +409,51 @@ function fallbackTimeline() {
   }))
 }
 
-onMounted(loadAll)
+onMounted(async () => {
+  // 并行拉：daily-brief + 月历 + day-detail + anchor
+  loadAll()
+  fetchMonthly()
+  fetchDayDetail()
+})
 </script>
 
 <style scoped>
+/* ═════════════════════════════════════════════════════════════
+   2026-10-14 重构：全量 token 化 + 暗色 scoped 覆盖 + 宽屏限宽
+   ────────────────────────────────────────────────────────────
+   · 全部硬编码 hex → var(--qn-*) token
+   · 英雄卡五形色 → var(--qn-wood/fire/earth/metal/water)
+   · 通用 card/section 背景 → var(--qn-surface) / --qn-surface-page
+   · 描边 → var(--qn-line) / --qn-border-subtle
+   · 主文字 → var(--qn-text-primary)
+   · 次文字 → var(--qn-text-secondary)
+   · 辅助 → var(--qn-text-tertiary)
+   · 品牌绿 → var(--qn-brand-*) 系列
+   · 暗色覆盖：html[data-theme="dark"] scoped 块（文末）
+   ═════════════════════════════════════════════════════════════ */
+
 .st-page { min-height: 100vh; padding-bottom: 40px; }
 
 /* ── 顶部导航 ── */
 .st-nav {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 16px;
-  background: #fff;
-  border-bottom: 1px solid #E8E8E8;
+  background: var(--qn-surface);
+  border-bottom: 1px solid var(--qn-line);
   position: sticky; top: 0; z-index: 10;
 }
 .st-back {
-  font-size: 13px; color: #2E6B60; background: none; border: none;
+  font-size: 13px; color: var(--qn-brand-800); background: none; border: none;
   padding: 4px 8px; border-radius: 6px; cursor: pointer;
 }
-.st-nav-title { font-size: 15px; font-weight: 700; color: #1a2a25; margin-left: 4px; }
+.st-nav-title { font-size: 15px; font-weight: 700; color: var(--qn-text-primary); margin-left: 4px; }
 .st-nav-spacer { flex: 1; }
 
-/* ── 英雄卡（mini 版） ── */
+/* ── 英雄卡（mini 版） — 品牌绿渐变，暗色下调亮 ── */
 .st-hero-mini {
-  background: linear-gradient(135deg, #0d3b2e 0%, #1a5c48 40%, #2d7a5e 100%);
-  margin: 10px 12px; border-radius: 16px; padding: 14px 16px; color: #fff;
-  box-shadow: 0 4px 16px rgba(13,59,46,0.2);
+  background: linear-gradient(135deg, var(--qn-brand-900) 0%, var(--qn-brand-800) 40%, var(--qn-brand-600) 100%);
+  margin: 10px 12px; border-radius: 16px; padding: 14px 16px; color: var(--qn-text-on-brand);
+  box-shadow: 0 4px 16px rgba(var(--qn-brand-rgb),0.25);
 }
 .st-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
 .st-gz-row { display: flex; gap: 6px; }
@@ -441,16 +482,16 @@ onMounted(loadAll)
   padding: 4px 2px; background: rgba(255,255,255,0.08); border-radius: 6px;
   border-top: 2px solid transparent;
 }
-.stb-wood { border-top-color: #66bb6a; } .stb-fire { border-top-color: #ef5350; }
-.stb-earth { border-top-color: #d4a017; } .stb-metal { border-top-color: #bdbdbd; }
-.stb-water { border-top-color: #42a5f5; }
+.stb-wood { border-top-color: var(--qn-wood); } .stb-fire { border-top-color: var(--qn-fire); }
+.stb-earth { border-top-color: var(--qn-earth); } .stb-metal { border-top-color: var(--qn-metal); }
+.stb-water { border-top-color: var(--qn-water); }
 .stb-wx { font-size: 11px; font-weight: 600; }
 .stb-status { font-size: 9px; font-weight: 600; padding: 1px 4px; border-radius: 6px; }
-.sts-旺 { background: rgba(76,175,80,0.3); color: #a5d6a7; }
-.sts-相 { background: rgba(76,175,80,0.18); color: #c8e6c9; }
-.sts-休 { background: rgba(158,158,158,0.2); color: #e0e0e0; }
-.sts-囚 { background: rgba(212,160,23,0.25); color: #ffe082; }
-.sts-死 { background: rgba(244,67,54,0.25); color: #ef9a9a; }
+.sts-旺 { background: rgba(var(--qn-wood-rgb),0.35); color: #a5d6a7; }
+.sts-相 { background: rgba(var(--qn-wood-rgb),0.20); color: #c8e6c9; }
+.sts-休 { background: rgba(var(--qn-metal-rgb),0.25); color: #cfd8dc; }
+.sts-囚 { background: rgba(var(--qn-earth-rgb),0.30); color: #ffe082; }
+.sts-死 { background: rgba(var(--qn-fire-rgb),0.30); color: #ef9a9a; }
 .sts-平 { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.7); }
 
 .st-th-line {
@@ -462,27 +503,27 @@ onMounted(loadAll)
 
 /* ── 通用 section ── */
 .st-section {
-  background: #fff; margin: 10px 12px; border-radius: 14px;
-  border: 1px solid #E8E8E8; overflow: hidden;
+  background: var(--qn-surface); margin: 10px 12px; border-radius: 14px;
+  border: 1px solid var(--qn-border-subtle); overflow: hidden;
 }
 .sec-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 13px 14px 0;
 }
 .sec-title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-.sec-dot { width: 6px; height: 6px; border-radius: 50%; background: #2E6B60; flex-shrink: 0; }
-.sec-sub { font-size: 11px; color: #8A9A94; }
+.sec-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--qn-brand-800); flex-shrink: 0; }
+.sec-sub { font-size: 11px; color: var(--qn-text-tertiary); }
 
 /* ── 日历 ── */
 .cal-nav { display: flex; align-items: center; gap: 6px; }
 .cal-btn {
-  width: 26px; height: 26px; border-radius: 6px; border: 1px solid #E8E8E8;
-  background: #fff; cursor: pointer; font-size: 14px; color: #5F6E68;
+  width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--qn-border-subtle);
+  background: var(--qn-surface); cursor: pointer; font-size: 14px; color: var(--qn-text-secondary);
 }
-.cal-title { font-size: 12px; font-weight: 600; color: #1a2a25; min-width: 80px; text-align: center; }
+.cal-title { font-size: 12px; font-weight: 600; color: var(--qn-text-primary); min-width: 80px; text-align: center; }
 
 .cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); padding: 8px 10px 4px; }
-.cal-wd { text-align: center; font-size: 11px; color: #8A9A94; font-weight: 500; }
+.cal-wd { text-align: center; font-size: 11px; color: var(--qn-text-tertiary); font-weight: 500; }
 
 .cal-grid {
   display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;
@@ -491,107 +532,137 @@ onMounted(loadAll)
 .cal-cell {
   aspect-ratio: 1; display: flex; flex-direction: column; align-items: center;
   justify-content: center; border-radius: 8px; cursor: pointer;
-  background: #FAFAF7; border: 1px solid transparent;
+  background: var(--qn-surface-page); border: 1px solid transparent;
   transition: background .15s, border-color .15s;
 }
-.cal-cell:hover { background: #F1F5F2; }
-.cal-cell.other { background: transparent; color: #C8CECA; }
-.cal-cell.today { background: #2E6B60; color: #fff; font-weight: 600; }
-.cal-cell.selected { border-color: #D4A017; box-shadow: 0 0 0 2px rgba(212,160,23,0.2); }
-.cal-cell.solar-term { color: #D4A017; }
+.cal-cell:hover { background: var(--qn-brand-050); }
+.cal-cell.other { background: transparent; color: var(--qn-ink-3); }
+.cal-cell.today { background: var(--qn-brand-800); color: var(--qn-text-on-brand); font-weight: 600; }
+.cal-cell.selected { border-color: var(--qn-earth); box-shadow: 0 0 0 2px rgba(var(--qn-earth-rgb),0.2); }
+.cal-cell.has-jq { color: var(--qn-fire); }
 .cal-day { font-size: 14px; font-weight: 500; }
-.cal-lunar { font-size: 9px; color: #8A9A94; margin-top: 1px; }
-.cal-jq { font-size: 9px; }
+.cal-cell.today .cal-lunar, .cal-cell.today .cal-jq { color: rgba(255,255,255,0.85); }
+.cal-lunar { font-size: 9px; color: var(--qn-text-tertiary); margin-top: 1px; }
+.cal-jq { font-size: 9px; color: var(--qn-fire); margin-top: 1px; font-weight: 600; }
+.cal-cell.today .cal-jq { color: rgba(255,255,255,0.9); }
 
-/* ── 黄历宜忌 ── */
-.yj-tabs { display: flex; gap: 5px; padding: 10px 14px 0; flex-wrap: wrap; }
-.yj-tab {
-  font-size: 11.5px; padding: 4px 10px; border-radius: 12px; cursor: pointer;
-  border: 1px solid #E8E8E8; background: #fff; color: #5F6E68;
-  transition: all .15s;
+/* ── 选中日期详情卡 ── */
+.cal-detail {
+  margin: 8px 10px 10px; padding: 12px 14px;
+  background: var(--qn-surface-page); border-radius: 10px; border: 1px solid var(--qn-border-subtle);
 }
-.yj-tab.on { background: #144842; border-color: #144842; color: #fff; }
-
-.yj-panel { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; }
-.yj-row { display: flex; gap: 8px; align-items: flex-start; }
-.yj-k {
+.cd-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.cd-date { font-size: 13px; font-weight: 700; color: var(--qn-text-primary); }
+.cd-gz { font-size: 11px; color: var(--qn-text-secondary); letter-spacing: 0.5px; }
+.cd-lunar { font-size: 11px; color: var(--qn-text-tertiary); }
+.cd-meta {
+  display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--qn-border-subtle);
+}
+.cd-meta span {
+  font-size: 10.5px; padding: 2px 8px; border-radius: 10px;
+  border: 1px solid var(--qn-border-subtle); background: var(--qn-surface);
+}
+.cd-jc { font-weight: 600; color: var(--qn-text-primary); }
+.cd-tianshen.t-good { color: var(--qn-wood); border-color: rgba(var(--qn-wood-rgb),0.3); background: rgba(var(--qn-wood-rgb),0.08); }
+.cd-tianshen.t-bad { color: var(--qn-fire); border-color: rgba(var(--qn-fire-rgb),0.3); background: rgba(var(--qn-fire-rgb),0.08); }
+.cd-xiu { color: #8A6A18; background: rgba(var(--qn-earth-rgb),0.08); border-color: rgba(var(--qn-earth-rgb),0.25); }
+.cd-chong { color: var(--qn-fire); }
+.cd-sha { color: var(--qn-text-tertiary); }
+.cd-yj { display: flex; flex-direction: column; gap: 6px; }
+.cd-row { display: flex; gap: 8px; align-items: flex-start; }
+.cd-k {
   font-size: 11px; font-weight: 600; width: 22px; height: 20px; border-radius: 5px;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;
 }
-.yj-k.g { background: rgba(67,160,71,.1); color: #43A047; border: 1px solid rgba(67,160,71,.35) }
-.yj-k.b { background: rgba(216,67,21,.1); color: #D84315; border: 1px solid rgba(216,67,21,.4) }
-.yj-v { font-size: 12px; color: #5F6E68; line-height: 1.6; padding-top: 1px }
-.yj-v b { color: #33403B; font-weight: 500 }
-.yj-empty { font-size: 11px; color: #8A9A94; text-align: center; padding: 10px 0; font-style: italic; }
-.pz-line { font-size: 11.5px; line-height: 1.65; color: #6B5418; padding: 8px 10px; background: rgba(212,160,23,.08); border-radius: 8px; }
-.pz-line b { color: #5A4514; }
-.yj-more {
-  padding: 8px 14px; font-size: 11.5px; color: #2E6B60; text-align: right;
-  cursor: pointer; border-top: 1px solid #F0F0EC;
+.cd-k.g { background: rgba(var(--qn-wood-rgb),0.10); color: var(--qn-wood); border: 1px solid rgba(var(--qn-wood-rgb),0.35); }
+.cd-k.b { background: rgba(var(--qn-fire-rgb),0.10); color: var(--qn-fire); border: 1px solid rgba(var(--qn-fire-rgb),0.40); }
+.cd-v { font-size: 12px; color: var(--qn-text-primary); line-height: 1.6; }
+.cd-pz {
+  margin-top: 8px; padding: 6px 10px; font-size: 11px; color: #8A6A18; line-height: 1.6;
+  background: rgba(var(--qn-earth-rgb),0.08); border-radius: 6px;
 }
+.cd-shen { margin-top: 6px; font-size: 11px; color: var(--qn-text-secondary); line-height: 1.6; }
+.cd-shen-label { color: var(--qn-text-tertiary); }
+.cd-shen-v { color: var(--qn-wood); }
+
+/* ── 三元五腊节日（详情卡） ── */
+.cd-festival {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px; padding: 6px 10px;
+  background: linear-gradient(135deg, rgba(var(--qn-earth-rgb),0.12), rgba(198,105,31,0.08));
+  border: 1px solid rgba(var(--qn-earth-rgb),0.35);
+  border-radius: 6px;
+}
+.cd-f-label {
+  font-size: 10px; font-weight: 600; color: #8A6A18;
+  padding: 1px 6px; border-radius: 8px;
+  background: rgba(var(--qn-earth-rgb),0.15); border: 1px solid rgba(var(--qn-earth-rgb),0.3);
+  letter-spacing: 0.5px; flex-shrink: 0;
+}
+.cd-f-name { font-size: 12px; color: #6B5418; font-weight: 600; }
 
 /* ── 十二时辰 ── */
-.legend-row { display: flex; gap: 12px; font-size: 10.5px; color: #8A9A94; margin: 8px 14px 0; }
+.legend-row { display: flex; gap: 12px; font-size: 10.5px; color: var(--qn-text-tertiary); margin: 8px 14px 0; }
 .legend-row span { display: flex; align-items: center; gap: 4px; }
 .lg { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
-.lg.g { background: rgba(67,160,71,.4); border: 1px solid rgba(67,160,71,.6); }
-.lg.w { background: rgba(212,160,23,.4); border: 1px solid rgba(212,160,23,.6); }
-.lg.b { background: rgba(216,67,21,.4); border: 1px solid rgba(216,67,21,.6); }
+.lg.g { background: rgba(var(--qn-wood-rgb),0.40); border: 1px solid rgba(var(--qn-wood-rgb),0.60); }
+.lg.w { background: rgba(var(--qn-earth-rgb),0.40); border: 1px solid rgba(var(--qn-earth-rgb),0.60); }
+.lg.b { background: rgba(var(--qn-fire-rgb),0.40); border: 1px solid rgba(var(--qn-fire-rgb),0.60); }
 
 .sh-axis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; padding: 10px 12px; }
 .sh-btn {
-  padding: 8px 2px; border-radius: 6px; border: 1px solid #E8E8E8;
-  background: #F5F5EE; cursor: pointer; display: flex; flex-direction: column;
-  align-items: center; gap: 2px; color: #8A9A94; font-size: 11px;
+  padding: 8px 2px; border-radius: 6px; border: 1px solid var(--qn-border-subtle);
+  background: var(--qn-surface-page); cursor: pointer; display: flex; flex-direction: column;
+  align-items: center; gap: 2px; color: var(--qn-text-tertiary); font-size: 11px;
   transition: transform .12s, box-shadow .12s;
 }
 .sh-btn:active { transform: scale(0.96); }
-.sh-btn.g { background: rgba(67,160,71,.08); border-color: rgba(67,160,71,.35); color: #43A047; }
-.sh-btn.w { background: rgba(212,160,23,.08); border-color: rgba(212,160,23,.4); color: #8A6A18; }
-.sh-btn.b { background: rgba(216,67,21,.08); border-color: rgba(216,67,21,.4); color: #D84315; }
-.sh-btn.now { box-shadow: 0 0 0 2px #2E6B60; font-weight: 600; }
+.sh-btn.g { background: rgba(var(--qn-wood-rgb),0.08); border-color: rgba(var(--qn-wood-rgb),0.35); color: var(--qn-wood); }
+.sh-btn.w { background: rgba(var(--qn-earth-rgb),0.08); border-color: rgba(var(--qn-earth-rgb),0.40); color: #8A6A18; }
+.sh-btn.b { background: rgba(var(--qn-fire-rgb),0.08); border-color: rgba(var(--qn-fire-rgb),0.40); color: var(--qn-fire); }
+.sh-btn.now { box-shadow: 0 0 0 2px var(--qn-brand-800); font-weight: 600; }
 .sh-n { font-size: 12px; font-weight: 500; line-height: 1; }
 .sh-r { font-size: 9px; opacity: .7; }
 
 .period-detail {
   margin: 0 12px 10px; padding: 10px 12px; border-radius: 10px;
-  background: var(--qn-brand-050, #F1F5F2); border: 1px solid #E8E8E8;
+  background: var(--qn-brand-050); border: 1px solid var(--qn-border-subtle);
 }
 .pd-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .pd-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 8px; border: 1px solid; }
-.pd-badge.g-g { background: rgba(67,160,71,.12); color: #43A047; border-color: rgba(67,160,71,.35); }
-.pd-badge.g-w { background: rgba(212,160,23,.12); color: #8A6A18; border-color: rgba(212,160,23,.4); }
-.pd-badge.g-b { background: rgba(216,67,21,.12); color: #D84315; border-color: rgba(216,67,21,.4); }
-.pd-badge.g-n { background: #F5F5EE; color: #8A9A94; border-color: #E8E8E8; }
-.pd-name { font-size: 12.5px; font-weight: 600; color: #33403B; }
-.pd-why { font-size: 11.5px; color: #5F6E68; line-height: 1.6; }
+.pd-badge.g-g { background: rgba(var(--qn-wood-rgb),0.12); color: var(--qn-wood); border-color: rgba(var(--qn-wood-rgb),0.35); }
+.pd-badge.g-w { background: rgba(var(--qn-earth-rgb),0.12); color: #8A6A18; border-color: rgba(var(--qn-earth-rgb),0.40); }
+.pd-badge.g-b { background: rgba(var(--qn-fire-rgb),0.12); color: var(--qn-fire); border-color: rgba(var(--qn-fire-rgb),0.40); }
+.pd-badge.g-n { background: var(--qn-surface-page); color: var(--qn-text-tertiary); border-color: var(--qn-border-subtle); }
+.pd-name { font-size: 12.5px; font-weight: 600; color: var(--qn-text-primary); }
+.pd-why { font-size: 11.5px; color: var(--qn-text-secondary); line-height: 1.6; }
 
 /* ── 调候报告 ── */
 .th-summary {
   display: flex; gap: 8px; align-items: flex-start;
-  padding: 12px 14px; background: rgba(34,139,34,0.06); margin: 12px;
-  border-radius: 10px; border: 1px solid rgba(34,139,34,0.15);
+  padding: 12px 14px; background: rgba(var(--qn-wood-rgb),0.06); margin: 12px;
+  border-radius: 10px; border: 1px solid rgba(var(--qn-wood-rgb),0.15);
 }
 .th-emoji { font-size: 18px; flex-shrink: 0; }
-.th-text { font-size: 13px; color: #1a2a25; line-height: 1.65; }
+.th-text { font-size: 13px; color: var(--qn-text-primary); line-height: 1.65; }
 
 .th-priorities { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px; }
 .th-pri {
-  padding: 10px 12px; border-radius: 10px; border: 1px solid #E8E8E8;
-  background: #FAFAF7;
+  padding: 10px 12px; border-radius: 10px; border: 1px solid var(--qn-border-subtle);
+  background: var(--qn-surface-page);
 }
 .thp-top { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
-.thp-cn { font-size: 13px; font-weight: 600; color: #1a2a25; }
+.thp-cn { font-size: 13px; font-weight: 600; color: var(--qn-text-primary); }
 .thp-dir {
   font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
 }
-.thp-dir.d-补 { background: rgba(67,160,71,.15); color: #43A047; }
-.thp-dir.d-泻 { background: rgba(216,67,21,.12); color: #D84315; }
-.thp-dir.d-养 { background: rgba(107,114,119,.1); color: #5F6E68; }
-.thp-dir.d-平 { background: rgba(158,158,158,.1); color: #5F6E68; }
-.thp-dir.d-换时辰 { background: rgba(212,160,23,.15); color: #8A6A18; }
-.thp-raw { font-size: 11px; color: #8A9A94; margin-bottom: 3px; }
-.thp-why { font-size: 11.5px; color: #5F6E68; line-height: 1.55; }
+.thp-dir.d-增益 { background: rgba(var(--qn-wood-rgb),0.15); color: var(--qn-wood); }
+.thp-dir.d-顺势增益 { background: linear-gradient(90deg, rgba(var(--qn-wood-rgb),0.18), rgba(var(--qn-earth-rgb),0.18)); color: var(--qn-brand-700); }
+.thp-dir.d-增益待时 { background: rgba(var(--qn-earth-rgb),0.15); color: #8A6A18; }
+.thp-dir.d-不干预 { background: rgba(var(--qn-metal-rgb),0.15); color: var(--qn-text-secondary); }
+.thp-raw { font-size: 11px; color: var(--qn-text-tertiary); margin-bottom: 3px; }
+.thp-why { font-size: 11.5px; color: var(--qn-text-secondary); line-height: 1.55; }
 
 /* ── Modal ── */
 .modal-mask {
@@ -599,36 +670,52 @@ onMounted(loadAll)
   display: flex; align-items: flex-end;
 }
 .modal-body {
-  width: 100%; max-height: 80vh; background: #fff;
+  width: 100%; max-height: 80vh; background: var(--qn-surface);
   border-radius: 18px 18px 0 0; display: flex; flex-direction: column;
   animation: slideUp .25s cubic-bezier(.2,0,.2,1);
 }
 @keyframes slideUp { from { transform: translateY(100%) } to { transform: translateY(0) } }
 .modal-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 16px; border-bottom: 1px solid #E8E8E8;
+  padding: 14px 16px; border-bottom: 1px solid var(--qn-line);
 }
-.modal-title { font-size: 15px; font-weight: 700; color: #1a2a25; }
+.modal-title { font-size: 15px; font-weight: 700; color: var(--qn-text-primary); }
 .modal-close {
   width: 28px; height: 28px; border-radius: 14px; border: none;
-  background: #F5F5EE; cursor: pointer; font-size: 14px; color: #5F6E68;
+  background: var(--qn-surface-page); cursor: pointer; font-size: 14px; color: var(--qn-text-secondary);
 }
-.modal-content { flex: 1; padding: 14px 16px; overflow-y: auto; font-size: 13px; line-height: 1.7; color: #33403B; }
+.modal-content { flex: 1; padding: 14px 16px; overflow-y: auto; font-size: 13px; line-height: 1.7; color: var(--qn-text-primary); }
 .modal-content.loading { display: flex; align-items: center; justify-content: center; }
-.loading-dots { font-size: 13px; color: #8A9A94; }
+.loading-dots { font-size: 13px; color: var(--qn-text-tertiary); }
 .explain-text { white-space: pre-wrap; }
-.modal-foot { display: flex; gap: 10px; padding: 10px 16px; border-top: 1px solid #E8E8E8; }
+.modal-foot { display: flex; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--qn-line); }
 .btn-retry {
-  flex: 1; padding: 10px; border-radius: 10px; border: 1px solid #E8E8E8;
-  background: #F5F5EE; color: #5F6E68; font-size: 13px; cursor: pointer;
+  flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--qn-border-subtle);
+  background: var(--qn-surface-page); color: var(--qn-text-secondary); font-size: 13px; cursor: pointer;
 }
 .btn-close {
   flex: 1; padding: 10px; border-radius: 10px; border: none;
-  background: #144842; color: #fff; font-size: 13px; cursor: pointer;
+  background: var(--qn-brand-800); color: var(--qn-text-on-brand); font-size: 13px; cursor: pointer;
 }
 
 .compliance {
-  text-align: center; font-size: 10.5px; color: #8A9A94;
+  text-align: center; font-size: 10.5px; color: var(--qn-text-tertiary);
   padding: 14px 20px; line-height: 1.6;
 }
+
+/* ═════════════════════════════════════════════════════════════
+   暗色主题 scoped 覆盖（B 类）
+   hero 内部的 rgba(255,255,255,0.*) 半透明 — 深头上白半透明两主题通用 → 不动
+   ═════════════════════════════════════════════════════════════ */
+html[data-theme="dark"] .st-hero-mini {
+  /* 暗色下英雄卡深绿渐变调亮一档，保证对比度 */
+  background: linear-gradient(135deg, #1E5A4E 0%, #2E6B60 40%, #4FA08C 100%);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+html[data-theme="dark"] .cd-f-name { color: #C4A060; }
+html[data-theme="dark"] .cd-f-label { color: #E0B870; }
+html[data-theme="dark"] .cd-pz { color: #C4A060; }
+html[data-theme="dark"] .thp-dir.d-不干预 { background: rgba(148,163,184,0.15); color: #B0ACA0; }
+html[data-theme="dark"] .cal-cell.today .cal-jq { color: rgba(255,255,255,0.92); }
+html[data-theme="dark"] .cal-cell.today .cal-lunar { color: rgba(255,255,255,0.88); }
 </style>

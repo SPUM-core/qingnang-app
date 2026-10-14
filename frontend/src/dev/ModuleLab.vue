@@ -69,7 +69,6 @@ import GreetingHeader from '../modules/GreetingHeader.vue'
 import TrendRadarCard from '../modules/TrendRadarCard.vue'
 import DriftVectorCard from '../modules/DriftVectorCard.vue'
 import HeroTodoCard from '../modules/HeroTodoCard.vue'
-import HeroDailyTipsCard from '../modules/HeroDailyTipsCard.vue'
 import LifestyleReminderCard from '../modules/LifestyleReminderCard.vue'
 import LifeAdviceCard from '../modules/LifeAdviceCard.vue'
 
@@ -81,7 +80,6 @@ const modules = [
   { name: 'TrendRadarCard',   title: 'M10 体质趋势',   component: TrendRadarCard,   done: true,  risk: 'low',  mock: { vBase: { wood:60, fire:45, earth:35, metal:58, water:47 }, vObs: { wood:61, fire:43, earth:37, metal:56, water:49 }, trendStateLabel: '稳定观察中', deltaSummary: '木 ▲ 1 · 火 ▼ 2 · 余稳定' } },
   { name: 'DriftVectorCard',  title: 'M11 漂移矢量',   component: DriftVectorCard,  done: true,  risk: 'low',  mock: { rows: [{ k:'wood', label:'木', base:60, obs:61, delta:1.2 }, { k:'fire', label:'火', base:45, obs:43, delta:-2.1 }, { k:'earth', label:'土', base:35, obs:37, delta:2.3 }, { k:'metal', label:'金', base:58, obs:56, delta:-2.0 }, { k:'water', label:'水', base:47, obs:49, delta:2.5 }] } },
   { name: 'HeroTodoCard',     title: 'M4a 英雄卡1',    component: HeroTodoCard,     done: true,  risk: 'mid',  mock: { heroTodo: { id:'t1', title:'喝一碗山药薏米粥养土', priority:'p0', done:false }, anchorSafe: { yi:'今日火日·宜黄褐系·养土形', ji:'忌辛辣助木', state:'rule-based', ganzhi:'丁卯', dangling:'木', dangling_elem:'wood', feixing:'太阳', chong:'鸡' } } },
-  { name: 'HeroDailyTipsCard',title: 'M4b 英雄卡2',   component: HeroDailyTipsCard,done: true,  risk: 'mid',  mock: { anchorSafe: { yi:'今日火日·宜黄褐系·养土形', ji:'忌辛辣助木', weather: { icon:'cloud', temp_high:22, temp_low:14, desc:'多云', qihou:'燥' } }, avoidanceNotes: [{ title:'今日冲鸡，属鸡者忌远行' }, { title:'五形差>25，慎用过木类事物' }] } },
   { name: 'LifestyleReminderCard', title: 'M6 生活提醒', component: LifestyleReminderCard, done: true, risk: 'high', mock: {
     maturityStage: 3, expanded: true, activeTab: 'good',
     remTotal: 14, remTabs: [{key:'good',label:'宜·忌'},{key:'home',label:'住房'},{key:'avoid',label:'注意事项'}],
@@ -108,7 +106,6 @@ const modules = [
   } },
   { name: 'PullRefreshBar',   title: 'M1 下拉刷新',    component: null, done: false, risk: 'low',  mock: {} },
   { name: 'ConstitutionCurveCard', title: 'M5 调理曲线', component: null, done: false, risk: 'mid', mock: {} },
-  { name: 'AnchorTimelineCard',    title: 'M5b 时空锚点', component: null, done: false, risk: 'mid', mock: {} },
 ]
 
 const current = shallowRef(modules.find(m => m.name === selected.value))

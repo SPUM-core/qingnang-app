@@ -1,17 +1,24 @@
 """spacetime_engine — 青囊时空引擎核心
 
-核心理念：
-  生活建议不能只看"五形偏缺→补"。
-  必须结合时空变量（玉匣记择吉、奇门遁甲格局、协纪辩方旺相休囚），
-  顺应天时节律，才是真正的识偏调平。
+核心理念（v2 增益中庸范式）：
+  五行调和绝不是"补缺抑强"——木弱补木、火旺泻火，这是旧范式。
+  秘术实践反推的底层规律：**通过增益中庸节点治理尖峰，而非直接处理尖峰和凹谷**。
+  详见 spum-core/五行/地元/spum-卦组合化解.md §三·附。
 
-  静态：你土形弱 → 补土  ❌ 刻板
-  动态：今日卯月卯日木旺克土 → 此时猛补土虚不受补 → 宜疏肝为先，申时金旺时再健脾 ✅
+  为什么旧范式错：
+    直接处理尖峰/凹谷 → 在五形闭环上硬掰 → 力沿回路传递 → 制造新失衡（补木→木生火→火克金→...）
+  为什么新范式对：
+    尖峰和凹谷是耦合链同一个断链的两个侧面。
+    不去碰尖峰本身，强化那个"本该调节尖峰但力不从心"的中庸节点，
+    让耦合链恢复自调节节奏 → 尖峰自然收敛、凹谷自然填补。
+
+  旧范式：土弱 → 补土（直接补凹谷）                              ❌
+  新范式：土弱且木旺 → 增益火形（木→土链的衔接断了，补火让链条通） ✅
 
 三层架构：
   L1 时空上下文   spacetime_context(dt, birthplace) → 四柱/节气/旺相/建除/奇门
-  L2 调候引擎     tiao_hou(时空上下文, v_base)     → 动态调候建议
-  L3 建议管线     spacetime_advice(brief, 时空, v_base) → 最终建议（覆盖 daily_brief）
+  L2 调候引擎     tiao_hou(时空上下文, v_base)     → 找耦合链断链点 → 增益建议
+  L3 建议管线     spacetime_advice(brief, 时空, v_base) → 最终建议
 """
 
 from datetime import datetime, date, time
@@ -302,145 +309,224 @@ def spacetime_context(dt: datetime, birthplace: Optional[str] = None) -> dict:
 # 五形中文名
 WUXING_CN = {'wood': '木', 'fire': '火', 'earth': '土', 'metal': '金', 'water': '水'}
 
-# 调候方向：偏缺形 在 旺相时节 → 补；在 死囚时节 → 养（缓补不猛补）
-#          偏旺形 在 旺相时节 → 泻；在 死囚时节 → 平（自然缓解）
+# 调候方向（v2 中庸治理范式）：
+#   旧：补/泻/养/平 —— 直接处理尖峰/凹谷
+#   新：增益耦合链里的断链节点，让链条自恢复
+#   direction 取值：
+#     '增益'       —— 断链节点在旺相时节，顺势借力
+#     '增益待时'   —— 断链节点在死囚时节，此时增益虚不受补，等它活跃时辰
+#     '顺势增益'   —— 当令五行恰好就是断链节点，天赐良机
+#     '不干预'     —— 链条自洽，无需动作
 
 def tiao_hou_engine(v_base: dict, ctx: dict) -> dict:
-    """核心调候引擎
+    """核心调候引擎（v2 增益中庸范式）
     
-    不是"缺土→补土"，而是"缺土 + 今日卯月木旺克土→先疏肝再健脾"
+    旧范式（已废弃）：对每个形独立判断 → is_weak→补/养；is_strong→泻/平
+      问题：直接处理尖峰/凹谷，在闭环上硬掰，力沿回路传递制造新失衡
     
-    逻辑：
-      1. 计算时空加权体质：v_base × wuxing_weight → 时空偏缺
-      2. 对每个偏缺形，判断当下调候窗口（旺相→宜补；死囚→宜养）
-      3. 对每个偏旺形，判断当下调候窗口（旺相→宜泻；死囚→平）
-      4. 克我形旺 → 避克（先疏克者，再补被克者）
-      5. 生我形旺 → 顺势（借力生我）
-      6. 结合时辰窗口（某形活跃时辰 → 加强该形调理）
+    新范式：找耦合链断链点 → 增益那个中庸节点
+      原理：
+        五形 SHENG 链 = wood→fire→earth→metal→water→wood
+        每个节点同时是上游的"所生"（承接上游输出）和下游的"生我"（向下游输送）
+        某个节点弱了 → 它的上游输出没人接 → 上游堆积成尖峰
+                        它的下游输入没人送 → 下游匮乏成凹谷
+        尖峰和凹谷是同一个断链的两个侧面，不独立存在
+        治理 = 增益断链节点，让链条恢复 → 尖峰自然收敛、凹谷自然填补
+      详见 spum-core/五行/地元/spum-卦组合化解.md §三·附
     
     Returns:
       {
         weighted_v: {...},            # 时空加权后的向量
-        priorities: [...],            # 调候优先级列表
-        avoid_now: [...],             # 当下不宜做的事
-        opportunities: [...],         # 当下天赐良机
-        window_tips: [...],           # 时辰窗口提示
+        priorities: [...],            # 断链节点增益建议（通常 1-2 条）
+        avoid_now: [...],             # 当下不宜（兼容）
+        opportunities: [...],         # 天赐良机（兼容）
+        window_tips: [...],           # 时辰窗口提示（兼容）
         summary: str,                 # 一句话总结
+        broken_chain: {...},          # 新增：断链分析详情（供前端展示）
       }
     """
     wuxing_weight = ctx['wuxing_weight']
     lingshou = ctx['lingshou']
     hour_wx = ctx['hour_wuxing']
     
-    # 1. 时空加权体质
+    # 1. 时空加权体质（保留，和旧版相同）
     weighted_v = {}
     for k in ['wood', 'fire', 'earth', 'metal', 'water']:
         raw = v_base.get(k, 50)
         w = wuxing_weight.get(k, 1.0)
-        # 加权 = 原始偏缺 × 时空系数
-        # 偏缺形在死囚时节 → 加倍虚弱（需要先调节律再补）
-        # 偏缺形在旺相时节 → 虚弱被当令之气掩护（可以借力）
         weighted_v[k] = round(raw * (0.6 + 0.4 * w), 1)
     
-    # 2. 识别优先级
-    #   优先级 = |weighted_v - 50| × 时空权重
-    priorities = []
-    for k in ['wood', 'fire', 'earth', 'metal', 'water']:
-        raw = v_base.get(k, 50)
-        w = wuxing_weight.get(k, 1.0)
-        deviation = raw - 50
-        weighted_dev = deviation * w
-        
-        status = ctx['wuxing_status'][k]
-        is_weak = raw < 45
-        is_strong = raw > 65
-        
-        direction = None  # '补' / '泻' / '养' / '平'
-        reason = ''
-        
-        if is_weak:
-            if status in ('旺', '相'):
-                # 偏缺但当令旺相 → 顺势借力，补效加倍
-                direction = '补'
-                reason = f'{WUXING_CN[k]}形偏弱，但当下{status}，借力当令之气补之效倍'
-            elif status in ('休', '囚'):
-                # 偏缺且当下被囚 → 此时猛补虚不受补，先养
-                direction = '养'
-                reason = f'{WUXING_CN[k]}形偏弱且当下{status}，猛补虚不受补，宜先养节律'
-            else:  # 死
-                # 偏缺且当下死 → 避之不及，换时辰
-                direction = '换时辰'
-                reason = f'{WUXING_CN[k]}形偏弱且当下死，此形调理窗口已过，换该形活跃时辰'
-        elif is_strong:
-            if status in ('旺', '相'):
-                # 偏旺且当令 → 雪上加霜，必须泻
-                direction = '泻'
-                reason = f'{WUXING_CN[k]}形偏旺且当下{status}，顺势泻之，否则气结'
-            elif status in ('休', '囚'):
-                # 偏旺但当令休囚 → 自然缓解，平调
-                direction = '平'
-                reason = f'{WUXING_CN[k]}形偏旺但当下{status}，自然节律已在调平'
-            else:  # 死
-                direction = '平'
-                reason = f'{WUXING_CN[k]}形偏旺且当下死，旺势衰减中'
-        else:
-            direction = '平'
-            reason = f'{WUXING_CN[k]}形中和'
-        
+    # 2. 找耦合链断链点
+    #    每个节点的"链上地位" = weighted_v[node]
+    #    SHENG 链: wood→fire→earth→metal→water→wood
+    #    断链点 = weighted_v 最小的那个节点（它同时卡了上游输出和下游输入）
+    chain_nodes = ['wood', 'fire', 'earth', 'metal', 'water']
+    sorted_nodes = sorted(chain_nodes, key=lambda n: weighted_v[n])
+    
+    # ── 平衡边界：五形差值 < 5 → 链条自洽，不干预 ──
+    max_v = max(weighted_v.values())
+    min_v = min(weighted_v.values())
+    if max_v - min_v < 5:
+        return {
+            'weighted_v': weighted_v,
+            'priorities': [],
+            'avoid_now': [],
+            'opportunities': [],
+            'window_tips': [],
+            'summary': f'当令{WUXING_CN[lingshou]}形{ctx["wuxing_status"][lingshou]}，五形链条自洽，无需干预',
+            'broken_chain': {'broken_node': None, 'peaks': [], 'valleys': []},
+        }
+    
+    broken_node = sorted_nodes[0]  # 最弱 = 断链点
+    second_weakest = sorted_nodes[1] if len(sorted_nodes) > 1 else None
+    
+    # 断链分析详情
+    prev_node = [k for k, v in SHENG.items() if v == broken_node][0]  # 生 broken 的
+    next_node = SHENG[broken_node]  # broken 生的
+    
+    # ── KE 链冲突检测（金木相战型） ──
+    #    KE 链: wood→earth→water→fire→metal→wood
+    #    相邻两个都 > 60 = 冲突（如 metal>60 且 wood>60 = 金木相战）
+    #    调和节点 = SHENG 链上的中间相位（metal→water→wood → water 是调和节点）
+    ke_conflict = None
+    for a, b in KE.items():  # KE[a] = b 表示 a 克 b
+        if weighted_v.get(a, 50) > 60 and weighted_v.get(b, 50) > 60:
+            # a 克 b 且两者都旺 → 找 SHENG 调和节点
+            # 调和节点 = SHENG[a]（a 所生 = SHENG 链上 a 之后的节点）
+            mediator = SHENG.get(a)
+            if mediator and mediator != a and mediator != b:
+                ke_conflict = {'a': a, 'b': b, 'mediator': mediator}
+                # 如果调和节点恰好就是 SHENG 断链点 → 评分加倍
+                if mediator == broken_node:
+                    second_weakest = None  # 不生成次要点位了
+                    break
+    
+    # 因断链导致的尖峰（上游堆积）和凹谷（下游匮乏）
+    peaks = []
+    valleys = []
+    if weighted_v[prev_node] > 55:
+        peaks.append(prev_node)
+    if weighted_v[next_node] < 45:
+        valleys.append(next_node)
+    # KE 冲突的两个强节点也是尖峰
+    if ke_conflict:
+        for p in [ke_conflict['a'], ke_conflict['b']]:
+            if p not in peaks and weighted_v[p] > 55:
+                peaks.append(p)
+    
+    # 3. 对断链节点判定增益窗口 + opportunities
+    broken_status = ctx['wuxing_status'][broken_node]
+    opportunities = []  # ✅ 恢复 opportunities 生成
+    
+    if broken_node == lingshou:
+        # 断链节点恰好是当令五行 → 天赐良机
+        direction = '顺势增益'
+        reason = (
+            f'五形{WUXING_CN[prev_node]}→{WUXING_CN[broken_node]}→{WUXING_CN[next_node]}链中，'
+            f'{WUXING_CN[broken_node]}形力弱承上启下断链'
+            + (f'（导致{WUXING_CN[prev_node]}形堆积成峰）' if peaks else '')
+            + (f'（导致{WUXING_CN[next_node]}形匮乏成谷）' if valleys else '')
+            + f'。当下当令{WUXING_CN[broken_node]}形{broken_status}，顺势增益，链条通 → 尖峰自消、凹谷自填'
+        )
+        opportunities.append({
+            'msg': f'断链节点{WUXING_CN[broken_node]}形恰为当令{broken_status}，顺势增益效倍',
+            'wuxing': broken_node,
+        })
+    elif broken_status in ('旺', '相'):
+        direction = '增益'
+        reason = (
+            f'{WUXING_CN[prev_node]}→{WUXING_CN[broken_node]}→{WUXING_CN[next_node]}链断于{WUXING_CN[broken_node]}形'
+            + (f'（{WUXING_CN[prev_node]}形堆积为峰）' if peaks else '')
+            + (f'（{WUXING_CN[next_node]}形匮乏为谷）' if valleys else '')
+            + f'。当下{WUXING_CN[broken_node]}形{broken_status}，增益{WUXING_CN[broken_node]}让链条恢复自调节'
+        )
+    elif broken_status in ('休', '囚'):
+        direction = '增益'
+        reason = (
+            f'{WUXING_CN[prev_node]}→{WUXING_CN[broken_node]}→{WUXING_CN[next_node]}链断于{WUXING_CN[broken_node]}形'
+            + f'。当下{WUXING_CN[broken_node]}形{broken_status}，增益但不宜过猛，等申时/子时等活跃窗口效果更佳'
+        )
+    else:  # 死
+        direction = '增益待时'
+        reason = (
+            f'{WUXING_CN[prev_node]}→{WUXING_CN[broken_node]}→{WUXING_CN[next_node]}链断于{WUXING_CN[broken_node]}形'
+            + f'。当下{WUXING_CN[broken_node]}形死，此时增益虚不受补，换{WUXING_CN[broken_node]}活跃时辰再调'
+        )
+    
+    # KE 冲突追加到 reason
+    if ke_conflict:
+        reason += f' 同时KE链{WUXING_CN[ke_conflict["a"]]}克{WUXING_CN[ke_conflict["b"]]}两旺相战，增益{WUXING_CN[ke_conflict["mediator"]]}形即为调和节点'
+    
+    # 评分（断链越严重分越高）
+    broken_dev = 50 - weighted_v[broken_node]
+    peak_penalty = sum(weighted_v[p] - 55 for p in peaks) if peaks else 0
+    score = max(broken_dev, broken_dev + peak_penalty)
+    if ke_conflict and ke_conflict['mediator'] == broken_node:
+        score *= 1.5  # KE 冲突与 SHENG 断链指向同一节点 → 升级
+    
+    priorities = [{
+        'wuxing': broken_node,
+        'cn': WUXING_CN[broken_node],
+        'raw': v_base.get(broken_node, 50),
+        'weighted': weighted_v[broken_node],
+        'status': broken_status,
+        'direction': direction,
+        'reason': reason,
+        'score': round(score, 1),
+        'chain_from': WUXING_CN[prev_node],
+        'chain_to': WUXING_CN[next_node],
+        'peaks': [WUXING_CN[p] for p in peaks],
+        'valleys': [WUXING_CN[v] for v in valleys],
+        'ke_conflict': WUXING_CN.get(ke_conflict['a'], '') + '克' + WUXING_CN.get(ke_conflict['b'], '') if ke_conflict else None,
+    }]
+    
+    # 如果第二弱节点也偏弱（和最弱差距 < 5），也生成一条
+    if second_weakest and (weighted_v[broken_node] - weighted_v[second_weakest] < 5):
+        b2_status = ctx['wuxing_status'][second_weakest]
+        p2 = [k for k, v in SHENG.items() if v == second_weakest][0]
+        n2 = SHENG[second_weakest]
         priorities.append({
-            'wuxing': k,
-            'cn': WUXING_CN[k],
-            'raw': raw,
-            'weighted': weighted_v[k],
-            'status': status,
-            'direction': direction,
-            'reason': reason,
-            'score': abs(weighted_dev) * (1.2 if direction in ('补', '泻') else 0.6),
+            'wuxing': second_weakest,
+            'cn': WUXING_CN[second_weakest],
+            'raw': v_base.get(second_weakest, 50),
+            'weighted': weighted_v[second_weakest],
+            'status': b2_status,
+            'direction': '增益',
+            'reason': f'同时{WUXING_CN[p2]}→{WUXING_CN[second_weakest]}→{WUXING_CN[n2]}链也偏弱，次要点位增益',
+            'score': round(50 - weighted_v[second_weakest], 1),
+            'chain_from': WUXING_CN[p2],
+            'chain_to': WUXING_CN[n2],
+            'peaks': [],
+            'valleys': [],
         })
     
-    # 按 score 排序
     priorities.sort(key=lambda x: -x['score'])
     
-    # 3. 当下不宜（避免克我形旺×我被克形弱）
+    # 4. 当下不宜 —— 当令五行克到凹谷节点 → 避
     avoid_now = []
     opportunities = []
+    if lingshou in KE:
+        ke_target = KE[lingshou]  # 当令所克
+        if ke_target in valleys or weighted_v.get(ke_target, 50) < 45:
+            avoid_now.append({
+                'msg': f'当下{WUXING_CN[lingshou]}形旺，克{WUXING_CN[ke_target]}形（凹谷），不宜猛补{WUXING_CN[ke_target]}',
+                'wuxing': ke_target,
+            })
     
-    for k in ['wood', 'fire', 'earth', 'metal', 'water']:
-        if k == lingshou:
-            # 当令五行
-            my_ke = KE[k]      # 我克者
-            ke_me = [wk for wk, v in KE.items() if v == k]  # 克我者
-            sheng_me = [wk for wk, v in SHENG.items() if v == k]  # 生我者
-            
-            # 当令旺 × 被克者弱 → 当下不宜碰被克形
-            for target in [my_ke]:
-                if v_base.get(target, 50) < 45:
-                    avoid_now.append({
-                        'msg': f'当下{WUXING_CN[k]}形旺，克{WUXING_CN[target]}形，不宜猛补{WUXING_CN[target]}',
-                        'wuxing': target,
-                    })
-            
-            # 当令旺 × 生我者弱 → 天赐良机（生我者弱时，我旺可以帮它）
-            for target in sheng_me:
-                if v_base.get(target, 50) < 45:
-                    opportunities.append({
-                        'msg': f'当下{WUXING_CN[k]}形旺，能生{WUXING_CN[target]}形，补{WUXING_CN[target]}事半功倍',
-                        'wuxing': target,
-                    })
-    
-    # 4. 时辰窗口提示
+    # 5. 时辰窗口提示
     window_tips = []
-    if hour_wx in ('wood', 'fire', 'metal', 'water', 'earth'):
-        for p in priorities:
-            if p['wuxing'] == hour_wx:
-                window_tips.append(f'当下时辰属{WUXING_CN[hour_wx]}形，宜{p["direction"]}{WUXING_CN[hour_wx]}形')
+    if hour_wx == broken_node:
+        window_tips.append(f'当下时辰属{WUXING_CN[hour_wx]}形，正是断链节点活跃时，增益效倍')
     
-    # 5. 一句话总结
+    # 6. 一句话总结
     top = priorities[0] if priorities else None
     if top:
-        summary = f'当令{WUXING_CN[lingshou]}形{ctx["wuxing_status"][lingshou]}。{top["cn"]}形{top["direction"]}（{top["reason"]}）'
+        chain_desc = f'{top["chain_from"]}→{top["cn"]}→{top["chain_to"]}'
+        peak_desc = f'，{"/".join(top["peaks"])}形堆积为峰' if top['peaks'] else ''
+        valley_desc = f'，{"/".join(top["valleys"])}形匮乏为谷' if top['valleys'] else ''
+        summary = f'{WUXING_CN[lingshou]}形{ctx["wuxing_status"][lingshou]}。{chain_desc}链断于{top["cn"]}形{peak_desc}{valley_desc}——{top["direction"]}，让链条自恢复'
     else:
-        summary = f'当令{WUXING_CN[lingshou]}形{ctx["wuxing_status"][lingshou]}，节律平和'
+        summary = f'当令{WUXING_CN[lingshou]}形{ctx["wuxing_status"][lingshou]}，五形链条自洽'
     
     return {
         'weighted_v': weighted_v,
@@ -449,6 +535,13 @@ def tiao_hou_engine(v_base: dict, ctx: dict) -> dict:
         'opportunities': opportunities,
         'window_tips': window_tips,
         'summary': summary,
+        'broken_chain': {
+            'broken_node': broken_node,
+            'prev': prev_node,
+            'next': next_node,
+            'peaks': peaks,
+            'valleys': valleys,
+        },
     }
 
 
@@ -468,39 +561,31 @@ def spacetime_advice(v_base: dict, ctx: dict, tiao_hou: dict,
     todos = []
     avoidances = []
     
-    # 从调候引擎生成建议
+    # 从调候引擎生成建议（v2 增益中庸范式）
     for p in tiao_hou['priorities']:
-        if p['direction'] == '补':
+        chain_desc = f'{p.get("chain_from","?")}→{p["cn"]}→{p.get("chain_to","?")}'
+        if p['direction'] in ('增益', '顺势增益'):
+            emoji = '✨' if p['direction'] == '顺势增益' else '🔧'
             todos.append({
-                'title': f'补{p["cn"]}形 · {_food_suggestion(p["wuxing"])}',
-                'desc': f'当下{p["status"]}，补之效倍 — {p["reason"]}',
-                'priority': 'high',
+                'title': f'{emoji} 增益{p["cn"]}形 · {_food_suggestion(p["wuxing"])}',
+                'desc': f'五形{chain_desc}链断于{p["cn"]}形。增益{p["cn"]}让链条自恢复 → 尖峰自消、凹谷自填。{p["reason"]}',
+                'priority': 'high' if p['direction'] == '顺势增益' else 'high',
                 'wuxing': p['wuxing'],
                 'source': 'spacetime_tiao_hou',
+                'direction': p['direction'],
+                'broken_chain': chain_desc,
+                'peaks': p.get('peaks', []),
+                'valleys': p.get('valleys', []),
             })
-        elif p['direction'] == '泻':
-            todos.append({
-                'title': f'泻{p["cn"]}形 · {_action_suggestion(p["wuxing"], "泻")}',
-                'desc': f'当下{p["status"]}，顺势泻之 — {p["reason"]}',
-                'priority': 'high',
-                'wuxing': p['wuxing'],
-                'source': 'spacetime_tiao_hou',
-            })
-        elif p['direction'] == '养':
+        elif p['direction'] == '增益待时':
             avoidances.append({
-                'title': f'暂不补{p["cn"]}形',
-                'desc': p['reason'],
+                'title': f'⏸ {p["cn"]}形活跃时辰再增益',
+                'desc': f'五形{chain_desc}链断于{p["cn"]}形，但当下{p["status"]}虚不受补。{p["reason"]}',
                 'priority': 'medium',
                 'wuxing': p['wuxing'],
                 'source': 'spacetime_tiao_hou',
-            })
-        elif p['direction'] == '换时辰':
-            avoidances.append({
-                'title': f'换{p["cn"]}形活跃时辰再调理',
-                'desc': p['reason'],
-                'priority': 'low',
-                'wuxing': p['wuxing'],
-                'source': 'spacetime_tiao_hou',
+                'direction': p['direction'],
+                'broken_chain': chain_desc,
             })
     
     # 当下不宜
