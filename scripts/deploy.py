@@ -23,9 +23,13 @@ client.connect(HOST, username=USER, password=PASS, timeout=10)
 
 try:
     # 1. 拉代码
-    run('cd /home/ubuntu/qingnang-APP && git pull origin master')
+    run('cd /home/ubuntu/qingnang-APP && git fetch && git reset --hard origin/master')
+    run('cd /home/ubuntu/qingnang-APP && git log --oneline -1')
     
-    # 2. 重启后端（用 sudo + 密码）
+    # 2. Alembic 迁移（如有新迁移）
+    run('cd /home/ubuntu/qingnang-APP/backend && source .venv/bin/activate 2>/dev/null || true && python -m alembic upgrade head')
+    
+    # 3. 重启后端（用 sudo + 密码）
     run(f'echo "{PASS}" | sudo -S systemctl restart qingnang-backend')
     run(f'echo "{PASS}" | sudo -S systemctl is-active qingnang-backend')
     
