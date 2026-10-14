@@ -319,51 +319,60 @@ WUXING_CN = {'wood': '木', 'fire': '火', 'earth': '土', 'metal': '金', 'wate
 #     '不干预'     —— 链条自洽，无需动作
 
 def tiao_hou_engine(v_base: dict, ctx: dict) -> dict:
-    """核心调候引擎（v2 增益中庸范式）
+    """核心调候引擎（v3 五边形凸多面体治理范式）
     
     旧范式（已废弃）：对每个形独立判断 → is_weak→补/养；is_strong→泻/平
       问题：直接处理尖峰/凹谷，在闭环上硬掰，力沿回路传递制造新失衡
     
-    新范式：找耦合链断链点 → 增益那个中庸节点
-      原理：
-        五形 SHENG 链 = wood→fire→earth→metal→water→wood
-        每个节点同时是上游的"所生"（承接上游输出）和下游的"生我"（向下游输送）
-        某个节点弱了 → 它的上游输出没人接 → 上游堆积成尖峰
-                        它的下游输入没人送 → 下游匮乏成凹谷
-        尖峰和凹谷是同一个断链的两个侧面，不独立存在
-        治理 = 增益断链节点，让链条恢复 → 尖峰自然收敛、凹谷自然填补
-      详见 spum-core/五行/地元/spum-卦组合化解.md §三·附
+    v2（已升级）：找耦合链断链点 → 增益中庸节点
+      问题：写死了"增益中庸=永不碰尖峰"——但治理策略是优化问题！
+    
+    v3（当前）：五边形凸多面体力学状态检测 → 动态选择最优治理策略
+      核心原理（来自 spum-core/五行/地元/spum-卦组合化解.md §三·附 + 用户实战修正）：
+        五边形 = SHENG 链（wood→fire→earth→metal→water→wood）
+        稳定时每个节点输出到下游 = 从上游接收（平衡）
+        反作用力均匀分配到其他 4 个顶点 → 链条自调节
+        一旦某个顶点凹陷超过阈值 → 对受力点的反作用力瞬间消失 → 链条断了
+        
+        治理策略不是写死的：
+          链条完整 + 强尖峰 → **直接压抑尖峰**（反作用力还在，调尖峰有效）
+          链条断裂        → **增益中庸节点**（反作用力消失，必须先恢复链条）
+          链条完整 + 无尖峰 → **不干预**（自调节中）
+          KE 链冲突       → **增益调和相位**（不论断没断）
+      
+      详见 wuxing_chain.detect_chain_state() + select_governance_strategy()
     
     Returns:
       {
         weighted_v: {...},            # 时空加权后的向量
-        priorities: [...],            # 断链节点增益建议（通常 1-2 条）
-        avoid_now: [...],             # 当下不宜（兼容）
-        opportunities: [...],         # 天赐良机（兼容）
-        window_tips: [...],           # 时辰窗口提示（兼容）
+        priorities: [...],            # 治理建议（通常 1-2 条）
+        avoid_now: [...],             # 当下不宜
+        opportunities: [...],         # 天赐良机
+        window_tips: [...],           # 时辰窗口提示
         summary: str,                 # 一句话总结
-        broken_chain: {...},          # 新增：断链分析详情（供前端展示）
+        chain_state: {...},           # 五边形凸多面体力学检测详情
+        strategy: {...},              # 选中的治理策略详情
       }
     """
+    from app.utils.wuxing_chain import detect_chain_state, detect_ke_conflict, select_governance_strategy
+    
     wuxing_weight = ctx['wuxing_weight']
     lingshou = ctx['lingshou']
     hour_wx = ctx['hour_wuxing']
     
-    # 1. 时空加权体质（保留，和旧版相同）
+    # 1. 时空加权体质
     weighted_v = {}
     for k in ['wood', 'fire', 'earth', 'metal', 'water']:
         raw = v_base.get(k, 50)
         w = wuxing_weight.get(k, 1.0)
         weighted_v[k] = round(raw * (0.6 + 0.4 * w), 1)
     
-    # 2. 找耦合链断链点
-    #    每个节点的"链上地位" = weighted_v[node]
-    #    SHENG 链: wood→fire→earth→metal→water→wood
-    #    断链点 = weighted_v 最小的那个节点（它同时卡了上游输出和下游输入）
-    chain_nodes = ['wood', 'fire', 'earth', 'metal', 'water']
-    sorted_nodes = sorted(chain_nodes, key=lambda n: weighted_v[n])
+    # 2. 五边形凸多面体力学检测（v3 新增）
+    chain_state = detect_chain_state(weighted_v, threshold=8.0)
+    ke_conflict = detect_ke_conflict(weighted_v)
+    strategy = select_governance_strategy(chain_state, ke_conflict)
     
-    # ── 平衡边界：五形差值 < 5 → 链条自洽，不干预 ──
+    # 3. 平衡边界：五形差值 < 5 → 链条自洽，不干预
     max_v = max(weighted_v.values())
     min_v = min(weighted_v.values())
     if max_v - min_v < 5:
@@ -373,160 +382,222 @@ def tiao_hou_engine(v_base: dict, ctx: dict) -> dict:
             'avoid_now': [],
             'opportunities': [],
             'window_tips': [],
-            'summary': f'当令{WUXING_CN[lingshou]}形{ctx["wuxing_status"][lingshou]}，五形链条自洽，无需干预',
-            'broken_chain': {'broken_node': None, 'peaks': [], 'valleys': []},
+            'summary': f'当令{WUXING_CN[lingshou]}形{ctx["wuxing_status"][lingshou]}，五边形凸多面体自洽，无需干预',
+            'chain_state': chain_state,
+            'strategy': strategy,
         }
     
-    broken_node = sorted_nodes[0]  # 最弱 = 断链点
-    second_weakest = sorted_nodes[1] if len(sorted_nodes) > 1 else None
+    priorities = []
+    broken_node = chain_state['weakest']
+    strongest_node = chain_state['strongest']
+    prev_node = chain_state['upstream_of_weakest']
+    next_node = chain_state['downstream_of_weakest']
     
-    # 断链分析详情
-    prev_node = [k for k, v in SHENG.items() if v == broken_node][0]  # 生 broken 的
-    next_node = SHENG[broken_node]  # broken 生的
-    
-    # ── KE 链冲突检测（金木相战型） ──
-    #    KE 链: wood→earth→water→fire→metal→wood
-    #    相邻两个都 > 60 = 冲突（如 metal>60 且 wood>60 = 金木相战）
-    #    调和节点 = SHENG 链上的中间相位（metal→water→wood → water 是调和节点）
-    ke_conflict = None
-    for a, b in KE.items():  # KE[a] = b 表示 a 克 b
-        if weighted_v.get(a, 50) > 60 and weighted_v.get(b, 50) > 60:
-            # a 克 b 且两者都旺 → 找 SHENG 调和节点
-            # 调和节点 = SHENG[a]（a 所生 = SHENG 链上 a 之后的节点）
-            mediator = SHENG.get(a)
-            if mediator and mediator != a and mediator != b:
-                ke_conflict = {'a': a, 'b': b, 'mediator': mediator}
-                # 如果调和节点恰好就是 SHENG 断链点 → 评分加倍
-                if mediator == broken_node:
-                    second_weakest = None  # 不生成次要点位了
-                    break
-    
-    # 因断链导致的尖峰（上游堆积）和凹谷（下游匮乏）
+    # 因断链导致的尖峰和凹谷
     peaks = []
     valleys = []
     if weighted_v[prev_node] > 55:
         peaks.append(prev_node)
     if weighted_v[next_node] < 45:
         valleys.append(next_node)
-    # KE 冲突的两个强节点也是尖峰
     if ke_conflict:
         for p in [ke_conflict['a'], ke_conflict['b']]:
             if p not in peaks and weighted_v[p] > 55:
                 peaks.append(p)
     
-    # 3. 对断链节点判定增益窗口 + opportunities
-    broken_status = ctx['wuxing_status'][broken_node]
-    opportunities = []  # ✅ 恢复 opportunities 生成
+    # 4. 根据选中的策略生成建议 —
+    strat_name = strategy['strategy']
+    target = strategy['target_node']
+    target_role = strategy['target_role']
     
-    if broken_node == lingshou:
-        # 断链节点恰好是当令五行 → 天赐良机
-        direction = '顺势增益'
-        reason = (
-            f'五形{WUXING_CN[prev_node]}→{WUXING_CN[broken_node]}→{WUXING_CN[next_node]}链中，'
-            f'{WUXING_CN[broken_node]}形力弱承上启下断链'
-            + (f'（导致{WUXING_CN[prev_node]}形堆积成峰）' if peaks else '')
-            + (f'（导致{WUXING_CN[next_node]}形匮乏成谷）' if valleys else '')
-            + f'。当下当令{WUXING_CN[broken_node]}形{broken_status}，顺势增益，链条通 → 尖峰自消、凹谷自填'
-        )
-        opportunities.append({
-            'msg': f'断链节点{WUXING_CN[broken_node]}形恰为当令{broken_status}，顺势增益效倍',
-            'wuxing': broken_node,
-        })
-    elif broken_status in ('旺', '相'):
-        direction = '增益'
-        reason = (
-            f'{WUXING_CN[prev_node]}→{WUXING_CN[broken_node]}→{WUXING_CN[next_node]}链断于{WUXING_CN[broken_node]}形'
-            + (f'（{WUXING_CN[prev_node]}形堆积为峰）' if peaks else '')
-            + (f'（{WUXING_CN[next_node]}形匮乏为谷）' if valleys else '')
-            + f'。当下{WUXING_CN[broken_node]}形{broken_status}，增益{WUXING_CN[broken_node]}让链条恢复自调节'
-        )
-    elif broken_status in ('休', '囚'):
-        direction = '增益'
-        reason = (
-            f'{WUXING_CN[prev_node]}→{WUXING_CN[broken_node]}→{WUXING_CN[next_node]}链断于{WUXING_CN[broken_node]}形'
-            + f'。当下{WUXING_CN[broken_node]}形{broken_status}，增益但不宜过猛，等申时/子时等活跃窗口效果更佳'
-        )
-    else:  # 死
-        direction = '增益待时'
-        reason = (
-            f'{WUXING_CN[prev_node]}→{WUXING_CN[broken_node]}→{WUXING_CN[next_node]}链断于{WUXING_CN[broken_node]}形'
-            + f'。当下{WUXING_CN[broken_node]}形死，此时增益虚不受补，换{WUXING_CN[broken_node]}活跃时辰再调'
-        )
+    if strat_name == '不干预':
+        return {
+            'weighted_v': weighted_v,
+            'priorities': [],
+            'avoid_now': [],
+            'opportunities': [],
+            'window_tips': [],
+            'summary': f'五边形凸多面体力学自洽，无需干预（{strategy["reason"]}）',
+            'chain_state': chain_state,
+            'strategy': strategy,
+        }
     
-    # KE 冲突追加到 reason
-    if ke_conflict:
-        reason += f' 同时KE链{WUXING_CN[ke_conflict["a"]]}克{WUXING_CN[ke_conflict["b"]]}两旺相战，增益{WUXING_CN[ke_conflict["mediator"]]}形即为调和节点'
-    
-    # 评分（断链越严重分越高）
-    broken_dev = 50 - weighted_v[broken_node]
-    peak_penalty = sum(weighted_v[p] - 55 for p in peaks) if peaks else 0
-    score = max(broken_dev, broken_dev + peak_penalty)
-    if ke_conflict and ke_conflict['mediator'] == broken_node:
-        score *= 1.5  # KE 冲突与 SHENG 断链指向同一节点 → 升级
-    
-    priorities = [{
-        'wuxing': broken_node,
-        'cn': WUXING_CN[broken_node],
-        'raw': v_base.get(broken_node, 50),
-        'weighted': weighted_v[broken_node],
-        'status': broken_status,
-        'direction': direction,
-        'reason': reason,
-        'score': round(score, 1),
-        'chain_from': WUXING_CN[prev_node],
-        'chain_to': WUXING_CN[next_node],
-        'peaks': [WUXING_CN[p] for p in peaks],
-        'valleys': [WUXING_CN[v] for v in valleys],
-        'ke_conflict': WUXING_CN.get(ke_conflict['a'], '') + '克' + WUXING_CN.get(ke_conflict['b'], '') if ke_conflict else None,
-    }]
-    
-    # 如果第二弱节点也偏弱（和最弱差距 < 5），也生成一条
-    if second_weakest and (weighted_v[broken_node] - weighted_v[second_weakest] < 5):
-        b2_status = ctx['wuxing_status'][second_weakest]
-        p2 = [k for k, v in SHENG.items() if v == second_weakest][0]
-        n2 = SHENG[second_weakest]
+    if strat_name == '压抑尖峰':
+        # ═════════════════════════════════════════════════════════
+        # 场景 A：链条完整 → 直接压抑尖峰
+        # 反作用力还在其他 4 点均匀分配中，压抑尖峰可以让力自然重新分布
+        # 用户实战锚点：瘦人补土不如补金 —— 但如果链条完整，土是真的缺尖峰
+        # 直接调尖峰比补中庸节点效果更好
+        # ═════════════════════════════════════════════════════════
+        target_status = ctx['wuxing_status'][target]
+        # 压抑方向判定：当令旺相 → 用泻；当令休囚 → 用疏
+        if target_status in ('旺', '相'):
+            direction = '泻尖峰'
+        else:
+            direction = '疏尖峰'
+        
+        # 评分：尖峰越高分越高
+        peak_score = weighted_v[target] - 55
+        
         priorities.append({
-            'wuxing': second_weakest,
-            'cn': WUXING_CN[second_weakest],
-            'raw': v_base.get(second_weakest, 50),
-            'weighted': weighted_v[second_weakest],
-            'status': b2_status,
-            'direction': '增益',
-            'reason': f'同时{WUXING_CN[p2]}→{WUXING_CN[second_weakest]}→{WUXING_CN[n2]}链也偏弱，次要点位增益',
-            'score': round(50 - weighted_v[second_weakest], 1),
-            'chain_from': WUXING_CN[p2],
-            'chain_to': WUXING_CN[n2],
-            'peaks': [],
-            'valleys': [],
+            'wuxing': target,
+            'cn': WUXING_CN[target],
+            'raw': v_base.get(target, 50),
+            'weighted': weighted_v[target],
+            'status': target_status,
+            'direction': direction,
+            'target_role': target_role,
+            'strategy_type': '压抑尖峰',
+            'score': round(max(5, peak_score), 1),
+            'reason': strategy['reason'],
+            'peaks': [WUXING_CN[target]],
+            'valleys': [WUXING_CN[v] for v in valleys],
         })
+    
+    elif strat_name == '增益中庸':
+        # ═════════════════════════════════════════════════════════
+        # 场景 B：链条断裂 → 增益中庸节点
+        # 反作用力消失了！必须先恢复链条的力传递能力
+        # 用户实战锚点：瘦人补土不如补金 —— 土在凸多面体上凹陷过阈值
+        # 补金（修剪僵化环基→增大储备池容量）→ 土自然增长
+        # ═════════════════════════════════════════════════════════
+        target_status = ctx['wuxing_status'][target]
+        
+        if target == lingshou:
+            direction = '顺势增益'
+            reason = (
+                f'五边形凸多面体断于{WUXING_CN[target]}形（{target_role}）——'
+                f'反作用力消失。当下当令{WUXING_CN[target]}形{target_status}，'
+                f'顺势增益效倍，链条通 → 尖峰自消、凹谷自填'
+            )
+        elif target_status in ('旺', '相'):
+            direction = '增益'
+            reason = (
+                f'五边形凸多面体断于{WUXING_CN[target]}形（{target_role}）——'
+                f'反作用力消失。当下{WUXING_CN[target]}形{target_status}，'
+                f'增益让链条恢复自调节'
+            )
+        elif target_status in ('休', '囚'):
+            direction = '增益'
+            reason = (
+                f'五边形凸多面体断于{WUXING_CN[target]}形——'
+                f'当下{WUXING_CN[target]}形{target_status}，增益但不宜过猛，'
+                f'等活跃窗口效果更佳'
+            )
+        else:  # 死
+            direction = '增益待时'
+            reason = (
+                f'五边形凸多面体断于{WUXING_CN[target]}形——'
+                f'当下{WUXING_CN[target]}形死，此时增益虚不受补，'
+                f'换{WUXING_CN[target]}活跃时辰再调'
+            )
+        
+        if ke_conflict and ke_conflict.get('mediator') == target:
+            reason += f' 同时KE链{WUXING_CN[ke_conflict["a"]]}克{WUXING_CN[ke_conflict["b"]]}两旺相战，调和相位与断链点重合，增益效果最优'
+        
+        # 评分：断链越严重分越高
+        broken_dev = max(0, 50 - weighted_v[target])
+        peak_penalty = sum(weighted_v[p] - 55 for p in peaks) if peaks else 0
+        score = max(broken_dev, broken_dev + peak_penalty)
+        if ke_conflict and ke_conflict.get('mediator') == target:
+            score *= 1.5  # 双信号指向同一节点 → 升级
+        
+        # 链上下游展示（如果 target 是 SHENG 最弱节点）
+        if target == chain_state['weakest']:
+            chain_from = WUXING_CN[prev_node]
+            chain_to = WUXING_CN[next_node]
+        else:
+            # target 是 KE 调和相位 → 用它的 SHENG 上下游
+            chain_from = WUXING_CN[[k for k, v in SHENG.items() if v == target][0]]
+            chain_to = WUXING_CN[SHENG[target]]
+        
+        priorities.append({
+            'wuxing': target,
+            'cn': WUXING_CN[target],
+            'raw': v_base.get(target, 50),
+            'weighted': weighted_v[target],
+            'status': target_status,
+            'direction': direction,
+            'target_role': target_role,
+            'strategy_type': '增益中庸',
+            'score': round(score, 1),
+            'reason': reason,
+            'chain_from': chain_from,
+            'chain_to': chain_to,
+            'peaks': [WUXING_CN[p] for p in peaks],
+            'valleys': [WUXING_CN[v] for v in valleys],
+            'ke_conflict': (WUXING_CN.get(ke_conflict['a'], '') + '克' + WUXING_CN.get(ke_conflict['b'], '')) if ke_conflict else None,
+        })
+        
+        # 如果第二弱节点也偏弱，也生成一条
+        second = chain_state['second_weakest']
+        if second and (weighted_v[chain_state['weakest']] - weighted_v[second] < 5):
+            b2_status = ctx['wuxing_status'][second]
+            p2 = [k for k, v in SHENG.items() if v == second][0]
+            n2 = SHENG[second]
+            priorities.append({
+                'wuxing': second,
+                'cn': WUXING_CN[second],
+                'raw': v_base.get(second, 50),
+                'weighted': weighted_v[second],
+                'status': b2_status,
+                'direction': '增益',
+                'target_role': '次弱节点',
+                'strategy_type': '增益中庸',
+                'score': round(50 - weighted_v[second], 1),
+                'reason': f'同时{WUXING_CN[p2]}→{WUXING_CN[second]}→{WUXING_CN[n2]}链也偏弱，次要点位增益',
+                'chain_from': WUXING_CN[p2],
+                'chain_to': WUXING_CN[n2],
+                'peaks': [],
+                'valleys': [],
+            })
     
     priorities.sort(key=lambda x: -x['score'])
     
-    # 4. 当下不宜 —— 当令五行克到凹谷节点 → 避
+    # 5. 当下不宜 —— 当令五行克到凹谷节点 → 避
     avoid_now = []
-    opportunities = []
     if lingshou in KE:
-        ke_target = KE[lingshou]  # 当令所克
+        ke_target = KE[lingshou]
         if ke_target in valleys or weighted_v.get(ke_target, 50) < 45:
             avoid_now.append({
                 'msg': f'当下{WUXING_CN[lingshou]}形旺，克{WUXING_CN[ke_target]}形（凹谷），不宜猛补{WUXING_CN[ke_target]}',
                 'wuxing': ke_target,
             })
     
-    # 5. 时辰窗口提示
-    window_tips = []
-    if hour_wx == broken_node:
-        window_tips.append(f'当下时辰属{WUXING_CN[hour_wx]}形，正是断链节点活跃时，增益效倍')
+    # 6. 机会 —— 当令正好是策略目标
+    opportunities = []
+    if target == lingshou and strat_name in ('增益中庸',):
+        opportunities.append({
+            'msg': f'治理目标{WUXING_CN[target]}形恰为当令，效倍',
+            'wuxing': target,
+        })
     
-    # 6. 一句话总结
+    # 7. 时辰窗口提示
+    window_tips = []
+    if hour_wx == target:
+        window_tips.append(f'当下时辰属{WUXING_CN[hour_wx]}形，正是治理目标活跃时，效倍')
+    
+    # 8. 一句话总结
     top = priorities[0] if priorities else None
     if top:
-        chain_desc = f'{top["chain_from"]}→{top["cn"]}→{top["chain_to"]}'
-        peak_desc = f'，{"/".join(top["peaks"])}形堆积为峰' if top['peaks'] else ''
-        valley_desc = f'，{"/".join(top["valleys"])}形匮乏为谷' if top['valleys'] else ''
-        summary = f'{WUXING_CN[lingshou]}形{ctx["wuxing_status"][lingshou]}。{chain_desc}链断于{top["cn"]}形{peak_desc}{valley_desc}——{top["direction"]}，让链条自恢复'
+        if top.get('strategy_type') == '压抑尖峰':
+            summary = (
+                f'五边形凸多面体完整（反作用力均匀分配中），'
+                f'{WUXING_CN[lingshou]}形{ctx["wuxing_status"][lingshou]}。'
+                f'{top["cn"]}形显著高于其他 → {top["direction"]}，'
+                f'让反作用力自然重新分配'
+            )
+        else:
+            chain_desc = f'{top.get("chain_from","?")}→{top["cn"]}→{top.get("chain_to","?")}'
+            peak_desc = f'，{"/".join(top["peaks"])}形堆积为峰' if top['peaks'] else ''
+            valley_desc = f'，{"/".join(top["valleys"])}形匮乏为谷' if top['valleys'] else ''
+            summary = (
+                f'五边形凸多面体断于{top["cn"]}形（反作用力消失）。'
+                f'{chain_desc}链{peak_desc}{valley_desc}——{top["direction"]}，'
+                f'让链条自恢复'
+            )
     else:
-        summary = f'当令{WUXING_CN[lingshou]}形{ctx["wuxing_status"][lingshou]}，五形链条自洽'
+        summary = f'当令{WUXING_CN[lingshou]}形{ctx["wuxing_status"][lingshou]}，五边形自洽'
     
     return {
         'weighted_v': weighted_v,
@@ -535,13 +606,8 @@ def tiao_hou_engine(v_base: dict, ctx: dict) -> dict:
         'opportunities': opportunities,
         'window_tips': window_tips,
         'summary': summary,
-        'broken_chain': {
-            'broken_node': broken_node,
-            'prev': prev_node,
-            'next': next_node,
-            'peaks': peaks,
-            'valleys': valleys,
-        },
+        'chain_state': chain_state,
+        'strategy': strategy,
     }
 
 

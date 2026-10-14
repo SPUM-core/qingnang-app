@@ -10,6 +10,7 @@ from .shop import ShopItem, ShopReview, ShopOrder
 from .trajectory_event import TrajectoryEvent
 from .inquiry import InquirySession, InquiryStatus, InquiryStage
 from .chat import ChatMessage, LifeSignal
+from .reduction import ReductionStateDB
 
 __all__ = [
     "User", "DoctorProfile",
@@ -19,4 +20,5 @@ __all__ = [
     "TrajectoryEvent",
     "InquirySession", "InquiryStatus", "InquiryStage",
     "ChatMessage", "LifeSignal",
+    "ReductionStateDB",
 ]

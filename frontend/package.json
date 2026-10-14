@@ -1,7 +1,7 @@
 {
   "name": "spum-engine-frontend",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "青囊生活管家 SPUM 引擎 Web 前端（Phase 0：向量可视化 + 问诊 + 采集上传 + 报告 + 知识库 + 用户管理 + 提醒）",
   "scripts": {

@@ -8,8 +8,9 @@ from typing import Optional
 from datetime import datetime
 
 from app.utils.reduction_engine import (
-    reduce_prescription, reduce_new_herb_entry, compare_outcome,
-    ReductionState, HERB_DELTA_S, SEASON_MODULATION, WUXING_LIST
+    reduce_prescription, reduce_new_herb_entry, compare_outcome, apply_correction,
+    ReductionState, HERB_DELTA_S, SEASON_MODULATION, HOUR_MODULATION, WUXING_LIST,
+    get_persistent_state
 )
 from app.utils.spacetime_engine import spacetime_context
 
@@ -36,6 +37,12 @@ class OutcomeCompareRequest(BaseModel):
     chain_prediction: Optional[dict] = None
 
 
+class CorrectionApplyRequest(BaseModel):
+    """把 compare_outcome 的归因结果应用到算子权重"""
+    attribution: str                       # broken_node_gain / peak_suppress / season_mod
+    suggestion: Optional[dict] = None       # compare_outcome 的 correction_suggestion
+
+
 @router.post("/prescription")
 def api_reduce_prescription(req: PrescriptionReduceRequest):
     """
@@ -50,7 +57,7 @@ def api_reduce_prescription(req: PrescriptionReduceRequest):
     try:
         ctx_date = datetime.fromisoformat(req.date) if req.date else datetime.now()
         ctx = spacetime_context(ctx_date, req.birthplace)
-        state = ReductionState()
+        state = get_persistent_state()
         result = reduce_prescription(req.herbs, req.v_base, ctx, state)
         return {"ok": True, "engine": "reduction_v1", **result}
     except Exception as e:
@@ -91,6 +98,41 @@ def api_compare_outcome(req: OutcomeCompareRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/correct")
+def api_apply_correction(req: CorrectionApplyRequest):
+    """
+    L4 回填执行：把偏差归因应用到算子权重 → 自动持久化
+
+    用法：先调 /compare 拿到 attribution → 把 attribution 传给 /correct
+    修正值自动写 DB，下一次 /prescription 归约直接用新权重。
+
+    这就是"活"算子——不是静态查表，是能被临床反馈持续修正的算子。
+    """
+    try:
+        state = get_persistent_state()
+        before = {
+            "broken_node_gain": state.broken_node_gain,
+            "peak_suppress": state.peak_suppress,
+            "ke_conflict_mult": state.ke_conflict_mult,
+        }
+        apply_correction(state, {"attribution": req.attribution, "suggestion": req.suggestion})
+        after = {
+            "broken_node_gain": state.broken_node_gain,
+            "peak_suppress": state.peak_suppress,
+            "ke_conflict_mult": state.ke_conflict_mult,
+        }
+        return {
+            "ok": True,
+            "engine": "reduction_v1",
+            "attribution": req.attribution,
+            "before": before,
+            "after": after,
+            "persisted": True,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/herbs")
 def api_list_herbs():
     """列出当前药表收录（含开放边集注册）"""
@@ -114,21 +156,23 @@ def api_get_modulation():
     return {
         "ok": True,
         "seasons": SEASON_MODULATION,
-        "hours": {
-            k: {wx: v.get(wx, 1.0) for wx in WUXING_LIST}
-            for k, v in {
-                "子": {"wood": 0.9, "fire": 0.6, "earth": 0.8, "metal": 1.0, "water": 1.5},
-                "丑": {"wood": 0.9, "fire": 0.7, "earth": 1.3, "metal": 1.0, "water": 1.1},
-                "寅": {"wood": 1.4, "fire": 1.1, "earth": 0.8, "metal": 0.9, "water": 1.0},
-                "卯": {"wood": 1.5, "fire": 1.0, "earth": 0.8, "metal": 0.8, "water": 1.1},
-                "辰": {"wood": 0.8, "fire": 0.9, "earth": 1.3, "metal": 1.1, "water": 0.9},
-                "巳": {"wood": 1.0, "fire": 1.4, "earth": 0.9, "metal": 0.8, "water": 0.7},
-                "午": {"wood": 0.9, "fire": 1.5, "earth": 1.0, "metal": 0.6, "water": 0.5},
-                "未": {"wood": 1.0, "fire": 1.1, "earth": 1.3, "metal": 0.9, "water": 0.8},
-                "申": {"wood": 0.9, "fire": 0.7, "earth": 1.0, "metal": 1.4, "water": 1.1},
-                "酉": {"wood": 0.8, "fire": 0.6, "earth": 0.9, "metal": 1.5, "water": 1.2},
-                "戌": {"wood": 0.9, "fire": 0.8, "earth": 1.3, "metal": 1.0, "water": 0.9},
-                "亥": {"wood": 0.9, "fire": 0.5, "earth": 0.8, "metal": 1.1, "water": 1.5},
-            }.items()
+        "hours": HOUR_MODULATION,
+    }
+
+
+@router.get("/state")
+def api_get_state():
+    """查看当前持久化的 ReductionState（活算子权重）"""
+    state = get_persistent_state()
+    return {
+        "ok": True,
+        "engine": "reduction_v1",
+        "state": {
+            "broken_node_gain": state.broken_node_gain,
+            "peak_suppress": state.peak_suppress,
+            "ke_conflict_mult": state.ke_conflict_mult,
+            "season_corrections": state.season_corrections,
+            "hour_corrections": state.hour_corrections,
         },
+        "persisted": True,
     }

@@ -97,7 +97,10 @@ HERB_DELTA_S: dict[str, dict] = {
     # ── 上品 ──
     "人参":  {"siqi": "微温", "taste": "甘", "grade": "上品", "delta_S": {"fire": 0.0, "water": 0.0, "wood": +0.2, "earth": +1.0, "metal":  0.0}},
     "甘草":  {"siqi": "平",   "taste": "甘", "grade": "上品", "delta_S": {"fire": 0.0, "water": 0.0, "wood":  0.0, "earth": +1.0, "metal": -0.3}},
+    "炙甘草": {"siqi": "温",  "taste": "甘", "grade": "上品", "delta_S": {"fire": +0.5, "water": 0.0, "wood":  0.0, "earth": +1.1, "metal": -0.2}},
     "地黄":  {"siqi": "寒",   "taste": "甘", "grade": "上品", "delta_S": {"fire": -0.8, "water": 0.0, "wood":  0.0, "earth": +1.0, "metal":  0.0}},
+    "生地":  {"siqi": "寒",   "taste": "甘", "grade": "上品", "delta_S": {"fire": -0.8, "water": 0.0, "wood":  0.0, "earth": +1.0, "metal":  0.0}},
+    "熟地":  {"siqi": "微温", "taste": "甘", "grade": "上品", "delta_S": {"fire": +0.3, "water": 0.0, "wood":  0.0, "earth": +1.2, "metal":  0.0}},
     "大枣":  {"siqi": "温",   "taste": "甘", "grade": "上品", "delta_S": {"fire": +0.6, "water": 0.0, "wood":  0.0, "earth": +1.0, "metal":  0.0}},
     "桂枝":  {"siqi": "温",   "taste": "辛甘", "grade": "上品", "delta_S": {"fire": +1.2, "water": +0.5, "wood":  0.0, "earth": 0.0, "metal":  0.0}},
     "茯苓":  {"siqi": "平",   "taste": "甘", "grade": "上品", "delta_S": {"fire": 0.0, "water": +0.8, "wood":  0.0, "earth": 0.0, "metal": -0.5}},
@@ -106,28 +109,168 @@ HERB_DELTA_S: dict[str, dict] = {
     "黄芪":  {"siqi": "微温", "taste": "甘", "grade": "上品", "delta_S": {"fire": +0.4, "water": 0.0, "wood":  0.0, "earth": +0.9, "metal":  0.0}},
     # ── 中品 ──
     "芍药":  {"siqi": "凉",   "taste": "苦酸", "grade": "中品", "delta_S": {"fire": -0.5, "water": 0.0, "wood": -0.5, "earth": 0.0, "metal": +0.8}},
+    "白芍":  {"siqi": "凉",   "taste": "苦酸", "grade": "中品", "delta_S": {"fire": -0.5, "water": 0.0, "wood": -0.5, "earth": 0.0, "metal": +0.8}},
+    "赤芍":  {"siqi": "微寒", "taste": "苦",   "grade": "中品", "delta_S": {"fire": -0.6, "water": 0.0, "wood": -0.3, "earth": 0.0, "metal": +1.0}},
     "当归":  {"siqi": "温",   "taste": "甘辛", "grade": "中品", "delta_S": {"fire": +0.5, "water": +0.4, "wood": +0.3, "earth": +0.5, "metal":  0.0}},
     "川芎":  {"siqi": "温",   "taste": "辛",   "grade": "中品", "delta_S": {"fire": +1.0, "water": +0.6, "wood":  0.0, "earth": 0.0, "metal":  0.0}},
     "白术":  {"siqi": "温",   "taste": "甘苦", "grade": "中品", "delta_S": {"fire": +0.3, "water": -0.3, "wood":  0.0, "earth": +0.9, "metal": -0.3}},
+    "生白术": {"siqi": "温",  "taste": "甘苦", "grade": "中品", "delta_S": {"fire": +0.3, "water": -0.3, "wood":  0.0, "earth": +0.9, "metal": -0.3}},
+    "炒白术": {"siqi": "微温","taste": "甘",   "grade": "中品", "delta_S": {"fire": +0.2, "water": -0.2, "wood":  0.0, "earth": +1.1, "metal": -0.2}},
     "泽泻":  {"siqi": "寒",   "taste": "甘",   "grade": "中品", "delta_S": {"fire": -0.5, "water": -0.3, "wood":  0.0, "earth": -0.8, "metal":  0.0}},
     "柴胡":  {"siqi": "微寒", "taste": "苦辛", "grade": "中品", "delta_S": {"fire": -0.4, "water": 0.0, "wood": +1.0, "earth": 0.0, "metal": +0.3}},
     "半夏":  {"siqi": "温",   "taste": "辛",   "grade": "中品", "delta_S": {"fire": +0.8, "water": +0.4, "wood":  0.0, "earth": -0.5, "metal":  0.0}},
     "麦冬":  {"siqi": "微寒", "taste": "甘",   "grade": "中品", "delta_S": {"fire": -0.5, "water": +0.5, "wood":  0.0, "earth": +0.5, "metal":  0.0}},
+    "玄参":  {"siqi": "微寒", "taste": "甘苦咸","grade": "中品", "delta_S": {"fire": -0.6, "water": -0.3, "wood":  0.0, "earth": +0.5, "metal": +0.5}},
+    "五味子": {"siqi": "温",  "taste": "酸甘", "grade": "中品", "delta_S": {"fire": +0.3, "water": -0.3, "wood": -0.5, "earth": +0.5, "metal": +0.3}},
+    "川楝子": {"siqi": "寒",  "taste": "苦",   "grade": "中品", "delta_S": {"fire": -0.4, "water": 0.0, "wood": +0.5, "earth": 0.0, "metal": +0.5}},
+    "苦杏仁": {"siqi": "微温","taste": "苦",   "grade": "中品", "delta_S": {"fire": +0.4, "water": 0.0, "wood": -0.3, "earth": 0.0, "metal": +0.8}},
+    "山萸肉": {"siqi": "微温","taste": "酸甘", "grade": "中品", "delta_S": {"fire": +0.3, "water": +0.5, "wood": -0.5, "earth": +0.3, "metal":  0.0}},
+    "白鲜皮": {"siqi": "寒",  "taste": "苦",   "grade": "中品", "delta_S": {"fire": -0.6, "water": 0.0, "wood": +0.3, "earth": 0.0, "metal": +0.8}},
+    "北沙参": {"siqi": "微寒","taste": "甘",   "grade": "中品", "delta_S": {"fire": -0.4, "water": +0.3, "wood":  0.0, "earth": +0.5, "metal":  0.0}},
+    "浮小麦": {"siqi": "凉",  "taste": "甘",   "grade": "中品", "delta_S": {"fire": -0.3, "water": 0.0, "wood":  0.0, "earth": +0.4, "metal": -0.2}},
     "葛根":  {"siqi": "平",   "taste": "甘辛", "grade": "中品", "delta_S": {"fire": +0.5, "water": +0.3, "wood": +0.8, "earth": +0.3, "metal":  0.0}},
     "生姜":  {"siqi": "微温", "taste": "辛",   "grade": "中品", "delta_S": {"fire": +0.9, "water": +0.5, "wood":  0.0, "earth": 0.0, "metal":  0.0}},
+    "干姜":  {"siqi": "热",   "taste": "辛",   "grade": "中品", "delta_S": {"fire": +1.5, "water": 0.0, "wood":  0.0, "earth": 0.0, "metal":  0.0}},
     "石膏":  {"siqi": "大寒", "taste": "辛甘", "grade": "中品", "delta_S": {"fire": -1.5, "water": 0.5, "wood":  0.0, "earth": +0.5, "metal":  0.0}},
     "知母":  {"siqi": "寒",   "taste": "苦甘", "grade": "中品", "delta_S": {"fire": -1.2, "water": 0.0, "wood":  0.0, "earth": +0.5, "metal": +0.3}},
     "栀子":  {"siqi": "寒",   "taste": "苦",   "grade": "中品", "delta_S": {"fire": -1.0, "water": 0.0, "wood":  0.0, "earth": 0.0, "metal": +0.8}},
     # ── 下品 ──
     "大黄":  {"siqi": "寒",   "taste": "苦",   "grade": "下品", "delta_S": {"fire": -1.0, "water": -0.5, "wood":  0.0, "earth": -1.2, "metal": +1.0}},
     "附子":  {"siqi": "大热", "taste": "辛甘", "grade": "下品", "delta_S": {"fire": +1.8, "water": -0.5, "wood":  0.0, "earth": 0.0, "metal":  0.0}},
-    "干姜":  {"siqi": "热",   "taste": "辛",   "grade": "下品", "delta_S": {"fire": +1.5, "water": 0.0, "wood":  0.0, "earth": 0.0, "metal":  0.0}},
     "芒硝":  {"siqi": "大寒", "taste": "苦咸", "grade": "下品", "delta_S": {"fire": -1.5, "water": -0.8, "wood":  0.0, "earth": -1.2, "metal": +1.0}},
     "吴茱萸": {"siqi": "热",  "taste": "辛苦", "grade": "下品", "delta_S": {"fire": +1.2, "water": -0.3, "wood": +0.5, "earth": 0.0, "metal": +0.5}},
     "麻黄":  {"siqi": "温",   "taste": "辛",   "grade": "下品", "delta_S": {"fire": +1.5, "water": +0.8, "wood":  0.0, "earth": 0.0, "metal":  0.0}},
     "薄荷":  {"siqi": "凉",   "taste": "辛",   "grade": "下品", "delta_S": {"fire": -0.6, "water": +0.5, "wood":  0.0, "earth": 0.0, "metal":  0.0}},
     "黄连":  {"siqi": "寒",   "taste": "苦",   "grade": "下品", "delta_S": {"fire": -1.5, "water": 0.0, "wood":  0.0, "earth": 0.0, "metal": +1.2}},
 }
+
+
+# ── 归一化层 ────────────────────────────────────────────────────
+# 三个功能：炮制前缀剥离 → 异名归一 → 未收录自动回落
+
+# 炮制前缀 → 剥离（这些前缀通常指向同一 base 药材，仅 ΔS 幅度微调）
+# 注意：表内有独立条目的炮制变体（炙甘草/熟地/生白术/白芍/赤芍）不会被剥离
+PROCESSING_PREFIXES = [
+    "生", "炒", "炙", "熟", "酒", "醋", "盐", "姜",
+    "制", "炮", "煅", "焙", "煨", "蒸", "煮",
+]
+
+# 异名 → 表内标准名映射（归一化）
+ALIAS_MAP: dict[str, str] = {
+    # 地黄家族
+    "生地": "生地",          # 表内已有
+    "生地黄": "生地",
+    "熟地黄": "熟地",
+    # 甘草家族
+    "生甘草": "甘草",
+    "炙甘草": "炙甘草",     # 表内已有
+    # 白术家族
+    "生白术": "生白术",     # 表内已有
+    "炒白术": "炒白术",     # 表内已有
+    "麸炒白术": "炒白术",
+    # 白芍/赤芍
+    "白芍药": "白芍",
+    "赤芍药": "赤芍",
+    # 当归家族
+    "全当归": "当归",
+    "当归头": "当归",
+    "当归尾": "当归",
+    # 茯苓家族
+    "白茯苓": "茯苓",
+    "赤茯苓": "茯苓",
+    "茯苓皮": "茯苓",
+    # 其他常见异名
+    "元参": "玄参",
+    "乌药": "乌药",          # 占位（表内无，让回落处理）
+    "川楝实": "川楝子",
+    "山茱萸": "山萸肉",
+    "酸枣仁": "酸枣仁",      # 占位
+    "莲子肉": "莲子",        # 占位
+}
+
+# 未收录药的默认性味回落（ fallback）
+# 按常用药补——没在这里的 → 纯五味基底（默认平甘）
+DEFAULT_SIQI_TASTE: dict[str, tuple[str, str]] = {
+    # 常用补药
+    "乌药": ("温", "辛"),
+    "酸枣仁": ("平", "酸甘"),
+    "莲子": ("平", "甘涩"),
+    "芡实": ("平", "甘涩"),
+    "桑椹": ("寒", "甘酸"),
+    "黄精": ("平", "甘"),
+    "玉竹": ("平", "甘"),
+    "天冬": ("寒", "甘苦"),
+    # 常用理气药
+    "香附": ("平", "辛微苦"),
+    "延胡索": ("温", "辛苦"),
+    "郁金": ("寒", "辛苦"),
+    "佛手": ("温", "辛苦酸"),
+    # 常用活血药
+    "丹参": ("微寒", "苦"),
+    "桃仁": ("平", "苦甘"),
+    "红花": ("温", "辛"),
+    # 常用利水药
+    "猪苓": ("平", "甘淡"),
+    "车前子": ("寒", "甘"),
+    "滑石": ("寒", "甘淡"),
+    "木通": ("寒", "苦"),
+    # 常用安神药
+    "远志": ("温", "苦辛"),
+    "石菖蒲": ("温", "辛苦"),
+    "龙骨": ("平", "甘涩"),
+    # 常用收涩药
+    "金樱子": ("平", "甘酸"),
+    "益智仁": ("温", "辛"),
+    # 常用清热药
+    "金银花": ("寒", "甘"),
+    "连翘": ("微寒", "苦"),
+    "黄芩": ("寒", "苦"),
+    "黄柏": ("寒", "苦"),
+    "龙胆草": ("寒", "苦"),
+    # 常用化痰药
+    "陈皮": ("温", "辛苦"),
+    "橘红": ("温", "辛苦"),
+    "白芥子": ("温", "辛"),
+    "桔梗": ("平", "苦辛"),
+}
+
+
+def _normalize_herb_name(name: str) -> tuple[str, bool]:
+    """
+    药名归一化：异名映射 + 炮制前缀剥离
+
+    返回:
+        (normalized_name, was_modified)
+    """
+    orig = name
+
+    # 1) 直接命中 → 返回
+    if name in HERB_DELTA_S:
+        return name, False
+
+    # 2) 异名表 → 替换后再查
+    alias = ALIAS_MAP.get(name)
+    if alias and alias in HERB_DELTA_S:
+        return alias, True
+
+    # 3) 炮制前缀剥离（逐个试，先剥一层再查，直到没前缀或命中）
+    for prefix in sorted(PROCESSING_PREFIXES, key=len, reverse=True):
+        if name.startswith(prefix) and len(name) > len(prefix):
+            stripped = name[len(prefix):]
+            # 剥离后命中
+            if stripped in HERB_DELTA_S:
+                return stripped, True
+            # 剥离后异名命中
+            alias2 = ALIAS_MAP.get(stripped)
+            if alias2 and alias2 in HERB_DELTA_S:
+                return alias2, True
+            # 递归：前缀可能叠加（如"炒炙甘草"）
+            normed, mod2 = _normalize_herb_name(stripped)
+            if mod2:
+                return normed, True
+
+    # 没归一化到任何已知条目 → 返回原名（让调用方处理）
+    return orig, (orig != name)
 
 # ── 乘数表（变量层，实体化草案 §4.1）──────────────────────
 # 这些是从归约算法库草案 v0.1 的 ↑↑/↓↓ 方向指示转成的实际数值
@@ -212,6 +355,70 @@ class ReductionState:
         return {wx: base.get(wx, 1.0) * corr.get(wx, 1.0) for wx in WUXING_LIST}
 
 
+# ── 持久化层：模块级缓存 + DB 读写 ──────────────────────────
+# 进程内单例缓存，避免每次归约都查 DB；apply_correction 后自动同步
+
+_state_cache: ReductionState | None = None
+
+
+def load_state_from_db() -> ReductionState:
+    """
+    从 DB 加载 ReductionState（reduction_states 表）
+    若表不存在或无记录 → 返回默认状态（不抛异常，让本地调试可用）
+    """
+    state = ReductionState()
+    try:
+        from app.database import SessionLocal
+        from app.models.reduction import ReductionStateDB
+        db = SessionLocal()
+        try:
+            row = db.query(ReductionStateDB).order_by(ReductionStateDB.id.asc()).first()
+            if row:
+                state.broken_node_gain = row.broken_node_gain or 1.0
+                state.peak_suppress = row.peak_suppress or 0.3
+                state.ke_conflict_mult = row.ke_conflict_mult or 1.5
+                state.season_corrections = row.season_corrections or {}
+                state.hour_corrections = row.hour_corrections or {}
+        finally:
+            db.close()
+    except Exception:
+        # DB 不可用（迁移没跑、本地 SQLite 没表）→ 返回默认
+        pass
+    return state
+
+
+def save_state_to_db(state: ReductionState) -> None:
+    """把 ReductionState 写回 DB（upsert 单行）"""
+    try:
+        from app.database import SessionLocal
+        from app.models.reduction import ReductionStateDB
+        db = SessionLocal()
+        try:
+            row = db.query(ReductionStateDB).order_by(ReductionStateDB.id.asc()).first()
+            if row is None:
+                row = ReductionStateDB(label="default")
+                db.add(row)
+            row.broken_node_gain = state.broken_node_gain
+            row.peak_suppress = state.peak_suppress
+            row.ke_conflict_mult = state.ke_conflict_mult
+            row.season_corrections = state.season_corrections
+            row.hour_corrections = state.hour_corrections
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        # DB 不可用 → 静默跳过（内存态仍有效）
+        pass
+
+
+def get_persistent_state() -> ReductionState:
+    """获取全局持久化 ReductionState（首次调用从 DB 加载到缓存）"""
+    global _state_cache
+    if _state_cache is None:
+        _state_cache = load_state_from_db()
+    return _state_cache
+
+
 # ═══════════════════════════════════════════════════════════
 # L1 归约算子：R1-R4 四步硬规则
 # ═══════════════════════════════════════════════════════════
@@ -274,21 +481,38 @@ def R1_split_formula(herbs: list[str] | str) -> list[dict]:
     return result
 
 
-def R2_get_delta_S(herb_name: str) -> dict[str, float] | None:
+def R2_get_delta_S(herb_name: str, auto_fallback: bool = True) -> tuple[dict | None, str | None]:
     """
-    R2 取 ΔS：查药表 → 若未知 → 走开放边集归约路径
+    R2 取 ΔS：归一化 → 查药表 → 未收录自动回落
 
     返回:
-        {"fire": x, "water": x, "wood": x, "earth": x, "metal": x} 或 None（药表未收录且无性味信息）
+        (delta_S_or_None, source_label)
+          source_label = "direct" | "normalized:<原名→标准名>" | "fallback:<性味>" | None
 
-    开放边集入口：
-      如果药表里没有这味药 → 返回 None → 调用方走 reduce_new_herb() 让外部提供性味信息
-      这就是"互联网边集（开放·无限）"的对接点
+    新策略（v1.1）：未收录药自动回落——不静默跳过。
+      1) 归一化（异名映射 + 炮制前缀剥离）
+      2) 查药表直接命中 → source="direct" 或 "normalized:..."
+      3) 查 DEFAULT_SIQI_TASTE 常用回落 → 走 R2_reduce_new_herb → source="fallback:..."
+      4) 完全没信息 → return (None, None)
     """
-    entry = HERB_DELTA_S.get(herb_name)
+    # Step 1: 归一化
+    normed, modified = _normalize_herb_name(herb_name)
+
+    # Step 2: 查药表
+    entry = HERB_DELTA_S.get(normed)
     if entry:
-        return dict(entry["delta_S"])
-    return None
+        source = f"normalized:{herb_name}→{normed}" if modified else "direct"
+        return dict(entry["delta_S"]), source
+
+    # Step 3: 常用回落（DEFAULT_SIQI_TASTE）
+    fb = DEFAULT_SIQI_TASTE.get(normed) or DEFAULT_SIQI_TASTE.get(herb_name)
+    if fb and auto_fallback:
+        siqi, taste = fb
+        ds = R2_reduce_new_herb(siqi, taste)
+        return ds, f"fallback:{siqi}{taste}"
+
+    # Step 4: 完全没信息
+    return None, None
 
 
 def R2_reduce_new_herb(siqi: str, taste: str) -> dict[str, float]:
@@ -533,11 +757,13 @@ def reduce_prescription(herbs: list[str] | str, v_base: dict[str, float],
     # R1 取方
     parsed = R1_split_formula(herbs)
 
-    # R2 取 ΔS
+    # R2 取 ΔS（带归一化 + 自动回落）
     herb_deltas = {}
+    herb_sources = {}    # 追踪每味药的来源（direct / normalized / fallback）
     missing = []
     for h in parsed:
-        ds = R2_get_delta_S(h["name"])
+        ds, source = R2_get_delta_S(h["name"])
+        herb_sources[h["name"]] = source or "unknown"
         if ds is None:
             missing.append(h["name"])
             herb_deltas[h["name"]] = None
@@ -568,6 +794,7 @@ def reduce_prescription(herbs: list[str] | str, v_base: dict[str, float],
     return {
         "herbs_parsed": parsed,
         "herb_delta_S": herb_deltas,
+        "herb_sources": herb_sources,       # 新增：每味药来源追踪
         "raw_sum": {wx: round(v, 3) for wx, v in raw_sum.items()},
         # R3 治理元信息
         "broken_node": governed["broken_node"],
@@ -577,6 +804,7 @@ def reduce_prescription(herbs: list[str] | str, v_base: dict[str, float],
         # R4 先验
         **prior,
         "missing_herbs": missing,
+        "fallback_used": len(herb_sources) - sum(1 for v in herb_sources.values() if v == "direct" or v.startswith("normalized")),
     }
 
 
@@ -646,6 +874,7 @@ def compare_outcome(expected: dict, actual: dict,
     # 链条预测验证（增益中庸的核心可证伪判据）
     chain_ok = True
     chain_failures = []
+    broken = None  # 断链点（从 chain_prediction 提取，后续归因分支引用）
     if chain_prediction:
         broken = chain_prediction.get("broken_node")
         if broken:
@@ -672,15 +901,33 @@ def compare_outcome(expected: dict, actual: dict,
     else:
         match = False
 
+    # 从 chain_prediction 解析 peaks / valleys（R4 产出的 peak_*_should_decrease 键）
+    peaks_in_prediction = []
+    if chain_prediction:
+        for key in chain_prediction:
+            if key.startswith("peak_") and key.endswith("_should_decrease"):
+                peaks_in_prediction.append(key.replace("peak_", "").replace("_should_decrease", ""))
+
     # 偏差归因
     attribution = "none"
     suggestion = {}
 
     if not chain_ok:
-        attribution = "broken_node_gain"
-        suggestion = {"broken_node_gain": "检查断链点识别逻辑或增益系数"}
+        # 区分 failure 类型：只有 peak 未下降 → peak_suppress；有 broken_node 方向错 → broken_node_gain
+        has_broken_failure = any("断链点" in f for f in chain_failures)
+        has_peak_failure = any("尖峰" in f for f in chain_failures)
+        if has_peak_failure and not has_broken_failure:
+            attribution = "peak_suppress"
+            suggestion = {"peak_suppress": "尖峰压制不足，减小 peak_suppress 系数让压制更强"}
+        else:
+            attribution = "broken_node_gain"
+            suggestion = {"broken_node_gain": "检查断链点识别逻辑或增益系数"}
     elif max_rel >= 1.0:
-        if max_rel_wx == broken and deviation[max_rel_wx] < 0:
+        # peak_suppress: 偏差集中在 peaks 上，尖峰压制不足（chain_ok=True 但量级偏差大）
+        if peaks_in_prediction and max_rel_wx in peaks_in_prediction:
+            attribution = "peak_suppress"
+            suggestion = {"peak_suppress": "尖峰压制量级不准，微调 peak_suppress 系数"}
+        elif broken is not None and max_rel_wx == broken and deviation[max_rel_wx] < 0:
             attribution = "broken_node_gain"
             suggestion = {"broken_node_gain": "增益效果不足，增大增益系数"}
         elif abs(deviation.get("fire", 0)) > 0.5:
@@ -704,9 +951,10 @@ def compare_outcome(expected: dict, actual: dict,
 
 def apply_correction(state: ReductionState, correction: dict) -> ReductionState:
     """
-    L4 回填执行：把偏差归因应用到算子权重
+    L4 回填执行：把偏差归因应用到算子权重 → 自动持久化到 DB
 
     这是"变量/权重修正 → 回算法库 ⟲"的核心实现。
+    修正完内存态后自动 save_state_to_db，下一次归约直接生效。
     """
     attr = correction.get("attribution")
     if attr == "broken_node_gain":
@@ -717,4 +965,12 @@ def apply_correction(state: ReductionState, correction: dict) -> ReductionState:
     elif attr == "season_mod":
         # 标记需要人工复核
         pass
+
+    # 自动持久化（让下一次归约生效）
+    save_state_to_db(state)
+    # 同步更新模块缓存（如果 state 就是全局缓存的引用）
+    global _state_cache
+    if _state_cache is state:
+        _state_cache = state
+
     return state

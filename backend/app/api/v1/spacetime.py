@@ -563,3 +563,66 @@ def spacetime_day_detail(
         import logging
         logging.getLogger("qingnang.spacetime").warning(f"spacetime_day_detail 失败: {e}")
         raise HTTPException(500, str(e))
+
+
+# ═══════════════════════════════════════════════════════════
+# 7. ⭐ 玄空飞星·一站式排盘+化解
+# ═══════════════════════════════════════════════════════════
+class FlyingStarIn(BaseModel):
+    shan: str                                    # 坐山（如 "子"）
+    xiang: Optional[str] = None                   # 向首（不传自动推对宫）
+    yun: Optional[int] = None                     # 运号（不传按年份推）
+    year: Optional[int] = None                    # 用于推运的年份
+    palace_functions: Optional[dict[str, str]] = None  # {"坎": "卧室", "兑": "厨房", ...}
+
+
+@router.post("/flying-star")
+def flying_star_resolve(body: FlyingStarIn):
+    """
+    玄空飞星·一站式排盘+卦组合化解
+
+    输入：坐山（必选）+ 向首/运号/年份（可选）+ 宫位功能（可选）
+    输出：三盘（运/山/向）+ 九宫山向组合 + 每宫化解建议
+
+    治理策略：本引擎只有宫级 2 个星（山星+向星），
+    不能做完整五边形凸多面体力学检测——用秘术反推的该两星组合最优化解。
+    完整五形向量的场景（tiao_hou_engine）由 wuxing_chain 动态选择策略。
+    """
+    try:
+        from ...utils.flying_star_engine import make_complete_pan
+        from ...utils.gua_resolution_engine import resolve_pan
+    except ImportError as e:
+        raise HTTPException(500, f"飞星引擎加载失败: {e}")
+
+    try:
+        pan = make_complete_pan(body.shan, body.xiang, body.yun, body.year)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    resolutions = resolve_pan(pan, body.palace_functions)
+
+    return {
+        "ok": True,
+        "engine": "spum_flying_star_v1",
+        "meta": {
+            "yun": pan['yun'],
+            "yun_dynasty": pan['yun_dynasty'],
+            "shan": pan['shan'],
+            "xiang": pan['xiang'],
+            "shan_yin_yang": pan['shan_yin_yang'],
+            "xiang_yin_yang": pan['xiang_yin_yang'],
+            "shan_direction": pan['shan_direction'],
+            "xiang_direction": pan['xiang_direction'],
+            "source": "spum-core/五行/地元/spum-玄空飞星.md + spum-卦组合化解.md",
+        },
+        "yun_pan": pan['yun_pan'],
+        "shan_pan": pan['shan_pan'],
+        "xiang_pan": pan['xiang_pan'],
+        "palaces": resolutions,
+        "summary": {
+            "total_palaces": 9,
+            "key_shen_palaces": [r['palace'] for r in resolutions if r['is_key_shen']],
+            "sha_palaces": [r['palace'] for r in resolutions if r['is_gua_sha']],
+            "jiehua_palaces": [r['palace'] for r in resolutions if r['mediator_node']],
+        },
+    }
